@@ -61,6 +61,30 @@ class SocialPostAPITests(TestCase):
         self.assertEqual(self.stranger_client.post(f"/api/social/posts/{post.id}/comments/", {"text": "No"}, format="json").status_code, 404)
         self.assertEqual(self.contact_client.post(f"/api/social/posts/{post.id}/comments/", {"text": "  "}, format="json").status_code, 400)
 
+    def test_comment_owner_can_edit_and_soft_delete_own_comment(self):
+        post = Post.objects.create(author=self.author, text="Comment me", visibility=Post.EVERYONE)
+        comment = PostComment.objects.create(post=post, author=self.contact, text="Original")
+        path = f"/api/social/posts/{post.id}/comments/{comment.id}/"
+        edited = self.contact_client.patch(path, {"text": "Updated"}, format="json")
+        self.assertEqual(edited.status_code, 200, edited.data)
+        self.assertEqual(edited.data["text"], "Updated")
+        self.assertEqual(self.contact_client.patch(path, {"text": "  "}, format="json").status_code, 400)
+        self.assertEqual(self.contact_client.delete(path).status_code, 204)
+        comment.refresh_from_db()
+        self.assertEqual(comment.text, "Updated")
+        self.assertIsNotNone(comment.deleted_at)
+        self.assertEqual(self.author_client.get(f"/api/social/posts/{post.id}/comments/").data, [])
+
+    def test_user_cannot_edit_or_delete_another_users_comment(self):
+        post = Post.objects.create(author=self.author, text="Public", visibility=Post.EVERYONE)
+        comment = PostComment.objects.create(post=post, author=self.contact, text="Keep this")
+        path = f"/api/social/posts/{post.id}/comments/{comment.id}/"
+        self.assertEqual(self.stranger_client.patch(path, {"text": "Hijack"}, format="json").status_code, 404)
+        self.assertEqual(self.stranger_client.delete(path).status_code, 404)
+        comment.refresh_from_db()
+        self.assertEqual(comment.text, "Keep this")
+        self.assertIsNone(comment.deleted_at)
+
     def test_only_owner_can_delete_and_delete_hides_from_feed(self):
         Contact.objects.create(owner=self.author, contact_user=self.contact)
         post = Post.objects.create(author=self.author, text="Delete me")
