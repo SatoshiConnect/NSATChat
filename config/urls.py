@@ -67,6 +67,7 @@ urlpatterns = [
         include("apps.notifications.urls"),
     ),
     path("api/wallet/", include("apps.wallet_integration.urls")),
+    path("api/marketplace/", include("apps.marketplace.urls")),
     # Keep the initial read-only Wallet endpoint URL working for existing
     # clients while ownership moves into its dedicated capability module.
     path("api/accounts/wallet/read/", include("apps.wallet_integration.legacy_urls")),

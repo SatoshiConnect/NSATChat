@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Volume2, Bell, ChevronRight, CircleHelp, Download, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, SquarePlus, UserX, RefreshCw, WalletCards } from "lucide-react";
+import { Volume2, Bell, ChevronRight, CircleHelp, Download, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, ShoppingBag, SquarePlus, UserX, RefreshCw, WalletCards } from "lucide-react";
 import { useStore } from "../../store/store";
 import { loadBlocked, setBlocked } from "../../store/actions";
 import { getNotificationPrefs, requestDesktopPermission, setNotificationPrefs } from "../../services/notify";
@@ -343,6 +343,7 @@ export default function SettingsPanel() {
         {rows.map((row) => (
           <SettingRow key={row.key} icon={row.icon} title={row.title} subtitle={row.subtitle} dot={row.dot} onClick={row.onClick} />
         ))}
+        <SettingRow icon={ShoppingBag} title="Creator marketplace" subtitle="Gifts, stickers and digital items" onClick={() => app.setSection("marketplace")} />
         {!rows.length ? <EmptyState icon={Search} text="No settings found" /> : null}
         <SettingRow
           icon={LogOut}

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Eye, MoreVertical, Pause, Play, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Gift, MoreVertical, Pause, Play, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import { errorMessage, mediaUrl } from "../../api/client";
-import { statusApi } from "../../api/endpoints";
+import { marketplaceApi, statusApi } from "../../api/endpoints";
 import { loadStatus } from "../../store/actions";
 import { dispatch, getState, useStore } from "../../store/store";
 import { toast } from "../../services/toast";
@@ -90,6 +90,9 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [viewers, setViewers] = useState(null);
+  const [giftItems, setGiftItems] = useState(null);
+  const [giftBusy, setGiftBusy] = useState(false);
+  const [giftAnimation, setGiftAnimation] = useState("");
   const videoRef = useRef(null);
   const status = group?.statuses[index];
   const isMine = Number(group?.user?.id) === Number(me.id);
@@ -97,6 +100,31 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const viewsCount = liveViews ?? status?.views_count ?? 0;
   const owner = group?.user;
   const ownerName = isMine ? "My status" : displayUserName(owner, contactMap);
+
+  const openGiftPicker = async () => {
+    setPaused(true);
+    try {
+      const inventory = await marketplaceApi.inventory();
+      const gifts = inventory.filter((entry) => entry.item?.kind === "gift");
+      setGiftItems(gifts);
+    } catch (error) {
+      toast.error(errorMessage(error));
+      setPaused(false);
+    }
+  };
+
+  const sendGift = async (entry) => {
+    if (!status || !owner) return;
+    setGiftBusy(true);
+    try {
+      const result = await marketplaceApi.sendGift({ item_id: entry.item.id, recipient_id: owner.id, status_id: status.id });
+      toast.success(result.message || "Gift simulation recorded.");
+      setGiftAnimation(entry.item.title);
+      setGiftItems(null);
+      setPaused(false);
+    } catch (error) { toast.error(errorMessage(error)); }
+    finally { setGiftBusy(false); }
+  };
 
   const next = useCallback(() => {
     setProgress(0);
@@ -146,6 +174,12 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
     if (paused) video.pause();
     else video.play().catch(() => {});
   }, [paused, status]);
+
+  useEffect(() => {
+    if (!giftAnimation) return undefined;
+    const timer = window.setTimeout(() => setGiftAnimation(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [giftAnimation]);
 
   useEffect(() => {
     const onKey = (event) => {
@@ -254,9 +288,18 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
               <Eye size={18} /> {viewsCount} view{viewsCount === 1 ? "" : "s"}
             </button>
           ) : (
-            <StatusReplyBar key={status.id} status={status} owner={owner} onPause={() => setPaused(true)} onResume={() => setPaused(false)} />
+            <>
+              <button type="button" className="status-viewer__gift" onClick={openGiftPicker} aria-label="Send creator gift"><Gift size={19} /><span>Gift</span></button>
+              <StatusReplyBar key={status.id} status={status} owner={owner} onPause={() => setPaused(true)} onResume={() => setPaused(false)} />
+            </>
           )}
         </footer>
+        {giftItems ? <div className="status-gift-picker" role="dialog" aria-label="Choose a gift">
+          <div className="status-gift-picker__head"><strong>Choose a gift</strong><IconButton icon={X} label="Close gift picker" onClick={() => { setGiftItems(null); setPaused(false); }} /></div>
+          <p>Gift simulation only. No NSAT will be transferred.</p>
+          {giftItems.length ? giftItems.map((entry) => <button type="button" key={entry.id} disabled={giftBusy} onClick={() => sendGift(entry)}><Gift size={18} /><span>{entry.item.title}</span><small>Use from library</small></button>) : <p>Your library has no gifts yet. Get a gift from Creator marketplace first.</p>}
+        </div> : null}
+        {giftAnimation ? <div className="status-gift-animation" aria-live="polite"><Gift size={34} /><strong>{giftAnimation}</strong><span>Gift sent · simulation only</span></div> : null}
       </div>
     </div>,
     document.body,
