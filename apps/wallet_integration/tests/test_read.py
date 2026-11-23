@@ -104,6 +104,20 @@ class WalletReadTests(TestCase):
         self.assertEqual(response.data["network"], MAINNET_ID)
         self.assertEqual(response.data["history"][0]["amount"], "10000000000000001")
         self.assertEqual(response.data["history"][0]["hash"], TX_HASH)
+
+    @patch("apps.wallet_integration.views._get_json")
+    def test_normalizes_integer_balance_from_gateway(self, get_json):
+        get_json.side_effect = [
+            {"network": MAINNET_ID, "core": "ok", "ledger": 513832},
+            {"id": ADDRESS, "balance": 12345678901234567890, "status": "ok"},
+            {"account": ADDRESS, "indexed_head": 513800, "items": []},
+        ]
+
+        response = self.client.get("/api/wallet/read/", {"address": ADDRESS})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["balance"], "12345678901234567890")
+        self.assertIsInstance(response.data["balance"], str)
         self.assertEqual(get_json.call_count, 3)
 
     @patch("apps.wallet_integration.views._get_json")
