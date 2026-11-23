@@ -17,6 +17,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 
 SECRET_KEY = config("SECRET_KEY")
+GOOGLE_CLIENT_ID = config("GOOGLE_CLIENT_ID", default="")
+# Optional capability flags are independent from authentication and authorization.
+# Defaults preserve the current product behavior; experimental paths stay off.
+FEATURE_FLAGS = {
+    "ai_assistant": config("FEATURE_AI_ASSISTANT", default=True, cast=bool),
+    "ai_image_generation": config("FEATURE_AI_IMAGE_GENERATION", default=True, cast=bool),
+    "google_contacts_sync": config("FEATURE_GOOGLE_CONTACTS_SYNC", default=True, cast=bool),
+    "wallet_read_only": config("FEATURE_WALLET_READ_ONLY", default=True, cast=bool),
+    "wallet_send": config("FEATURE_WALLET_SEND", default=True, cast=bool),
+    "experimental": config("FEATURE_EXPERIMENTAL", default=False, cast=bool),
+}
 # SECURITY WARNING: don't run with debug turned on in production!
 
 ALLOWED_HOSTS = config(
@@ -52,6 +63,7 @@ INSTALLED_APPS = [
     "apps.status",
     "apps.calls",
     "apps.notifications",
+    "apps.wallet_integration.apps.WalletIntegrationConfig",
 
     "drf_spectacular",
 ]
@@ -181,6 +193,11 @@ REST_FRAMEWORK = {
         "anon": config("THROTTLE_ANON", default="120/min"),
         "user": config("THROTTLE_USER", default="2000/min"),
         "auth": config("THROTTLE_AUTH", default="20/min"),
+        # People API paging is client-side; this protects the server-side match
+        # endpoint from contact harvesting while allowing large address books.
+        "contact_sync": config("THROTTLE_CONTACT_SYNC", default="30/hour"),
+        "wallet_read": config("THROTTLE_WALLET_READ", default="30/min"),
+        "wallet_send": config("THROTTLE_WALLET_SEND", default="10/hour"),
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),
         # Group invite link preview/join (per user).
         "invite": config("THROTTLE_INVITE", default="30/min"),
@@ -189,7 +206,7 @@ REST_FRAMEWORK = {
 
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "MHTalk Backend API",
+    "TITLE": "SatoshiCore Backend API",
     "DESCRIPTION": """
     Production-ready real-time messaging and calling backend built with Django,
     Django REST Framework, Django Channels, Redis and WebRTC signaling.
@@ -368,15 +385,16 @@ MHTALK_MAX_PINNED_MESSAGES = 3
 # Largest photo / video / document a chat message may carry (Caddy allows 110 MB).
 CHAT_MAX_UPLOAD_MB = config("CHAT_MAX_UPLOAD_MB", default=100, cast=int)
 
-# MHTalk AI (assistant chat). Leave the key empty to turn it off.
+# SatoshiCore AI (assistant chat). Leave the key empty to turn it off.
 # Providers: gemini (free key, default), groq (free key), openai, anthropic.
 # View once media opens only on phones (desktop browsers allow screenshots).
 VIEW_ONCE_PHONE_ONLY = config("VIEW_ONCE_PHONE_ONLY", default=True, cast=bool)
 
-MHTALK_AI_PROVIDER = config("MHTALK_AI_PROVIDER", default="gemini")
-MHTALK_AI_API_KEY = config("MHTALK_AI_API_KEY", default="")
-MHTALK_AI_MODEL = config("MHTALK_AI_MODEL", default="")
-MHTALK_AI_BASE_URL = config("MHTALK_AI_BASE_URL", default="")
+SATOSHICORE_AI_PROVIDER = config("SATOSHICORE_AI_PROVIDER", default=config("MHTALK_AI_PROVIDER", default="gemini"))
+SATOSHICORE_AI_API_KEY = config("SATOSHICORE_AI_API_KEY", default=config("MHTALK_AI_API_KEY", default=""))
+SATOSHICORE_AI_MODEL = config("SATOSHICORE_AI_MODEL", default=config("MHTALK_AI_MODEL", default=""))
+SATOSHICORE_AI_BASE_URL = config("SATOSHICORE_AI_BASE_URL", default=config("MHTALK_AI_BASE_URL", default=""))
+SATOSHICORE_AI_IMAGE_MODEL = config("SATOSHICORE_AI_IMAGE_MODEL", default="gemini-3.1-flash-lite-image")
 # GIF tab in the emoji panel (free key: https://developers.giphy.com/dashboard/)
 GIPHY_API_KEY = config("GIPHY_API_KEY", default="")
 

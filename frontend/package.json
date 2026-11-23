@@ -7,12 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test:security": "node --test src/api/errorMessages.test.js src/components/calls/audioMedia.test.js src/services/googleContactsErrors.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@stellar/stellar-sdk": "17.4.0",
+    "@zxing/browser": "^0.2.1",
     "axios": "^1.20.0",
     "emojilib": "^4.0.3",
     "lucide-react": "^1.61.0",
+    "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

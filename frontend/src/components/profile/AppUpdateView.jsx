@@ -63,7 +63,7 @@ export default function AppUpdateView({ onBack }) {
         ) : (
           <div className="app-update__hero">
             <span className="app-update__icon is-ok"><CheckCircle2 size={26} /></span>
-            <strong>MHTalk is up to date</strong>
+            <strong>SatoshiCore is up to date</strong>
             <span>Version {APP_VERSION}</span>
             <button type="button" className="btn btn--outline app-update__btn" disabled={update.checking} onClick={() => checkForUpdate()}>
               {update.checking ? <Spinner size={18} /> : <RefreshCw size={18} />} Check for updates

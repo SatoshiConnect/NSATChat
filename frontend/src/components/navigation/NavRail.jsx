@@ -1,15 +1,17 @@
 import { memo } from "react";
-import { Contact, Images, Phone, Settings, Sparkles } from "lucide-react";
+import { Contact, Images, Phone, Settings, Sparkles, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { useStore } from "../../store/store";
 import { Avatar } from "../common/ui";
 import { ChatsIcon, StatusIcon } from "../common/Icons";
 import { useAppUpdate } from "../../services/appUpdate";
 
+const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
+
 /**
  * Compact vertical navigation on desktop; on phones a WhatsApp-style bottom
- * tab bar (Chats, Updates, Calls, Contacts, You). MHTalk AI and Media move to
- * the floating button / chat menu there, so the bar keeps five roomy tabs.
+ * tab bar (Chats, Updates, Calls, Contacts, Wallet, You). SatoshiCore AI and
+ * Media move to the floating button / chat menu on phones.
  * Badges are derived from real state: unread chats (non-archived), unseen
  * statuses and unacknowledged missed calls.
  */
@@ -29,6 +31,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
       { id: "status", label: "Updates", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
       { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
       { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
+      ...(WALLET_UI_ENABLED ? [{ id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> }] : []),
       {
         id: "settings",
         label: "You",
@@ -69,7 +72,8 @@ function NavRail({ section, onChange, onOpenMedia }) {
     { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
     { id: "status", label: "Status", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
-    { id: "ai", label: "MHTalk AI", icon: () => <span className="rail__ai"><Sparkles size={18} strokeWidth={2} /></span> },
+    ...(WALLET_UI_ENABLED ? [{ id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> }] : []),
+    { id: "ai", label: "SatoshiCore AI", icon: () => <span className="rail__ai"><Sparkles size={18} strokeWidth={2} /></span> },
   ];
 
   return (

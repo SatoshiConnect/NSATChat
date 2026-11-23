@@ -38,7 +38,7 @@ PERMISSION_TEXT = {
 def actor_display_name(user):
     profile = getattr(user, "profile", None)
     name = (getattr(profile, "display_name", "") or "").strip()
-    return name or user.phone_number
+    return name or user.phone_number or user.email or f"User {user.pk}"
 
 
 def is_group_event(message):

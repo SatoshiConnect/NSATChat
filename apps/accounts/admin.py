@@ -7,8 +7,6 @@ from .forms import (
     CustomUserChangeForm,
 )
 
-from apps.status.models import Status
-
 from .models import User, Profile, Contact
 
 

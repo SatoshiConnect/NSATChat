@@ -1,0 +1,13 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [("accounts", "0009_google_identity")]
+
+    operations = [
+        migrations.AddField(
+            model_name="user",
+            name="public_id",
+            field=models.CharField(blank=True, default=None, max_length=20, null=True, unique=True),
+        ),
+    ]

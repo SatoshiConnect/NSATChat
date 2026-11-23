@@ -10,6 +10,7 @@ import { loadCalls } from "../../store/actions";
 import { dispatch, getState } from "../../store/store";
 import { contactsByUser, displayUserName } from "../../utils/messages";
 import CallOverlay from "./CallOverlay";
+import { addRemoteTrack, callAudioConstraints, readAudioProcessing } from "./audioMedia";
 
 /**
  * WebRTC calls (audio/video): one-to-one and group (mesh).
@@ -90,6 +91,7 @@ export function CallProvider({ children }) {
   const [call, setCall] = useState(IDLE);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({}); // userId -> MediaStream
+  const [audioProcessing, setAudioProcessing] = useState(null);
   const [shareStream, setShareStream] = useState(null);
   const [reactions, setReactions] = useState([]);
   const shareRef = useRef(null);
@@ -163,6 +165,7 @@ export function CallProvider({ children }) {
     shareRef.current = null;
     setLocalStream(null);
     setRemoteStreams({});
+    setAudioProcessing(null);
     setShareStream(null);
     setReactions([]);
     roomSocketRef.current?.close();
@@ -198,9 +201,14 @@ export function CallProvider({ children }) {
   const getMedia = useCallback(async (type) => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Calls need a supported browser over HTTPS (or localhost).");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false });
+      const supported = navigator.mediaDevices.getSupportedConstraints?.();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: callAudioConstraints(supported),
+        video: type === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      });
       localRef.current = stream;
       setLocalStream(stream);
+      setAudioProcessing(readAudioProcessing(stream.getAudioTracks()[0]));
       return stream;
     } catch (error) {
       if (error?.name === "NotAllowedError") {
@@ -243,10 +251,13 @@ export function CallProvider({ children }) {
     };
     peer.ontrack = (event) => {
       if (peersRef.current.get(id) !== peer) return;
-      const stream = remoteRef.current.get(id) || new MediaStream();
-      remoteRef.current.set(id, stream);
-      if (!stream.getTracks().includes(event.track)) stream.addTrack(event.track);
-      setRemoteStreams((current) => ({ ...current, [id]: new MediaStream(stream.getTracks()) }));
+      const existingStream = remoteRef.current.get(id);
+      const duplicateTrack = Boolean(existingStream?.getTracks().includes(event.track));
+      const stream = addRemoteTrack(remoteRef.current, id, event.track);
+      // Keep this MediaStream stable as additional tracks arrive. Replacing
+      // srcObject on each ontrack event can restart remote playback and sound
+      // like duplicate/echoing audio during camera negotiation.
+      setRemoteStreams((current) => (duplicateTrack && current[id] === stream ? current : { ...current, [id]: stream }));
     };
     peer.onconnectionstatechange = () => {
       if (peersRef.current.get(id) !== peer) return;
@@ -981,6 +992,7 @@ export function CallProvider({ children }) {
           localStream={localStream}
           remoteStream={remoteStream}
           remoteStreams={remoteStreams}
+          audioProcessing={audioProcessing}
           shareStream={shareStream}
           reactions={reactions}
           onAccept={accept}

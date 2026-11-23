@@ -6,7 +6,8 @@ import { formatPhone, phoneDigits } from "../../utils/phone";
 import { callUser } from "../calls/callUser";
 import { useMediaQuery } from "../../hooks";
 import { toast } from "../../services/toast";
-import { applyMessagePatch, openChatWith, reactTo, retryMessage, sendFile, toggleStar, togglePinMessage, votePoll } from "../../store/actions";
+import { applyMessagePatch, openChatWith, reactTo, retryMessage, sendFile, sendText, toggleStar, togglePinMessage, votePoll } from "../../store/actions";
+import { createWalletRequestMessage } from "../../features/wallet/paymentRequest";
 import { getState, useStore } from "../../store/store";
 import { attachmentKind, contactsByUser, displayUserName, groupAbilities, isSavedContact, messageKind, profileName, roomTitle, canOpenViewOnceHere } from "../../utils/messages";
 import { askBlock } from "../chat-list/roomMenu";
@@ -28,7 +29,7 @@ import ReactionPicker from "./ReactionPicker";
 import { DeleteMessagesDialog, ForwardDialog, ReactionsDialog } from "./dialogs";
 import { confirmAction } from "../common/dialogs";
 import ViewContactDialog from "./ViewContactDialog";
-import { DisappearingDialog, PollVotesDialog, ViewOncePhoneOnly, ViewOnceViewer } from "./FeatureDialogs";
+import { DisappearingDialog, PollVotesDialog, ViewOncePhoneOnly, ViewOnceViewer, WalletRequestDialog } from "./FeatureDialogs";
 import StatusViewer from "../status/StatusViewer";
 
 /**
@@ -63,6 +64,7 @@ export default function Conversation({ roomId }) {
   const [viewOnce, setViewOnce] = useState(null); // message being viewed once
   const [statusView, setStatusView] = useState(null); // { groups, statusId } from a status reaction card
   const [disappearingOpen, setDisappearingOpen] = useState(false);
+  const [walletRequestOpen, setWalletRequestOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
 
@@ -92,6 +94,31 @@ export default function Conversation({ roomId }) {
     window.addEventListener("mhtalk:disappearing", handler);
     return () => window.removeEventListener("mhtalk:disappearing", handler);
   }, [roomId]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (Number(event.detail) === Number(roomId) && room && !room.isGroup && !blocked && room.otherUser && !room.otherUser.is_deleted) {
+        setWalletRequestOpen(true);
+      }
+    };
+    window.addEventListener("mhtalk:request-nsat", handler);
+    return () => window.removeEventListener("mhtalk:request-nsat", handler);
+  }, [blocked, room, roomId]);
+
+  const sendWalletRequest = useCallback(async (amount) => {
+    setWalletRequestOpen(false);
+    try {
+      const address = window.localStorage.getItem("satoshicore:messenger-wallet-address:v1") || "";
+      if (!/^G[A-Z2-7]{55}$/.test(address)) {
+        toast.error("Add your public NSAT address in the Wallet tab before requesting NSAT.");
+        app.openWallet({ view: "receive" });
+        return;
+      }
+      await sendText(roomId, createWalletRequestMessage({ address, amount }), null, { linkPreview: false });
+    } catch {
+      toast.error("Could not create a payment request. Try again.");
+    }
+  }, [roomId, app]);
 
   const messagesFor = useCallback(() => getState().messages[roomId]?.items || [], [roomId]);
 
@@ -170,7 +197,7 @@ export default function Conversation({ roomId }) {
           if (!found?.user) throw new Error("missing");
           return found.user;
         } catch {
-          toast.error(`${card.name || phone} isn't on MHTalk.`);
+          toast.error(`${card.name || phone} isn't on SatoshiCore.`);
           return null;
         }
       };
@@ -277,6 +304,10 @@ export default function Conversation({ roomId }) {
         }
         case "contact":
           handleContactCard(message, payload);
+          break;
+        case "walletRequest":
+          if (!room?.isGroup) app.openWallet({ view: "send", roomId, to: payload.address, amount: payload.amount });
+          else toast.error("NSAT payment requests are only supported in one-to-one chats.");
           break;
         case "vote":
           if (!isMember) toast.error("You can't vote in a group you left.");
@@ -464,7 +495,7 @@ export default function Conversation({ roomId }) {
               <button
                 type="button"
                 className="btn btn--outline"
-                onClick={() => app.pushPanel("newContact", { initialPhone: room.otherUser.phone_number })}
+                onClick={() => app.pushPanel("newContact", { initialUser: room.otherUser, sourceRoomId: room.id, initialName: profileName(room.otherUser) })}
               >
                 Add to contacts
               </button>
@@ -577,6 +608,7 @@ export default function Conversation({ roomId }) {
         />
       ) : null}
       {disappearingOpen ? <DisappearingDialog room={room} canEdit={!room.isGroup || groupAbilities(room, me.id).canEditInfo} onClose={() => setDisappearingOpen(false)} /> : null}
+      {walletRequestOpen ? <WalletRequestDialog onClose={() => setWalletRequestOpen(false)} onSend={sendWalletRequest} /> : null}
       {statusView ? <StatusViewer groups={statusView.groups} startStatusId={statusView.statusId} onClose={() => setStatusView(null)} /> : null}
       {viewOnce ? (
         <ViewOnceViewer

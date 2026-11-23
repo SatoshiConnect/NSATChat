@@ -1,4 +1,5 @@
 import axios from "axios";
+export { errorMessage } from "./errorMessages";
 
 /**
  * Central HTTP client.
@@ -94,29 +95,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   },
 );
-
-/** Turn any API error into one readable sentence for the UI. */
-export function errorMessage(error, fallback = "Something went wrong. Please try again.") {
-  const data = error?.response?.data;
-  if (typeof data === "string" && data.length < 300 && !data.trim().startsWith("<")) return data;
-  if (typeof data?.detail === "string") return data.detail;
-  if (typeof data?.error === "string") return data.error;
-  if (typeof data?.message === "string" && error?.response?.status >= 400) return data.message;
-  if (data && typeof data === "object") {
-    const parts = Object.entries(data).map(([field, value]) => {
-      const text = Array.isArray(value) ? value.map(String).join(" ") : typeof value === "object" ? JSON.stringify(value) : String(value);
-      return field === "non_field_errors" || field === "detail" ? text : `${field.replace(/_/g, " ")}: ${text}`;
-    });
-    if (parts.length) return parts.join(" ");
-  }
-  const code = error?.response?.status;
-  if (code === 502 || code === 503 || code === 504) return "The server isn't reachable right now (it may be restarting). Please try again.";
-  if (code >= 500) return `Server error (${code}). Please try again.`;
-  if (code === 413) return "This file is too large to upload.";
-  if (error?.response?.status === 403) return "You don't have permission to do that.";
-  if (!error?.response) return "Can't reach the server. Check your connection.";
-  return fallback;
-}
 
 /** Normalise list endpoints that may return arrays or paginated envelopes. */
 export function asList(data) {

@@ -1,5 +1,5 @@
 /**
- * "App update" in Settings: knows whether a newer MHTalk is ready, what it
+ * "App update" in Settings: knows whether a newer SatoshiCore is ready, what it
  * changes (release notes from the server) and installs it when the user
  * says so. The app never updates itself behind the user's back.
  */

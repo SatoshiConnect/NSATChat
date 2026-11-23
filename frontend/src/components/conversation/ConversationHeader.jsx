@@ -7,6 +7,7 @@ import {
   Bell,
   BellOff,
   CheckSquare,
+  Coins,
   Eraser,
   Heart,
   HeartOff,
@@ -34,9 +35,11 @@ import { openUserStatus } from "../status/profileOverlay";
 import { requestJoinCall } from "../calls/groupCall";
 import { askBlock, askClearChat, askDeleteChat, askExitGroup, askMute } from "../chat-list/roomMenu";
 import { typingLabel } from "../chat-list/useChatList";
+import { useApp } from "../layout/AppContext";
 
 function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClose, onCall, onStarred, compact }) {
   useTicker(60000);
+  const app = useApp();
   const me = useStore((state) => state.me);
   const contacts = useStore((state) => state.contacts);
   const typing = useStore((state) => state.typing[room.id]);
@@ -72,6 +75,21 @@ function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClo
 
   const menu = [
     { label: room.isGroup ? "Group info" : "Contact info", icon: Info, onClick: onOpenInfo },
+    !room.isGroup ? {
+      label: "Send NSAT",
+      icon: Coins,
+      onClick: () => app.openWallet({ roomId: room.id }),
+    } : null,
+    !room.isGroup ? {
+      label: "Receive NSAT",
+      icon: Coins,
+      onClick: () => app.openWallet({ view: "receive" }),
+    } : null,
+    !room.isGroup && room.otherUser && !room.otherUser.is_deleted && !blocked ? {
+      label: "Request NSAT",
+      icon: Coins,
+      onClick: () => window.dispatchEvent(new CustomEvent("mhtalk:request-nsat", { detail: room.id })),
+    } : null,
     { label: "Search", icon: Search, onClick: onSearch },
     { label: "Select messages", icon: CheckSquare, onClick: onSelect },
     { label: "Starred messages", icon: Star, onClick: onStarred },

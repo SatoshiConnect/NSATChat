@@ -8,7 +8,7 @@ from django.db import models
 
 class User(AbstractBaseUser, PermissionsMixin):
     """
-    Custom User model for MHTalk.
+    Custom User model for SatoshiCore Messenger.
 
     Authentication is performed using the user's phone number
     in E.164 format (e.g. +923130067082).
@@ -17,8 +17,19 @@ class User(AbstractBaseUser, PermissionsMixin):
     phone_number = models.CharField(
         max_length=20,
         unique=True,
+        null=True,
+        blank=True,
         help_text="Phone number in E.164 format (e.g. +923130067082)",
     )
+
+    # Google subject is the stable identity key for migrated NSAT users. Email
+    # is mutable and is deliberately not used as the account primary key.
+    google_sub = models.CharField(max_length=255, unique=True, blank=True, null=True, default=None)
+    legacy_id = models.CharField(max_length=255, unique=True, blank=True, null=True, default=None)
+
+    # Optional, user-chosen public handle for friend discovery. It is set
+    # once through PublicIDAPIView and is never used as the account PK.
+    public_id = models.CharField(max_length=20, unique=True, blank=True, null=True, default=None)
 
     email = models.EmailField(
         blank=True,
@@ -48,7 +59,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         ordering = ["-date_joined"]
 
     def __str__(self):
-        return self.phone_number
+        return self.phone_number or self.email or f"User #{self.pk}"
 class Profile(models.Model):
     """
     Stores additional information about a user.
@@ -79,9 +90,13 @@ class Profile(models.Model):
     about = models.CharField(
         max_length=150,
         blank=True,
-        default="Hey there! I'm using MHTalk.",
+        default="Hey there! I'm using SatoshiCore.",
         help_text="User status or bio.",
     )
+
+    # Optional unverified contact detail. It is separate from the account's
+    # login phone and must never be used for authentication or discovery.
+    contact_phone = models.CharField(max_length=20, blank=True, default="")
 
     last_seen = models.DateTimeField(
         default=timezone.now,
@@ -103,6 +118,12 @@ class Profile(models.Model):
         (PRIVACY_EVERYONE, "Everyone"),
         (PRIVACY_CONTACTS, "My contacts"),
         (PRIVACY_NOBODY, "Nobody"),
+    )
+    allow_id_search = models.BooleanField(default=True)
+    allow_phone_search = models.BooleanField(default=True)
+    allow_contact_discovery = models.BooleanField(
+        default=False,
+        help_text="Let verified accounts find this user through Google Contacts sync.",
     )
     ONLINE_EVERYONE = "everyone"
     ONLINE_SAME_AS_LAST_SEEN = "same_as_last_seen"
@@ -136,7 +157,7 @@ class Profile(models.Model):
     def __str__(self):
         if self.display_name:
             return self.display_name
-        return self.user.phone_number
+        return self.user.phone_number or self.user.email or f"User #{self.user_id}"
 
 
 
@@ -183,4 +204,47 @@ class Contact(models.Model):
             f"{self.owner.phone_number} saved "
             f"{self.contact_user.phone_number}"
         )
+
+
+class GoogleContactSyncState(models.Model):
+    """Minimal per-user sync metadata; never stores an address book or OAuth token."""
+
+    owner = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="google_contact_sync",
+    )
+    encrypted_sync_token = models.TextField(blank=True, default="")
+    consented_at = models.DateTimeField(default=timezone.now)
+    current_full_sync_id = models.UUIDField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "google_contact_sync_states"
+
+
+class GoogleContactMatch(models.Model):
+    """Only contact resource IDs and matched NSAT accounts are retained."""
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="google_contact_matches",
+    )
+    resource_name = models.CharField(max_length=512)
+    matched_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="google_contact_matchers",
+    )
+    last_seen_full_sync_id = models.UUIDField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "google_contact_matches"
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "resource_name"], name="unique_google_contact_match"),
+            models.CheckConstraint(condition=~models.Q(owner=models.F("matched_user")), name="google_contact_not_self"),
+        ]
+        indexes = [models.Index(fields=["owner", "matched_user"], name="google_match_owner_user_idx")]
 

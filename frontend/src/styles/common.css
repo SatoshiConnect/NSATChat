@@ -55,7 +55,7 @@
   background: var(--menu-bg);
   box-shadow: var(--shadow-menu);
   animation: menu-in 0.12s ease-out;
-  max-height: calc(100vh - 16px);
+  max-height: min(calc(100vh - 16px), calc(var(--app-viewport-height, 100dvh) - 16px));
   overflow-y: auto;
 }
 @keyframes menu-in {
@@ -113,7 +113,7 @@
 }
 .modal {
   max-width: min(100%, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  max-height: min(calc(100vh - 32px), calc(var(--app-viewport-height, 100dvh) - 32px));
   display: flex;
   flex-direction: column;
   border-radius: 20px;

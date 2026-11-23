@@ -65,13 +65,18 @@ class PrivacySettingsTests(TestCase):
         self.assertEqual(response.data, {
             "last_seen": "everyone", "online": "everyone", "profile_photo": "everyone",
             "about": "everyone", "read_receipts": True,
+            "allow_id_search": True, "allow_phone_search": True,
+            "allow_contact_discovery": False,
         })
         response = self.as_user(self.alice).patch(
-            "/api/accounts/privacy/", {"last_seen": "contacts", "read_receipts": False}, format="json"
+            "/api/accounts/privacy/", {
+                "last_seen": "contacts", "read_receipts": False, "allow_contact_discovery": True,
+            }, format="json"
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["last_seen"], "contacts")
         self.assertFalse(response.data["read_receipts"])
+        self.assertTrue(response.data["allow_contact_discovery"])
         self.assertEqual(
             self.as_user(self.alice).patch("/api/accounts/privacy/", {"about": "friends"}, format="json").status_code, 400
         )
@@ -199,9 +204,9 @@ class PresencePrivacySocketTests(TransactionTestCase):
         self.room = private_room(self.alice, self.bob)
 
     async def _presence_seen_by_bob(self):
-        bob_inbox = WebsocketCommunicator(application, f"/ws/chat/inbox/?token={AccessToken.for_user(self.bob)}")
+        bob_inbox = WebsocketCommunicator(application, f"/ws/chat/inbox/?token={AccessToken.for_user(self.bob)}", headers=[(b"origin", b"http://testserver")])
         self.assertTrue((await bob_inbox.connect())[0])
-        alice_inbox = WebsocketCommunicator(application, f"/ws/chat/inbox/?token={AccessToken.for_user(self.alice)}")
+        alice_inbox = WebsocketCommunicator(application, f"/ws/chat/inbox/?token={AccessToken.for_user(self.alice)}", headers=[(b"origin", b"http://testserver")])
         self.assertTrue((await alice_inbox.connect())[0])
         event = None
         for _ in range(10):
@@ -232,7 +237,9 @@ class PresencePrivacySocketTests(TransactionTestCase):
             is_online=True, last_seen_privacy="nobody", online_privacy="same_as_last_seen"
         )
         room_socket = WebsocketCommunicator(
-            application, f"/ws/chat/{self.room.id}/?token={AccessToken.for_user(self.bob)}"
+            application,
+            f"/ws/chat/{self.room.id}/?token={AccessToken.for_user(self.bob)}",
+            headers=[(b"origin", b"http://testserver")],
         )
         self.assertTrue((await room_socket.connect())[0])
         event = json.loads(await room_socket.receive_from(timeout=2))

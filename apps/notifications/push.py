@@ -1,5 +1,5 @@
 """
-Web Push (VAPID) notifications for people who have no MHTalk tab open.
+Web Push (VAPID) notifications for people who have no SatoshiCore tab open.
 
 The chat / call code calls one function per event:
 
@@ -122,7 +122,7 @@ def notify_incoming_call(call, recipient_ids):
 # ------------------------------------------------------------------ helpers
 
 def _offline_user_ids(user_ids):
-    """Users from ``user_ids`` with no open MHTalk socket right now."""
+    """Users from ``user_ids`` with no open SatoshiCore socket right now."""
     from apps.accounts.models import Profile
 
     online = set(
@@ -309,7 +309,7 @@ def _send_message_pushes(message_id, hidden_user_ids):
             base["call_id"] = call_id
         if not subscription.show_previews:
             # Device asked to hide previews: no names, no text.
-            return {**base, "title": "MHTalk", "body": "New message"}
+            return {**base, "title": "SatoshiCore", "body": "New message"}
         sender_name = names.get(subscription.user_id) or message.sender.phone_number
         if is_group:
             return {**base, "title": room.name or "Group", "body": _truncate(f"{sender_name}: {text}")}
@@ -352,7 +352,7 @@ def _send_call_pushes(call_id, recipient_ids):
             "require_interaction": True,
         }
         if not subscription.show_previews:
-            return {**base, "title": "MHTalk", "body": f"Incoming {kind} call"}
+            return {**base, "title": "SatoshiCore", "body": f"Incoming {kind} call"}
         caller = names.get(subscription.user_id) or call.caller.phone_number
         title = (call.room.name or "Group") if is_group else caller
         return {**base, "title": title, "body": f"Incoming {kind} call from {caller}"}

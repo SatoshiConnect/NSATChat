@@ -110,10 +110,10 @@ export default function ChatListPanel() {
   const searchingActive = Boolean(debounced.trim());
   const assistant = useAssistant();
   const aiQuery = debounced.trim().toLowerCase();
-  const showAssistant = filter === "all" && (!aiQuery || "mhtalk ai assistant".includes(aiQuery));
+  const showAssistant = filter === "all" && (!aiQuery || "satoshicore ai assistant".includes(aiQuery));
   const aiIndex = showAssistant ? assistantRowIndex(searchingActive ? [] : rows, assistant.messages[assistant.messages.length - 1]?.at) : -1;
   const aiRow = showAssistant ? (
-    <AssistantChatRow key="mhtalk-ai" active={app.section === "aiChat"} onOpen={app.openAssistant} />
+    <AssistantChatRow key="satoshicore-ai" active={app.section === "aiChat"} onOpen={app.openAssistant} />
   ) : null;
 
   const menuItems = [
@@ -121,10 +121,10 @@ export default function ChatListPanel() {
     ...(app.compact
       ? [
           { label: "Media from all chats", icon: Images, onClick: () => app.openMedia() },
-          { label: "MHTalk AI", icon: Sparkles, onClick: () => app.setSection("ai") },
+          { label: "SatoshiCore AI", icon: Sparkles, onClick: () => app.setSection("ai") },
         ]
       : []),
-    { label: "New contact", icon: UserPlus, onClick: () => app.pushPanel("newContact") },
+    { label: "Add friends", icon: UserPlus, onClick: () => app.pushPanel("addFriends") },
     { label: "Starred messages", icon: Star, onClick: () => app.pushPanel("starred") },
     { label: "Select chats", icon: CheckSquare, onClick: () => startSelect() },
     { label: "Mark all as read", icon: CheckCheck, onClick: markAllRead, disabled: !unreadCount },
@@ -188,7 +188,7 @@ export default function ChatListPanel() {
         </header>
       ) : (
         <PanelHeader
-          title="MHTalk"
+          title="SatoshiCore"
           actions={
             <>
               {!app.compact ? <IconButton icon={NewChatIcon} label="New chat" onClick={() => app.pushPanel("newChat")} /> : null}
@@ -347,9 +347,9 @@ export default function ChatListPanel() {
 
       {app.compact && !selectMode ? (
         <div className="fab-stack">
-          <button type="button" className="fab-pill" onClick={() => app.setSection("ai")} aria-label="Ask MHTalk AI">
+          <button type="button" className="fab-pill" onClick={() => app.setSection("ai")} aria-label="Ask SatoshiCore AI">
             <span className="fab-pill__icon"><Sparkles size={16} strokeWidth={2.2} /></span>
-            Ask MHTalk AI
+            Ask SatoshiCore AI
           </button>
           <button type="button" className="fab" onClick={() => app.pushPanel("newChat")} aria-label="New chat">
             <NewChatIcon size={24} />

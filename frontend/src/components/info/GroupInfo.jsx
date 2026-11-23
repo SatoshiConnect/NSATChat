@@ -2,8 +2,8 @@ import { useMemo, useRef, useState } from "react";
 import { useStarredCount } from "../../hooks";
 import { Bell, BellOff, Camera, Check, Eraser, Heart, HeartOff, Link2, LogOut, MessageSquare, Pencil, Settings2, ShieldCheck, ShieldOff, Star, Timer, Trash2, UserMinus, UserPlus, X } from "lucide-react";
 import { errorMessage } from "../../api/client";
-import { chatApi } from "../../api/endpoints";
-import { favoriteRoom, muteRoom, openChatWith, refreshRoom } from "../../store/actions";
+import { chatApi, contactsApi } from "../../api/endpoints";
+import { favoriteRoom, loadContacts, muteRoom, openChatWith, refreshRoom } from "../../store/actions";
 import { useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { normalizeFiles } from "../../utils/files";
@@ -117,6 +117,10 @@ export default function GroupInfo({ roomId }) {
         await chatApi.setAdmin(room.id, user.id, !participant.is_admin);
         await refreshRoom(room.id);
         toast(participant.is_admin ? `${name} is no longer an admin` : `${name} is now an admin`);
+      } else if (action === "saveContact") {
+        await contactsApi.addGroupMember(user.id, room.id, profileName(user));
+        await loadContacts();
+        toast.success(`${name} added to your contacts`);
       } else if (action === "remove") {
         confirmAction({
           title: `Remove ${name}?`,
@@ -283,6 +287,9 @@ export default function GroupInfo({ roomId }) {
           onClose={() => setMemberMenu(null)}
           items={[
             { label: `Message ${displayUserName(memberMenu.participant.user, contactMap)}`, icon: MessageSquare, onClick: () => memberAction("message", memberMenu.participant) },
+            !contactMap.has(Number(memberMenu.participant.user?.id))
+              ? { label: "Add to contacts", icon: UserPlus, onClick: () => memberAction("saveContact", memberMenu.participant) }
+              : null,
             isAdmin
               ? memberMenu.participant.is_admin
                 ? { label: "Dismiss as admin", icon: ShieldOff, onClick: () => memberAction("admin", memberMenu.participant) }

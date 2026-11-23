@@ -116,18 +116,19 @@ function Tile({ tile, speaking }) {
 }
 
 /** One hidden <audio> per remote participant (every layout, incl. minimized). */
-export function GroupCallAudio({ remoteStreams }) {
-  return Object.entries(remoteStreams).map(([id, stream]) => <RemoteAudio key={id} stream={stream} />);
+export function GroupCallAudio({ remoteStreams, outputDeviceId = "" }) {
+  return Object.entries(remoteStreams).map(([id, stream]) => <RemoteAudio key={id} stream={stream} outputDeviceId={outputDeviceId} />);
 }
 
-function RemoteAudio({ stream }) {
+function RemoteAudio({ stream, outputDeviceId }) {
   const ref = useRef(null);
   useEffect(() => {
-    if (ref.current && ref.current.srcObject !== stream) {
-      ref.current.srcObject = stream;
+    if (ref.current) {
+      if (ref.current.srcObject !== stream) ref.current.srcObject = stream;
+      if (typeof ref.current.setSinkId === "function") ref.current.setSinkId(outputDeviceId).catch(() => {});
       ref.current.play?.().catch(() => {});
     }
-  }, [stream]);
+  }, [stream, outputDeviceId]);
   return <audio ref={ref} autoPlay />;
 }
 
@@ -172,9 +173,16 @@ function ParticipantSheet({ people, onClose }) {
   );
 }
 
-export default function GroupCallScreen({ call, title, groupPhoto, people, me, localStream, remoteStreams, shareStream, status, controls, reactions, rootRef, onDoubleClick }) {
+export default function GroupCallScreen({ call, title, groupPhoto, people, me, localStream, remoteStreams, audioProcessing, shareStream, status, controls, reactions, rootRef, onDoubleClick }) {
   const [sheet, setSheet] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const myVideoOn = Boolean(localStream?.getVideoTracks().length) && !call.cameraOff;
+  const inProgress = call.phase === "ongoing";
+  useEffect(() => {
+    if (!inProgress || !controlsVisible) return undefined;
+    const timer = window.setTimeout(() => setControlsVisible(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [inProgress, controlsVisible]);
 
   // Tiles: everyone in the call or still being rung; you last (like WhatsApp).
   const tiles = useMemo(() => {
@@ -211,7 +219,22 @@ export default function GroupCallScreen({ call, title, groupPhoto, people, me, l
   const inCall = people.filter((person) => person.state === "joined").length + 1;
 
   return (
-    <div ref={rootRef} className="call-screen gcall" role="dialog" aria-label={`Group call: ${title}`}>
+    <div
+      ref={rootRef}
+      className={`call-screen gcall ${controlsVisible ? "" : "controls-hidden"}`}
+      role="dialog"
+      aria-label={`Group call: ${title}`}
+      onPointerMove={() => setControlsVisible(true)}
+      onClick={(event) => {
+        if (event.target.closest(".call-bar, .gcall__head button, .gcall-sheet, button")) return;
+        setControlsVisible(true);
+      }}
+    >
+      <div className="call-audio-advice" role="status">
+        If you use speakers near your microphone, echo may occur. Use headphones or lower speaker volume.
+        {audioProcessing?.echoCancellation === false ? " Echo cancellation is unavailable in this browser or device." : null}
+        {audioProcessing?.echoCancellation === null ? " This browser does not report echo-cancellation status." : null}
+      </div>
       <header className="gcall__head">
         <Avatar src={groupPhoto} name={title} group size={40} />
         <div className="gcall__title">

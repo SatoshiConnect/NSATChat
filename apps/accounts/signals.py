@@ -13,7 +13,7 @@ def create_user_profile(sender, instance, created, **kwargs):
         Profile.objects.get_or_create(
             user=instance,
             defaults={
-                "display_name": instance.phone_number,
+                "display_name": instance.phone_number or (instance.email or "").split("@", 1)[0],
             },
         )
 

@@ -40,7 +40,7 @@ TIMEOUT_SECONDS = 4.0
 MAX_BYTES = 512 * 1024
 CACHE_SECONDS = 24 * 60 * 60
 NEGATIVE_CACHE_SECONDS = 60 * 60
-USER_AGENT = "MHTalkLinkPreview/1.0 (+https://github.com/; like WhatsApp)"
+USER_AGENT = "SatoshiCoreLinkPreview/1.0 (+https://chat.satoshicore.org/; like WhatsApp)"
 
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 TRAILING_PUNCTUATION = ".,:;!?)]}'\""

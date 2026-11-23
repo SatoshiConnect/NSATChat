@@ -3,6 +3,9 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 2px;
   content-visibility: auto;
   contain-intrinsic-size: auto 52px;
@@ -44,6 +47,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  width: fit-content;
+  min-width: 0;
   max-width: min(65%, 620px);
 }
 .msg-row--out .msg-row__inner {
@@ -84,8 +89,10 @@
 /* ---------------------------------------------------------------- bubble */
 .bubble {
   position: relative;
-  min-width: 70px;
+  box-sizing: border-box;
+  min-width: min(70px, 100%);
   max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 6px 7px 8px 9px;
   border-radius: 8px;
   box-shadow: var(--shadow-bubble);
@@ -135,9 +142,16 @@
   font-style: italic;
 }
 .bubble__text {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 .bubble__text a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: var(--link);
   text-decoration: underline;
 }
@@ -281,8 +295,9 @@
   object-fit: cover;
 }
 .media--video {
-  width: 330px;
-  height: 240px;
+  width: min(330px, 100%);
+  aspect-ratio: 11 / 8;
+  height: auto;
 }
 .media__play {
   position: absolute;
@@ -330,8 +345,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 260px;
+  min-width: 0;
   max-width: 340px;
+  width: min(340px, 100%);
   padding: 10px 12px;
   margin-bottom: 4px;
   border-radius: 6px;
@@ -534,7 +550,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 230px;
+  min-width: 0;
+  width: min(260px, 100%);
+  max-width: 100%;
   padding: 6px 4px 2px;
   text-align: left;
 }
@@ -832,8 +850,18 @@ mark.search-hit {
 }
 
 @media (max-width: 900px) {
+  .msg-row { width: 100%; }
   .msg-row__inner {
-    max-width: 85%;
+    max-width: min(85%, 32rem);
+  }
+  .bubble__text,
+  .bubble__sender,
+  .bubble__caption,
+  .quote__body,
+  .link-preview__body {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .media--image,
   .media--video {

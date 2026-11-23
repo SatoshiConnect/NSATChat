@@ -210,7 +210,7 @@ class MessagePushTests(TestCase):
         self.assertEqual(by_endpoint[self.bob_sub.endpoint]["body"], "Alice: secret plans")
         # Carol turned "Show previews" off on that device: nothing revealing.
         carol = by_endpoint[self.carol_sub.endpoint]
-        self.assertEqual((carol["title"], carol["body"]), ("MHTalk", "New message"))
+        self.assertEqual((carol["title"], carol["body"]), ("SatoshiCore", "New message"))
         self.assertNotIn("secret", json.dumps(carol))
         self.assertNotIn("Alice", json.dumps(carol))
         self.assertNotIn("Weekend", json.dumps(carol))

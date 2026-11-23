@@ -2,7 +2,7 @@ import { BadgeCheck, Sparkles } from "lucide-react";
 import { listTime } from "../../utils/format";
 import { useAssistant } from "../assistant/assistantStore";
 
-/** "MHTalk AI" in the chat list, like the AI chat in WhatsApp's list. */
+/** "SatoshiCore AI" in the chat list, like the AI chat in WhatsApp's list. */
 export default function AssistantChatRow({ active, onOpen }) {
   const { messages, sending } = useAssistant();
   const last = messages[messages.length - 1];
@@ -28,7 +28,7 @@ export default function AssistantChatRow({ active, onOpen }) {
       <div className="chat-item__body">
         <div className="chat-item__top">
           <span className="chat-item__title">
-            MHTalk AI <BadgeCheck size={15} className="chat-item__verified" aria-label="Official" />
+            SatoshiCore AI <BadgeCheck size={15} className="chat-item__verified" aria-label="Official" />
           </span>
           <span className="chat-item__time">{last ? listTime(last.at) : ""}</span>
         </div>

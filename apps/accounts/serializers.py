@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+import re
 
 from .models import User, Profile
 
@@ -25,6 +26,15 @@ class ProfileSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("About must be 139 characters or fewer.")
         return value
 
+    def validate_contact_phone(self, value):
+        value = (value or "").strip()
+        if not value:
+            return ""
+        normalized = value.translate(str.maketrans("", "", " ()-."))
+        if not re.fullmatch(r"\+[0-9]{8,15}", normalized):
+            raise serializers.ValidationError("Enter a phone number with country code, such as +66812345678.")
+        return normalized
+
     def validate_profile_picture(self, value):
         if value is None:
             return value
@@ -42,6 +52,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "display_name",
             "profile_picture",
             "about",
+            "contact_phone",
             "is_online",
             "last_seen",
         )
@@ -72,6 +83,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         fields = (
             "id",
+            "public_id",
             "phone_number",
             "email",
             "is_verified",
@@ -96,6 +108,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         min_length=8,
         style={"input_type": "password"},
     )
+
+    phone_number = serializers.CharField(required=True)
 
     display_name = serializers.CharField(
         write_only=True,
@@ -231,12 +245,21 @@ class PrivacySettingsSerializer(serializers.Serializer):
     profile_photo = serializers.ChoiceField(choices=Profile.PRIVACY_CHOICES, source="photo_privacy", required=False)
     about = serializers.ChoiceField(choices=Profile.PRIVACY_CHOICES, source="about_privacy", required=False)
     read_receipts = serializers.BooleanField(required=False)
+    allow_id_search = serializers.BooleanField(required=False)
+    allow_phone_search = serializers.BooleanField(required=False)
+    allow_contact_discovery = serializers.BooleanField(required=False)
 
     def update(self, instance, validated_data):
         for field, value in validated_data.items():
             setattr(instance, field, value)
         if validated_data:
             instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        if validated_data.get("allow_contact_discovery") is False:
+            # Remove associations already found by other users after this
+            # account revokes discoverability.
+            from .models import GoogleContactMatch
+
+            GoogleContactMatch.objects.filter(matched_user=instance.user).delete()
         return instance
 
 

@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "MHTalk",
-  "short_name": "MHTalk",
-  "description": "Simple, real-time messaging, voice and video calls.",
+  "name": "SatoshiCore",
+  "short_name": "SatoshiCore",
+  "description": "Real-time messaging, voice and video calls.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -170,6 +170,8 @@ def privacy_settings(profile):
         "profile_photo": profile.photo_privacy,
         "about": profile.about_privacy,
         "read_receipts": bool(profile.read_receipts),
+        "allow_id_search": bool(profile.allow_id_search),
+        "allow_phone_search": bool(profile.allow_phone_search),
     }
 
 
@@ -193,6 +195,7 @@ def apply_user_privacy(data, user, ctx):
                 "display_name": DELETED_ACCOUNT_NAME,
                 "profile_picture": None,
                 "about": "",
+                "contact_phone": "",
                 "is_online": False,
                 "last_seen": None,
             })
@@ -205,6 +208,8 @@ def apply_user_privacy(data, user, ctx):
 
     if not isinstance(profile_data, dict) or profile is None:
         return data
+    # A user's optional, unverified contact number is only visible to them.
+    profile_data["contact_phone"] = ""
     if not can_see_photo(profile, owner_id, ctx):
         profile_data["profile_picture"] = None
     if not can_see_about(profile, owner_id, ctx):

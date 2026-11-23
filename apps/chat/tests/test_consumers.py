@@ -44,10 +44,20 @@ class RealtimeSocketTests(TransactionTestCase):
 
     def socket(self, path, user=None):
         query = f"?token={AccessToken.for_user(user)}" if user else ""
-        return WebsocketCommunicator(application, f"{path}{query}")
+        return WebsocketCommunicator(application, f"{path}{query}", headers=[(b"origin", b"http://testserver")])
 
     async def test_inbox_rejects_missing_token(self):
         communicator = self.socket("/ws/chat/inbox/")
+        connected, _ = await communicator.connect()
+        self.assertFalse(connected)
+        await communicator.disconnect()
+
+    async def test_websocket_rejects_untrusted_origin(self):
+        communicator = WebsocketCommunicator(
+            application,
+            f"/ws/chat/inbox/?token={AccessToken.for_user(self.alice)}",
+            headers=[(b"origin", b"https://evil.example")],
+        )
         connected, _ = await communicator.connect()
         self.assertFalse(connected)
         await communicator.disconnect()

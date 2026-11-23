@@ -12,6 +12,7 @@ from .message_receipt import MessageReceipt
 from .poll import Poll, PollOption, PollVote
 from .mention import MessageMention
 from .view_once import ViewOnceOpen
+from .assistant_usage import AssistantControl, AssistantUsage
 
 __all__ = [
     "ChatRoom",
@@ -30,4 +31,6 @@ __all__ = [
     "PollVote",
     "MessageMention",
     "ViewOnceOpen",
+    "AssistantControl",
+    "AssistantUsage",
 ]

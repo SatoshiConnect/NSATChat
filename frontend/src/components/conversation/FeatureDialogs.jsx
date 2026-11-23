@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EyeOff, LocateFixed, Radio, Timer, X } from "lucide-react";
+import { Coins, EyeOff, LocateFixed, Radio, Timer, X } from "lucide-react";
 import { errorMessage } from "../../api/client";
 import { messageApi } from "../../api/endpoints";
 import { setDisappearing } from "../../store/actions";
@@ -14,6 +14,42 @@ import { MapPreview, ViewOnceIcon } from "../messages/FeatureCards";
 /* ---------------------------------------------------------------- Create poll */
 
 const MAX_OPTIONS = 12;
+
+/** A chat payment request is a normal message containing a reviewed Wallet link. */
+export function WalletRequestDialog({ onClose, onSend }) {
+  const [amount, setAmount] = useState("");
+  const valid = amount === "" || /^[1-9]\d{0,29}$/.test(amount);
+  return (
+    <Modal
+      title="Request NSAT"
+      onClose={onClose}
+      width={440}
+      className="wallet-request-dialog"
+      footer={(
+        <>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn--primary" disabled={!valid} onClick={() => onSend(amount)}>
+            Send request
+          </button>
+        </>
+      )}
+    >
+      <div className="wallet-request-dialog__intro"><Coins size={22} /><span>Share a secure Wallet payment request in this conversation.</span></div>
+      <label className="wallet-request-dialog__label" htmlFor="wallet-request-amount">Amount (NSAT, optional)</label>
+      <input
+        id="wallet-request-amount"
+        className="line-input"
+        inputMode="numeric"
+        autoComplete="off"
+        value={amount}
+        maxLength={30}
+        placeholder="Enter a whole number of NSAT"
+        onChange={(event) => setAmount(event.target.value)}
+      />
+      <p className="wallet-request-dialog__note">The recipient reviews the address, amount and network in SatoshiCore Wallet before signing. Nothing is transferred when this request is sent.</p>
+    </Modal>
+  );
+}
 
 /**
  * WhatsApp "Create poll": a question, options that grow as you type (up to

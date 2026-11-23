@@ -1,5 +1,5 @@
 /*
- * MHTalk service worker (hand-written; generated into dist/sw.js at build
+ * SatoshiCore service worker (hand-written; generated into dist/sw.js at build
  * time by pwa/vite-plugin.js, which fills in the version and file list).
  *
  * - Precaches the built app shell (index.html, JS, CSS, icons) in a cache
@@ -10,7 +10,7 @@
  * - A new build waits until the page asks it to take over ("New version
  *   available — Reload" toast posts SKIP_WAITING).
  * - Web Push: shows message / call notifications and deep-links on click.
- * - Share target: files shared to the installed app ("Share → MHTalk", also
+ * - Share target: files shared to the installed app ("Share → SatoshiCore", also
  *   Gboard's GIF/sticker fallback) are parked in a cache and the app opens
  *   "Send to…" (see ShareReceiver.jsx).
  */
@@ -138,7 +138,7 @@ async function showPush(data) {
     ringing.forEach((notification) => notification.close());
   }
   const isCall = data.type === "call";
-  return self.registration.showNotification(data.title || "MHTalk", {
+  return self.registration.showNotification(data.title || "SatoshiCore", {
     body: data.body || "New message",
     icon: data.icon || "/pwa-192.png",
     badge: data.badge || "/pwa-badge-96.png",

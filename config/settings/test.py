@@ -12,6 +12,7 @@ defaults here so CI does not need a .env file.
 """
 
 import os
+import tempfile
 
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key-not-for-production")
 os.environ.setdefault("DB_PASSWORD", "unused-in-tests")
@@ -19,6 +20,7 @@ os.environ.setdefault("DB_PASSWORD", "unused-in-tests")
 from .base import *  # noqa: E402,F401,F403
 
 DEBUG = False
+ALLOWED_HOSTS = ["testserver", "localhost", "127.0.0.1"]
 
 DATABASES = {
     "default": {
@@ -47,5 +49,7 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
 
-MEDIA_ROOT = BASE_DIR / "test_media"
+# The application directory is read-only in the production container. Keep
+# uploaded test fixtures in a process-owned temporary directory instead.
+MEDIA_ROOT = tempfile.mkdtemp(prefix="mhtalk-test-media-")
 WHITENOISE_AUTOREFRESH = True  # no collectstatic in tests

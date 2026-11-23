@@ -100,7 +100,7 @@ export function InviteLinkView({ room, onBack }) {
       return;
     }
     try {
-      await navigator.share({ title: room.groupName, text: `Follow this link to join my MHTalk group: ${room.groupName}`, url: link });
+      await navigator.share({ title: room.groupName, text: `Follow this link to join my SatoshiCore group: ${room.groupName}`, url: link });
     } catch {
       /* share sheet dismissed */
     }
@@ -141,7 +141,7 @@ export function InviteLinkView({ room, onBack }) {
           </div>
         </div>
         <p className="info-muted info-pad">
-          Anyone with MHTalk can follow this link to join this group. Only share it with people you trust.
+          Anyone with SatoshiCore can follow this link to join this group. Only share it with people you trust.
         </p>
         <div className="info-section info-section--list">
           <InfoRow icon={Copy} title="Copy link" onClick={link ? copy : undefined} />

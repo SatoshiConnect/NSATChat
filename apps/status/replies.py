@@ -13,6 +13,7 @@ from apps.chat.choices import RoomType
 from apps.chat.models import Participant
 
 from .models import Status
+from .policies import can_view_status
 
 
 def status_snapshot(status_obj):
@@ -35,8 +36,6 @@ def status_snapshot(status_obj):
 
 
 def viewer_can_see(status_obj, user):
-    from .views import ContactsStatusAPIView
-
     contact_ids = set(Contact.objects.filter(owner=user).values_list("contact_user_id", flat=True))
     contact_ids.update(
         Participant.objects.filter(
@@ -47,7 +46,7 @@ def viewer_can_see(status_obj, user):
         .exclude(user=user)
         .values_list("user_id", flat=True)
     )
-    return ContactsStatusAPIView().can_view_status(status_obj, user, contact_ids)
+    return can_view_status(status_obj, user, contact_ids)
 
 
 def status_ref_for(request, room):

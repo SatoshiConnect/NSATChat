@@ -263,7 +263,7 @@ export default function MessageList({ room, me, contactMap, selectMode, selected
         {state.error && !items.length ? <div className="system-pill system-pill--error">{state.error}</div> : null}
         {state.loaded && !state.hasMore ? (
           <div className="system-pill system-pill--info">
-            <Lock size={12} /> Messages are stored on your MHTalk server and synced to your devices.
+            <Lock size={12} /> Messages are stored on your SatoshiCore server and synced to your devices.
           </div>
         ) : null}
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Volume2, Bell, ChevronRight, CircleHelp, Download, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, SquarePlus, UserX, RefreshCw } from "lucide-react";
+import { Volume2, Bell, ChevronRight, CircleHelp, Download, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, SquarePlus, UserX, RefreshCw, WalletCards } from "lucide-react";
 import { useStore } from "../../store/store";
 import { loadBlocked, setBlocked } from "../../store/actions";
 import { getNotificationPrefs, requestDesktopPermission, setNotificationPrefs } from "../../services/notify";
@@ -95,7 +95,7 @@ function ThemeDialog({ onClose }) {
 
 function InstallDialog({ ios, onClose }) {
   return (
-    <Modal title="Install MHTalk" onClose={onClose} width={420}>
+    <Modal title="Install SatoshiCore" onClose={onClose} width={420}>
       {ios ? (
         <ol className="install-steps">
           <li>
@@ -104,7 +104,7 @@ function InstallDialog({ ios, onClose }) {
           <li>
             Choose <SquarePlus size={18} aria-hidden="true" /> <strong>Add to Home Screen</strong>.
           </li>
-          <li>Tap <strong>Add</strong>. MHTalk opens full screen from your home screen.</li>
+          <li>Tap <strong>Add</strong>. SatoshiCore opens full screen from your home screen.</li>
         </ol>
       ) : (
         <ol className="install-steps">
@@ -112,7 +112,7 @@ function InstallDialog({ ios, onClose }) {
           <li>
             Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.
           </li>
-          <li>MHTalk then opens in its own window, like a native app.</li>
+          <li>SatoshiCore then opens in its own window, like a native app.</li>
         </ol>
       )}
     </Modal>
@@ -182,12 +182,12 @@ export default function SettingsPanel() {
 
   const onInstall = async () => {
     if (install.installed) {
-      toast("MHTalk is already installed on this device.");
+      toast("SatoshiCore is already installed on this device.");
       return;
     }
     if (install.canPrompt) {
       const outcome = await promptInstall();
-      if (outcome === "accepted") toast.success("Installing MHTalk…");
+      if (outcome === "accepted") toast.success("Installing SatoshiCore…");
       return;
     }
     setModal(install.ios ? "install-ios" : "install");
@@ -243,11 +243,11 @@ export default function SettingsPanel() {
             >
               <Volume2 size={18} /> Test sound
             </button>
-            <span>No sound? Right-click the MHTalk tab → <b>Unmute site</b>, and in the address bar → site settings → <b>Sound: Allow</b>.</span>
+            <span>No sound? Right-click the SatoshiCore tab → <b>Unmute site</b>, and in the address bar → site settings → <b>Sound: Allow</b>.</span>
           </div>
           <ToggleRow
             title="Desktop notifications"
-            subtitle="Show notifications when MHTalk is in the background"
+            subtitle="Show notifications when SatoshiCore is in the background"
             checked={prefs.desktop}
             onChange={async (value) => {
               if (value) {
@@ -262,7 +262,7 @@ export default function SettingsPanel() {
           />
           <ToggleRow
             title="Background notifications"
-            subtitle={pushSupported() ? "Get messages and calls even when MHTalk is closed" : "Not supported by this browser"}
+            subtitle={pushSupported() ? "Get messages and calls even when SatoshiCore is closed" : "Not supported by this browser"}
             checked={Boolean(prefs.backgroundPush)}
             disabled={pushBusy || !pushSupported()}
             onChange={onBackgroundPush}
@@ -311,9 +311,10 @@ export default function SettingsPanel() {
     { key: "account", icon: KeyRound, title: "Account", subtitle: "Phone number, delete account", onClick: () => setView("account") },
     { key: "privacy", icon: Lock, title: "Privacy", subtitle: "Last seen, profile photo, read receipts, blocked contacts", onClick: () => setView("privacy") },
     { key: "chats", icon: MessageSquareText, title: "Chats", subtitle: "Theme, Enter is send", onClick: () => setView("chats") },
+    { key: "wallet", icon: WalletCards, title: "Wallet", subtitle: "View NSAT balance and public transaction history", onClick: () => app.setSection("wallet") },
     { key: "notifications", icon: Bell, title: "Notifications", subtitle: "Message sounds, desktop alerts", onClick: () => setView("notifications") },
     !install.installed
-      ? { key: "install", icon: Download, title: "Install app", subtitle: install.ios ? "Add MHTalk to your Home Screen" : "Use MHTalk like a native app", onClick: onInstall }
+      ? { key: "install", icon: Download, title: "Install app", subtitle: install.ios ? "Add SatoshiCore to your Home Screen" : "Use SatoshiCore like a native app", onClick: onInstall }
       : null,
     { key: "shortcuts", icon: Keyboard, title: "Keyboard shortcuts", subtitle: "Quick actions", onClick: () => setModal("shortcuts") },
     {
@@ -324,7 +325,7 @@ export default function SettingsPanel() {
       dot: appUpdate.available,
       onClick: () => setView("update"),
     },
-    { key: "help", icon: CircleHelp, title: "Help", subtitle: "About MHTalk", onClick: () => setModal("help") },
+    { key: "help", icon: CircleHelp, title: "Help", subtitle: "About SatoshiCore", onClick: () => setModal("help") },
   ].filter((row) => row && (!query || `${row.title} ${row.subtitle}`.toLowerCase().includes(query.toLowerCase())));
 
   return (
@@ -365,9 +366,9 @@ export default function SettingsPanel() {
       ) : null}
       {modal === "install" || modal === "install-ios" ? <InstallDialog ios={modal === "install-ios"} onClose={() => setModal(null)} /> : null}
       {modal === "help" ? (
-        <Modal title="MHTalk" onClose={() => setModal(null)} width={420}>
+        <Modal title="SatoshiCore" onClose={() => setModal(null)} width={420}>
           <p className="modal__text">
-            MHTalk is a real-time messaging app built with Django Channels and React. Messages, receipts, typing, presence,
+            SatoshiCore is a real-time messaging app built with Django Channels and React. Messages, receipts, typing, presence,
             statuses and calls sync live across all of your open tabs.
           </p>
         </Modal>

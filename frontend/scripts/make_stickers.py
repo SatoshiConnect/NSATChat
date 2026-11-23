@@ -197,7 +197,7 @@ WORDS = [
 ]
 
 PACKS = [
-    ("buddy", "MHTalk Buddy", BUDDY),
+    ("buddy", "SatoshiCore Buddy", BUDDY),
     ("kitty", "Kitty", KITTY),
     ("words", "Say it", WORDS),
 ]

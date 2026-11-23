@@ -10,6 +10,12 @@ from drf_spectacular.views import (
 
 from .health import health
 
+# Use the current product name in Django Admin instead of Django's default
+# "Django administration" branding.
+admin.site.site_header = "SatoshiCore Administration"
+admin.site.site_title = "SatoshiCore Admin"
+admin.site.index_title = "SatoshiCore Operations"
+
 urlpatterns = [
     path("api/health/", health, name="health"),
 
@@ -60,6 +66,10 @@ urlpatterns = [
         "api/notifications/",
         include("apps.notifications.urls"),
     ),
+    path("api/wallet/", include("apps.wallet_integration.urls")),
+    # Keep the initial read-only Wallet endpoint URL working for existing
+    # clients while ownership moves into its dedicated capability module.
+    path("api/accounts/wallet/read/", include("apps.wallet_integration.legacy_urls")),
 ]
 
 if settings.DEBUG or getattr(settings, "MHTALK_SERVE_MEDIA", False):

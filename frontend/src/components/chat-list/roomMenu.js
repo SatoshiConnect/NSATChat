@@ -25,7 +25,7 @@ export function askMute(room) {
 export function askDeleteChat(room, title) {
   confirmAction({
     title: `Delete chat with ${title}?`,
-    message: "Messages will only be removed from this device and your devices on MHTalk. The chat reappears if a new message arrives.",
+    message: "Messages will only be removed from this device and your devices on SatoshiCore. The chat reappears if a new message arrives.",
     confirmLabel: "Delete chat",
     danger: true,
     onConfirm: () => deleteChat(room.id),

@@ -4,7 +4,7 @@ import { assistantApi } from "../../api/endpoints";
 import { getState } from "../../store/store";
 
 /**
- * MHTalk AI conversation, kept per user in this browser (localStorage).
+ * SatoshiCore AI conversation, kept per user in this browser (localStorage).
  * The server only relays the conversation to the AI service.
  */
 const listeners = new Set();
@@ -60,22 +60,27 @@ export async function loadAssistantStatus() {
   }
 }
 
-export async function askAssistant(text, image = null) {
+export async function askAssistant(text, image = null, mode = "chat") {
   ensureUser();
   const typed = String(text || "").trim();
   if ((!typed && !image) || state.sending) return;
   const content = typed || "What is in this picture?";
   const now = new Date().toISOString();
-  const history = [...state.messages, { id: `u-${Date.now()}`, role: "user", content: typed, thumb: image?.thumb || "", at: now }];
+  const history = [...state.messages, { id: `u-${Date.now()}`, role: "user", content: typed || (mode === "generate_image" ? "Create image: " + content : ""), thumb: image?.thumb || "", at: now }];
   emit({ messages: history, sending: true });
   try {
-    const sendable = history
-      .filter((item) => !item.error)
-      .map(({ role, content: body, thumb }) => ({ role, content: body || (thumb ? "[photo]" : "") }));
-    sendable[sendable.length - 1].content = content;
-    const data = await assistantApi.send(sendable, image ? { mime_type: image.mime_type, data: image.data } : null);
+    const sendable = history.filter((item) => !item.error).map(({ role, content: body }) => ({ role, content: body || "[photo]" }));
+    if (mode === "chat") sendable[sendable.length - 1].content = content;
+    const data = await assistantApi.send({
+      mode,
+      messages: mode === "chat" ? sendable : undefined,
+      text: mode === "chat" ? undefined : content,
+      image: image ? { mime_type: image.mime_type, data: image.data } : undefined,
+      consent: true,
+      request_id: crypto.randomUUID(),
+    });
     emit({
-      messages: [...state.messages, { id: `a-${Date.now()}`, role: "assistant", content: data.reply, at: new Date().toISOString() }],
+      messages: [...state.messages, { id: `a-${Date.now()}`, role: "assistant", content: data.reply || (data.image ? "Image created" : ""), image: data.image || null, at: new Date().toISOString() }],
       sending: false,
     });
   } catch (error) {

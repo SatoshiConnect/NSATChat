@@ -17,6 +17,7 @@ from rest_framework import serializers
 
 from .choices import DISAPPEARING_CHOICES, SYSTEM_PREFIX, MessageType, RoomType
 from .models import Message, MessageMention, Participant, Poll, PollOption, PollVote
+from .validation import parse_id_list
 
 POLL_MIN_OPTIONS = 2
 POLL_MAX_OPTIONS = 12
@@ -175,8 +176,6 @@ def copy_poll(original, new_message):
 
 def validate_mentions(room, raw_ids):
     """Mentioned ids must be members of a group; returns the clean id list."""
-    from .views import parse_id_list
-
     ids = parse_id_list(raw_ids)
     if not ids:
         return []

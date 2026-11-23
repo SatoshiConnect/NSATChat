@@ -249,7 +249,11 @@ class GroupCallSignallingTests(GroupCallBase, TransactionTestCase):
     def socket(self, user):
         from config.asgi import application
 
-        return WebsocketCommunicator(application, f"/ws/calls/{self.room.id}/?token={AccessToken.for_user(user)}")
+        return WebsocketCommunicator(
+            application,
+            f"/ws/calls/{self.room.id}/?token={AccessToken.for_user(user)}",
+            headers=[(b"origin", b"http://testserver")],
+        )
 
     async def receive_event(self, communicator, name):
         for _ in range(20):

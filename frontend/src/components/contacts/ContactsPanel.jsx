@@ -62,14 +62,14 @@ export default function ContactsPanel() {
 
   return (
     <section className="panel">
-      <PanelHeader title="Contacts" actions={<IconButton icon={UserPlus} label="New contact" onClick={() => setEditor({})} />} />
+      <PanelHeader title="Contacts" actions={<IconButton icon={UserPlus} label="Add friends" onClick={() => app.pushPanel("addFriends")} />} />
       <SearchInput value={query} onChange={setQuery} placeholder="Search name or number" />
       <div className="panel__scroll">
         {!query ? (
           <div className="list-pad list-pad--top">
-            <button type="button" className="row row--action" onClick={() => setEditor({})}>
+            <button type="button" className="row row--action" onClick={() => app.pushPanel("addFriends")}>
               <span className="row__icon-circle"><UserPlus size={22} /></span>
-              <span className="row__body"><span className="row__title">New contact</span></span>
+              <span className="row__body"><span className="row__title">Find or invite friends</span><span className="row__subtitle">ID, phone, QR code, link or contacts</span></span>
             </button>
             <button type="button" className="row row--action" onClick={() => { app.setSection("chats"); window.setTimeout(() => app.pushPanel("newGroup"), 0); }}>
               <span className="row__icon-circle"><Users size={22} /></span>
@@ -77,7 +77,7 @@ export default function ContactsPanel() {
             </button>
           </div>
         ) : null}
-        {!query && contacts.length ? <div className="section-label section-label--plain">{contacts.length} contact{contacts.length === 1 ? "" : "s"} on MHTalk</div> : null}
+        {!query && contacts.length ? <div className="section-label section-label--plain">{contacts.length} contact{contacts.length === 1 ? "" : "s"} on SatoshiCore</div> : null}
         {groupByLetter(filtered).map(([letter, items]) => (
           <div key={letter}>
             <div className="letter-header">{letter}</div>
@@ -103,8 +103,8 @@ export default function ContactsPanel() {
           query ? (
             <EmptyState text={`No contacts match "${query}".`} />
           ) : (
-            <EmptyState icon={UserPlus} title="No contacts yet" text="Save people by their MHTalk phone number to chat with them.">
-              <button type="button" className="btn btn--primary" onClick={() => setEditor({})}>Add contact</button>
+            <EmptyState icon={UserPlus} title="No contacts yet" text="Add someone by their public ID, phone number, QR code, invite link or selected device contacts.">
+              <button type="button" className="btn btn--primary" onClick={() => app.pushPanel("addFriends")}>Find friends</button>
             </EmptyState>
           )
         ) : null}

@@ -17,7 +17,6 @@ import { CallProvider } from "../calls/CallManager";
 import { AppContext } from "./AppContext";
 import IntroPane from "./IntroPane";
 import ProfileOverlays from "../status/ProfileOverlays";
-import UpdatePrompt from "../common/UpdatePrompt";
 import ShareReceiver from "../common/ShareReceiver";
 import { Spinner } from "../common/ui";
 
@@ -38,6 +37,9 @@ const MessageInfo = lazy(() => import("../info/MessageInfo"));
 const SharedMedia = lazy(() => import("../info/SharedMedia"));
 const StarredPanel = lazy(() => import("../chat-list/StarredPanel"));
 const CallInfoPanel = lazy(() => import("../calls/CallInfoPanel"));
+const AddFriendsPanel = lazy(() => import("../chat-list/AddFriendsPanel"));
+const WalletPanel = lazy(() => import("../../features/wallet").then((module) => ({ default: module.WalletPanel })));
+const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 const fallback = <div className="panel panel--loading"><Spinner /></div>;
 
@@ -46,6 +48,7 @@ const PANELS = {
   callInfo: CallInfoPanel,
   newChat: NewChatPanel,
   newContact: NewContactPanel,
+  addFriends: AddFriendsPanel,
   newGroup: NewGroupPanel,
   starred: StarredPanel,
 };
@@ -58,7 +61,7 @@ const SECTION_PANELS = {
   profile: ProfilePanel,
   settings: SettingsPanel,
   ai: AssistantPanel,
-  aiChat: ChatListPanel, // MHTalk AI opened from the chat list
+  aiChat: ChatListPanel, // SatoshiCore AI opened from the chat list
 };
 
 const DRAWERS = {
@@ -74,6 +77,7 @@ export default function MainLayout({ onLogout }) {
   const [stack, setStack] = useState([]);
   const [drawer, setDrawer] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
+  const [walletLaunch, setWalletLaunch] = useState(null);
   const activeRoomId = useStore((state) => state.activeRoomId);
   const activeExists = useStore((state) => Boolean(state.activeRoomId && state.rooms[state.activeRoomId]));
   const totalUnread = useStore((state) => Object.values(state.rooms).filter((room) => !room.isArchived && room.unread > 0).length);
@@ -97,6 +101,8 @@ export default function MainLayout({ onLogout }) {
   const closeDrawer = useCallback(() => setDrawer(null), []);
 
   const setSection = useCallback((next) => {
+    if (next === "wallet" && !WALLET_UI_ENABLED) return;
+    if (next === "wallet") setWalletLaunch(null);
     setSectionState(next);
     setStack([]);
     if (next === "calls") {
@@ -105,7 +111,13 @@ export default function MainLayout({ onLogout }) {
     if (next === "status") loadStatus();
   }, []);
 
-  // MHTalk AI from the chat list: the list stays, the AI chat opens beside it.
+  const openWallet = useCallback((request = null) => {
+    setSection("wallet");
+    setDrawer(null);
+    setWalletLaunch(request ? { ...request, nonce: Date.now() } : { nonce: Date.now() });
+  }, [setSection]);
+
+  // SatoshiCore AI from the chat list: the list stays, the AI chat opens beside it.
   const openAssistant = useCallback(() => {
     setActiveRoom(null);
     realtime.openRoom(null);
@@ -182,10 +194,11 @@ export default function MainLayout({ onLogout }) {
   const openMedia = useCallback(() => setMediaOpen(true), []);
 
   const app = useMemo(
-    () => ({ openRoom, closeRoom, openAssistant, setSection, pushPanel, popPanel, resetPanels, openDrawer, closeDrawer, openMedia, onLogout, section, compact }),
-    [openRoom, closeRoom, openAssistant, setSection, pushPanel, popPanel, resetPanels, openDrawer, closeDrawer, openMedia, onLogout, section, compact],
+    () => ({ openRoom, closeRoom, openAssistant, openWallet, setSection, pushPanel, popPanel, resetPanels, openDrawer, closeDrawer, openMedia, onLogout, section, compact }),
+    [openRoom, closeRoom, openAssistant, openWallet, setSection, pushPanel, popPanel, resetPanels, openDrawer, closeDrawer, openMedia, onLogout, section, compact],
   );
 
+  const showWallet = section === "wallet";
   const SectionPanel = SECTION_PANELS[section] || ChatListPanel;
   const top = stack[stack.length - 1];
   const OverlayPanel = top ? PANELS[top.name] : null;
@@ -193,7 +206,8 @@ export default function MainLayout({ onLogout }) {
 
   const showChat = section === "chats" && activeRoomId && activeExists;
   let main;
-  if (section === "status") main = <StatusMain />;
+  if (showWallet) main = <WalletPanel launch={walletLaunch} />;
+  else if (section === "status") main = <StatusMain />;
   else if (section === "calls") main = <CallsMain />;
   else if (section === "ai" || section === "aiChat") main = <AssistantChat />;
   else if (showChat) main = <Conversation key={activeRoomId} roomId={activeRoomId} />;
@@ -201,7 +215,7 @@ export default function MainLayout({ onLogout }) {
     main = (
       <IntroPane
         onNewChat={() => { setSectionState("chats"); setStack([{ name: "newChat", props: {} }]); }}
-        onNewContact={() => { setSectionState("chats"); setStack([{ name: "newContact", props: {} }]); }}
+        onNewContact={() => { setSectionState("chats"); setStack([{ name: "addFriends", props: {} }]); }}
         onCalls={() => setSection("calls")}
       />
     );
@@ -214,19 +228,21 @@ export default function MainLayout({ onLogout }) {
   return (
     <AppContext.Provider value={app}>
       <CallProvider>
-        <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""}`}>
+        <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""} ${showWallet ? "is-wallet-view" : ""}`}>
           <NavRail section={section === "aiChat" ? "chats" : section} onChange={setSection} onOpenMedia={openMedia} />
-          <aside className="sidebar">
-            <div className="sidebar__stack">
-              <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} /></Suspense>
-              {OverlayPanel ? (
-                <div className="sidebar__overlay" key={`${top.name}-${stack.length}`}>
-                  <Suspense fallback={fallback}><OverlayPanel {...top.props} /></Suspense>
-                </div>
-              ) : null}
-            </div>
-          </aside>
-          <main className="main"><Suspense fallback={fallback}>{main}</Suspense></main>
+          {!showWallet ? (
+            <aside className="sidebar">
+              <div className="sidebar__stack">
+                <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} /></Suspense>
+                {OverlayPanel ? (
+                  <div className="sidebar__overlay" key={`${top.name}-${stack.length}`}>
+                    <Suspense fallback={fallback}><OverlayPanel {...top.props} /></Suspense>
+                  </div>
+                ) : null}
+              </div>
+            </aside>
+          ) : null}
+          <main className={`main ${showWallet ? "main--wallet" : ""}`}><Suspense fallback={fallback}>{main}</Suspense></main>
           {Drawer && showChat ? (
             <aside className="drawer" key={drawer.type}>
               <Suspense fallback={fallback}><Drawer {...drawer.payload} /></Suspense>
@@ -239,7 +255,6 @@ export default function MainLayout({ onLogout }) {
           </Suspense>
         ) : null}
         <ProfileOverlays />
-        <UpdatePrompt />
         <ShareReceiver />
       </CallProvider>
     </AppContext.Provider>

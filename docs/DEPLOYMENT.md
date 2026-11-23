@@ -1,6 +1,6 @@
 # Deployment & scaling
 
-This guide covers how MHTalk is built to serve many users, and three ways to
+This guide covers how SatoshiCore is built to serve many users, and three ways to
 put it online for free or close to free.
 
 ## 1. Architecture
@@ -66,7 +66,7 @@ charged on the free tier.
 3. On the VM:
    ```bash
    curl -fsSL https://get.docker.com | sh
-   git clone https://github.com/<you>/MHTalk.git && cd MHTalk
+   git clone https://github.com/<you>/<repository>.git && cd <repository>
    cp deploy/env.prod.example .env.prod   # edit every "change-me"
    docker compose -f docker-compose.prod.yml --env-file .env.prod --profile turn up -d --build
    docker compose -f docker-compose.prod.yml --env-file .env.prod exec web python manage.py createsuperuser
@@ -114,3 +114,30 @@ EC2 instance; the managed equivalents are RDS (PostgreSQL), ElastiCache
 - [ ] A voice call works between two phones on mobile data (TURN works).
 - [ ] Database backups are scheduled and copied off the server.
 - [ ] An uptime monitor checks `/api/health/`.
+# Google Contacts discovery
+
+Set `GOOGLE_CLIENT_ID` to the public Google OAuth Web client ID. In Google
+Cloud Console, add the deployed HTTPS origin to **Authorized JavaScript
+origins**. Contacts sync requests only the incremental
+`contacts.readonly` scope through Google Identity Services; it does not reuse
+the sign-in ID token as an API access token. Submit the consent screen and
+scope for Google's required production verification before enabling this for
+public users.
+
+The browser reads Google People API connections directly. It sends only
+normalized E.164 phone numbers, normalized email addresses, and Google contact
+resource IDs to the authenticated SatoshiCore match endpoint. Names and photos
+are not read; unmatched contact data is not persisted. Matched account IDs and
+Google resource IDs are retained until disconnect, and the People sync cursor
+is encrypted using Django `SECRET_KEY`. Rotating `SECRET_KEY` invalidates the
+cursor and triggers a full sync. The app never sends contacts to its AI
+assistant.
+
+Google Contacts access is optional. Users can still find friends by public ID,
+QR code, or friend link. Browser/PWA installs cannot read the device's complete
+native address book; on iOS, Google Contacts consent is the supported automatic
+discovery route in this implementation.
+
+Before launch, review Google's [User Data Policy](https://developers.google.com/terms/api-services-user-data-policy),
+[OAuth production readiness requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance),
+and the [People API connections list and sync-token contract](https://developers.google.com/people/api/rest/v1/people.connections/list).

@@ -11,7 +11,7 @@ const SUGGESTIONS = [
   "Give me 5 caption ideas for a travel photo",
 ];
 
-/** Sidebar for MHTalk AI: what it is, quick prompts and clearing the chat. */
+/** Sidebar for SatoshiCore AI: what it is, quick prompts and clearing the chat. */
 export default function AssistantPanel() {
   const { messages, status } = useAssistant();
   useEffect(() => {
@@ -20,11 +20,11 @@ export default function AssistantPanel() {
 
   return (
     <section className="panel assistant-panel">
-      <PanelHeader title="MHTalk AI" />
+          <PanelHeader title="SatoshiCore AI" />
       <div className="panel__scroll">
         <div className="assistant-intro">
           <span className="assistant-avatar assistant-avatar--lg"><Sparkles size={30} /></span>
-          <h3>Ask MHTalk AI anything</h3>
+          <h3>Ask SatoshiCore AI anything</h3>
           <p>Get answers, ideas and drafts in a chat. Your AI chat stays on this device.</p>
           {status && !status.enabled ? (
             <div className="assistant-intro__warn">
@@ -35,7 +35,7 @@ export default function AssistantPanel() {
                   <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a>
                 </li>
                 <li>
-                  In the backend <code>.env</code> add <code>MHTALK_AI_API_KEY=your-key</code>
+                  In the backend <code>.env</code> add <code>SATOSHICORE_AI_API_KEY=your-key</code>
                 </li>
                 <li>Restart the backend</li>
               </ol>
@@ -59,7 +59,7 @@ export default function AssistantPanel() {
               className="row assistant-suggestion danger-text"
               onClick={() =>
                 confirmAction({
-                  title: "Clear MHTalk AI chat?",
+                  title: "Clear SatoshiCore AI chat?",
                   message: "This removes the AI conversation from this device.",
                   confirmLabel: "Clear chat",
                   danger: true,

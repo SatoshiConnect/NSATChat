@@ -1,14 +1,14 @@
 <div align="center">
 
-<img src="frontend/public/pwa-192.png" alt="MHTalk logo" width="88">
+<img src="frontend/public/pwa-192.png" alt="SatoshiCore logo" width="88">
 
-# MHTalk
+# SatoshiCore
 
 ### A real-time messenger in the style of WhatsApp, built and run in production by one developer
 
 Chats · groups · voice and video calls · status · stickers and GIFs · polls · view once · push notifications · installable app
 
-**[🌐 Try it live at mhtalk.duckdns.org](https://mhtalk.duckdns.org)** &nbsp;·&nbsp; [🎬 Demo video](docs/media/demo.mp4) &nbsp;·&nbsp; [📸 Screenshots](#-screenshots) &nbsp;·&nbsp; [🏗 Architecture](#-architecture)
+**[🌐 Try it live at chat.satoshicore.org](https://chat.satoshicore.org)** &nbsp;·&nbsp; [🎬 Demo video](docs/media/demo.mp4) &nbsp;·&nbsp; [📸 Screenshots](#-screenshots) &nbsp;·&nbsp; [🏗 Architecture](#-architecture)
 
 [![CI](https://github.com/MuhammadHaseeb3112/MHTalk/actions/workflows/django.yml/badge.svg)](https://github.com/MuhammadHaseeb3112/MHTalk/actions/workflows/django.yml)
 [![Deploy](https://github.com/MuhammadHaseeb3112/MHTalk/actions/workflows/deploy.yml/badge.svg)](https://github.com/MuhammadHaseeb3112/MHTalk/actions/workflows/deploy.yml)
@@ -31,7 +31,7 @@ Chats · groups · voice and video calls · status · stickers and GIFs · polls
 
 </div>
 
-> **Try it yourself:** open **[mhtalk.duckdns.org](https://mhtalk.duckdns.org)**, sign up with any phone number (no SMS needed), then open it in a second browser or on your phone with another account and start chatting. On a phone, choose **Install app** in the browser menu to get the home-screen app.
+> **Try it yourself:** open **[chat.satoshicore.org](https://chat.satoshicore.org)**, sign up with any phone number (no SMS needed), then open it in a second browser or on your phone with another account and start chatting. On a phone, choose **Install app** in the browser menu to get the home-screen app.
 
 ---
 
@@ -55,7 +55,7 @@ What this project demonstrates beyond the features themselves:
 - **WebRTC calling.** One-to-one and group calls (mesh, up to 8 people) with signalling over WebSockets, screen sharing, and short-lived TURN credentials minted by the server.
 - **Product polish.** A layout closely modelled on WhatsApp Web, a separate phone layout, light and dark themes, an in-browser photo editor (draw, text, shapes, blur, crop), offline support, and Web Push notifications that arrive even when the app is closed.
 - **Media pipeline.** Uploads up to 100 MB, videos trimmed on the server with ffmpeg (stream copy, no re-encode), a built-in photo editor, and an original sticker set generated from code (SVG → WebP).
-- **Web platform depth.** An installable PWA with its own service worker, Web Push, an offline shell, a version-aware "Update now / Later" prompt, and a **Web Share Target**, so photos, videos and GIFs can be shared into MHTalk from other apps on Android.
+- **Web platform depth.** An installable PWA with its own service worker, Web Push, an offline shell, a version-aware "Update now / Later" prompt, and a **Web Share Target**, so photos, videos and GIFs can be shared into SatoshiCore from other apps on Android.
 - **DevOps.** CI on every push, continuous deployment with a health check and **automatic rollback**, nightly backups uploaded to object storage with a 30-day lifecycle rule, uptime monitoring, production Dockerfiles, a Caddy reverse proxy with automatic HTTPS, and a step-by-step guide for a free Oracle Cloud deployment.
 
 ---
@@ -94,7 +94,7 @@ What this project demonstrates beyond the features themselves:
 - Search across all chats, starred messages, shared media / docs / links per chat and across all chats.
 
 ### Stickers, GIFs & emoji
-- **Sticker packs for everyone**: three original packs (MHTalk Buddy, Kitty and "Say it" with Salam, Shukriya, InshaAllah, LOL…), searchable by word, plus **Recent** and **My stickers**. Any image can be turned into a sticker, and stickers you receive can be saved with a long press.
+- **Sticker packs for everyone**: three original packs (SatoshiCore Buddy, Kitty and "Say it" with Salam, Shukriya, InshaAllah, LOL…), searchable by word, plus **Recent** and **My stickers**. Any image can be turned into a sticker, and stickers you receive can be saved with a long press.
 - **GIF search** (GIPHY) with quick chips (Haha, Love, Sad, Party…) and recent GIFs from your chats.
 - **Emoji search across every emoji** ("cry", "red heart", "pizza"), a WhatsApp-style panel docked under the composer on phones, and big-emoji messages.
 
@@ -111,9 +111,9 @@ What this project demonstrates beyond the features themselves:
 ### Status, privacy & app
 - **Status** (text / photo / video, 24 h) with audience control (my contacts, contacts except…, only share with…), viewers list and reactions. Videos can be **trimmed before posting** (status is limited to 60 seconds, like WhatsApp).
 - **Privacy**: last seen and online, profile photo, about, a read-receipts toggle, blocking (WhatsApp rules), and **delete my account**.
-- **Installable app (PWA)** with an offline shell, a small **"New version — Update now / Later"** card (also in Settings → App update, with release notes), and **Share → MHTalk** from other Android apps. **Web Push notifications** for messages and calls, even when the app is closed.
+- **Installable app (PWA)** with an offline shell, a small **"New version — Update now / Later"** card (also in Settings → App update, with release notes), and **Share → SatoshiCore** from other Android apps. **Web Push notifications** for messages and calls, even when the app is closed.
 - **Light / dark / system theme**, a WhatsApp-style phone layout (bottom tabs, floating buttons, press-and-hold menus) and the desktop WhatsApp-Web layout.
-- **MHTalk AI**: an assistant chat that works with free Google Gemini or Groq keys (OpenAI and Anthropic are also supported).
+- **SatoshiCore AI**: an assistant chat that works with free Google Gemini or Groq keys (OpenAI and Anthropic are also supported).
 
 ---
 
@@ -156,7 +156,7 @@ A few problems that shaped the design, and how they were solved:
 |---|---|
 | A message sent through one server process must reach users connected to another. | Every real-time event goes through a **Redis channel layer**; nothing lives in process memory, so workers can be added freely and WebSockets need no sticky sessions. |
 | Chat lists get slower as data grows (the classic N+1 query problem). | Each list endpoint runs a **fixed number of queries**, and tests fail if 2 chats and 6 chats ever need a different count. Read receipts for hundreds of messages are written in about 7 queries. |
-| Android keyboards (Gboard) refuse to insert GIFs and stickers into web pages: the browser does not accept rich content from the keyboard. | Built an **in-app emoji / GIF / sticker panel** like WhatsApp's, and registered MHTalk as a **Web Share Target** so content shared from other apps opens a "Send to…" picker. |
+| Android keyboards (Gboard) refuse to insert GIFs and stickers into web pages: the browser does not accept rich content from the keyboard. | Built an **in-app emoji / GIF / sticker panel** like WhatsApp's, and registered SatoshiCore as a **Web Share Target** so content shared from other apps opens a "Send to…" picker. |
 | A bad release should never take the live site down. | Deploys tag the running images first, then health-check the new version through the real HTTPS path; on failure the script **restores the previous commit and images** on its own. |
 | Users keep old versions open in their browser for days. | The service worker and a release-notes file let the app **detect a newer version**, show a short "Update now / Later" card, and swap versions without losing the session. |
 | Videos are large and status clips must be short. | Trimming happens **on the server with ffmpeg stream copy** (`-c copy`), which is fast and lossless; if trimming fails the original is kept. |
@@ -253,7 +253,7 @@ production). Templates: [`.env.example`](.env.example) and [`deploy/env.prod.exa
 | `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | Frontend served from another domain |
 | `TURN_URLS` + `TURN_SECRET` (or `TURN_USERNAME` / `TURN_PASSWORD`) | TURN relay for calls |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push (`python manage.py generate_vapid_keys`) |
-| `MHTALK_AI_PROVIDER`, `MHTALK_AI_API_KEY` | MHTalk AI (`gemini` and `groq` have free keys) |
+| `SATOSHICORE_AI_PROVIDER`, `SATOSHICORE_AI_API_KEY` | SatoshiCore AI (`gemini` and `groq` have free keys) |
 | `USE_S3_MEDIA`, `S3_*` | Store uploads in S3 / Cloudflare R2 / Backblaze B2 |
 | `THROTTLE_*` | Rate limits (auth, anonymous, user, invite links, link previews) |
 | `WEB_CONCURRENCY`, `DB_POOL_MAX_SIZE` | Worker processes and DB connections per worker |
@@ -404,13 +404,13 @@ docker-compose.prod.yml   production stack
 
 **Muhammad Haseeb**: backend and full-stack developer.
 
-I designed and built MHTalk end to end: the data model, the REST API and WebSocket protocol, the real-time and calling layers, the React interface, the test suite and the production deployment.
+I designed and built SatoshiCore end to end: the data model, the REST API and WebSocket protocol, the real-time and calling layers, the React interface, the test suite and the production deployment.
 
 **Skills shown here:** Python · Django · Django REST Framework · Django Channels · WebSockets · PostgreSQL · Redis · WebRTC · React · JavaScript · PWA / service workers · REST API design · system design · query optimisation · automated testing · Docker · CI/CD · GitHub Actions · Linux servers · Oracle Cloud · backups and monitoring.
 
 I'm open to backend and full-stack roles and to freelance projects.
 
-- Live app: [mhtalk.duckdns.org](https://mhtalk.duckdns.org)
+- Live app: [chat.satoshicore.org](https://chat.satoshicore.org)
 - GitHub: [@MuhammadHaseeb3112](https://github.com/MuhammadHaseeb3112)
 
 If you find this project useful, please ⭐ the repository.

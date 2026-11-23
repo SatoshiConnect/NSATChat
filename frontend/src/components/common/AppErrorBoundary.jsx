@@ -55,7 +55,7 @@ export default class AppErrorBoundary extends Component {
     return (
       <div className="app-crash">
         <img src="/pwa-192.png" alt="" width="64" height="64" />
-        <h1>MHTalk couldn't start</h1>
+        <h1>SatoshiCore couldn't start</h1>
         <p>Something went wrong while opening the app. Reloading usually fixes it.</p>
         <code>{String(error?.message || error).slice(0, 300)}</code>
         <div className="app-crash__actions">
