@@ -1264,3 +1264,7 @@
 .wallet-request-card__body span { color: var(--accent); font-size: 14px; font-weight: 700; }
 .wallet-request-card__body small { color: var(--text-muted); font-size: 11px; }
 .wallet-request-card__action { flex: none; color: var(--text-muted); }
+.wallet-receipt-card { display: flex; align-items: flex-start; gap: 11px; width: min(100%, 340px); min-width: 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--success, #128c62) 38%, var(--divider)); border-radius: 14px; background: color-mix(in srgb, var(--success, #128c62) 8%, var(--panel-raised)); color: var(--text); }
+.wallet-receipt-card .wallet-request-card__icon { background: color-mix(in srgb, var(--success, #128c62) 15%, transparent); color: var(--success, #128c62); }
+.wallet-receipt-card .wallet-request-card__body span { color: var(--success, #128c62); }
+.wallet-receipt-card__hash { overflow-wrap: anywhere; font-family: var(--font-mono, monospace); }

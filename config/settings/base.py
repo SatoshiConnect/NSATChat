@@ -25,6 +25,7 @@ FEATURE_FLAGS = {
     "ai_image_generation": config("FEATURE_AI_IMAGE_GENERATION", default=True, cast=bool),
     "google_contacts_sync": config("FEATURE_GOOGLE_CONTACTS_SYNC", default=True, cast=bool),
     "wallet_read_only": config("FEATURE_WALLET_READ_ONLY", default=True, cast=bool),
+    "wallet_send": config("FEATURE_WALLET_SEND", default=True, cast=bool),
     "experimental": config("FEATURE_EXPERIMENTAL", default=False, cast=bool),
 }
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -196,6 +197,7 @@ REST_FRAMEWORK = {
         # endpoint from contact harvesting while allowing large address books.
         "contact_sync": config("THROTTLE_CONTACT_SYNC", default="30/hour"),
         "wallet_read": config("THROTTLE_WALLET_READ", default="30/min"),
+        "wallet_send": config("THROTTLE_WALLET_SEND", default="10/hour"),
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),
         # Group invite link preview/join (per user).
         "invite": config("THROTTLE_INVITE", default="30/min"),

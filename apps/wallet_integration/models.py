@@ -30,4 +30,4 @@ class WalletLinkChallenge(models.Model):
 
     class Meta:
         db_table = "wallet_link_challenges"
-        indexes = [models.Index(fields=["user", "expires_at"])]
+        indexes = [models.Index(fields=["user", "expires_at"], name="wallet_link_user_exp_idx")]

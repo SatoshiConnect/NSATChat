@@ -1,7 +1,7 @@
 import { memo, useRef, useState } from "react";
 import { ArrowUpRight, Ban, ChevronDown, Download, FileText, Forward, Image as ImageIcon, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Pin, Play, Reply, RotateCw, Smile, Star, Video, Video as VideoIcon } from "lucide-react";
 import { mediaUrl } from "../../api/client";
-import { parseWalletRequestMessage } from "../../features/wallet/paymentRequest";
+import { parseWalletReceiptMessage, parseWalletRequestMessage } from "../../features/wallet/paymentRequest";
 import { emojiOnly } from "../../utils/emoji";
 import { clockTime, duration as formatDuration, fileSize } from "../../utils/format";
 import { attachmentKind, callSummary, messageKind, parseSpecial, previewText, URL_PATTERN } from "../../utils/messages";
@@ -301,6 +301,20 @@ function WalletRequestCard({ request, onOpen }) {
   );
 }
 
+function WalletReceiptCard({ receipt }) {
+  return (
+    <article className="wallet-receipt-card">
+      <span className="wallet-request-card__icon"><ArrowUpRight size={19} /></span>
+      <span className="wallet-request-card__body">
+        <strong>NSAT transfer confirmed</strong>
+        <span>{BigInt(receipt.amount).toLocaleString("en-US")} NSAT</span>
+        <small>To {receipt.address.slice(0, 8)}…{receipt.address.slice(-7)}{receipt.ledger ? ` · Ledger #${receipt.ledger}` : ""}</small>
+        <small className="wallet-receipt-card__hash">Tx {receipt.hash}</small>
+      </span>
+    </article>
+  );
+}
+
 const LONG_TEXT = 700;
 
 /** Very long messages show the start and a "Read more" link (WhatsApp). */
@@ -495,6 +509,7 @@ function MessageBubble({
   const first = attachments[0];
   const special = kind === "call" || kind === "status_reaction" || kind === "gif" ? parseSpecial(message.content) : null;
   const walletRequest = kind === "text" ? parseWalletRequestMessage(message.content) : null;
+  const walletReceipt = kind === "text" ? parseWalletReceiptMessage(message.content) : null;
   const caption = kind === "image" || kind === "video" ? message.content : "";
   const statusRef = message.status_ref && kind !== "status_reaction" ? message.status_ref : null;
   // A reply to a status that is only emoji shows them big, like WhatsApp.
@@ -587,6 +602,7 @@ function MessageBubble({
   }
 
   if (walletRequest) body = <WalletRequestCard request={walletRequest} onOpen={() => onAction("walletRequest", message, walletRequest)} />;
+  else if (walletReceipt) body = <WalletReceiptCard receipt={walletReceipt} />;
 
   const forwarded = message.forwarded_from && !message.is_deleted;
 

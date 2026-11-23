@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, ArrowDownLeft, ArrowLeft, ArrowUpRight, Check, Copy, QrCode, RefreshCw, ShieldCheck, WalletCards } from "lucide-react";
 import { walletApi } from "./api";
 import { useApp } from "../../components/layout/AppContext";
 import { toast } from "../../services/toast";
+import { generateWalletKeypair, readKeystoreMeta, saveEncryptedWallet, unlockEncryptedWallet } from "./keystore";
+import { buildSignedPayment, paymentPreflight, parsePositiveAmount } from "./transaction";
+import { createWalletReceiptMessage } from "./paymentRequest";
+import { sendText } from "../../store/actions";
 
 const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const ADDRESS_KEY = "satoshicore:messenger-wallet-address:v1";
@@ -11,10 +15,11 @@ const MAINNET = "NSAT Mainnet ; October 2026 ; bc3098829fffc717";
 function loadAddress() {
   try {
     const value = window.localStorage.getItem(ADDRESS_KEY) || "";
-    return ADDRESS_RE.test(value) ? value : "";
+    if (ADDRESS_RE.test(value)) return value;
   } catch {
-    return "";
+    // Continue with the encrypted keystore metadata when local storage is unavailable.
   }
+  return readKeystoreMeta()?.address || "";
 }
 
 function exactAmount(value) {
@@ -35,13 +40,26 @@ function formatDate(epoch) {
 
 /**
  * NSATChat's first-party wallet surface. This is a new Messenger feature, not
- * an embedded route from wallet.satoshicore.org. The server contract currently
- * supports authenticated read-only account and history queries only.
+ * an embedded route from wallet.satoshicore.org. Signing stays in this
+ * browser; authenticated server routes verify and relay signed Mainnet XDR.
  */
 export default function WalletPanel({ launch = null }) {
   const app = useApp();
   const [section, setSection] = useState(launch?.view === "send" ? "send" : launch?.view === "receive" ? "receive" : "overview");
   const [address, setAddress] = useState(loadAddress);
+  const [ownsWallet, setOwnsWallet] = useState(() => {
+    const ownedAddress = readKeystoreMeta()?.address;
+    return Boolean(ownedAddress && ownedAddress === loadAddress());
+  });
+  const [unlocked, setUnlocked] = useState(false);
+  const [keyFlow, setKeyFlow] = useState("");
+  const [pendingWallet, setPendingWallet] = useState(null);
+  const [recoveryKey, setRecoveryKey] = useState("");
+  const [walletPassword, setWalletPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [backupConfirmed, setBackupConfirmed] = useState(false);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyError, setKeyError] = useState("");
   const [addressInput, setAddressInput] = useState("");
   const [wallet, setWallet] = useState(null);
   const [qr, setQr] = useState("");
@@ -49,7 +67,15 @@ export default function WalletPanel({ launch = null }) {
   const [error, setError] = useState("");
   const [recipient, setRecipient] = useState("");
   const [requestAmount, setRequestAmount] = useState("");
+  const [sendAmount, setSendAmount] = useState("");
+  const [sendReview, setSendReview] = useState(null);
+  const [sendBusy, setSendBusy] = useState(false);
+  const [txStatus, setTxStatus] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const signingSecretRef = useRef("");
+  const postedReceiptHashesRef = useRef(new Set());
+
+  useEffect(() => () => { signingSecretRef.current = ""; }, []);
 
   useEffect(() => {
     let active = true;
@@ -57,6 +83,7 @@ export default function WalletPanel({ launch = null }) {
       if (!active) return;
       setSection(launch?.view === "send" ? "send" : launch?.view === "receive" ? "receive" : "overview");
       setRequestAmount(launch?.amount || "");
+      setSendAmount(launch?.amount || "");
       setRecipient(ADDRESS_RE.test(launch?.to || "") ? launch.to : "");
     });
     if (launch?.roomId && !launch?.to) {
@@ -134,6 +161,189 @@ export default function WalletPanel({ launch = null }) {
     }
   };
 
+  const beginCreateWallet = () => {
+    setKeyError("");
+    setRecoveryKey("");
+    setWalletPassword("");
+    setPasswordConfirm("");
+    setBackupConfirmed(false);
+    setPendingWallet(generateWalletKeypair());
+    setKeyFlow("create");
+  };
+
+  const persistWallet = async (secret) => {
+    setKeyBusy(true);
+    setKeyError("");
+    try {
+      const saved = await saveEncryptedWallet(secret, walletPassword);
+      signingSecretRef.current = secret;
+      setAddress(saved.address);
+      setOwnsWallet(true);
+      setUnlocked(true);
+      try { window.localStorage.setItem(ADDRESS_KEY, saved.address); } catch { /* Keystore remains the source of truth. */ }
+      setKeyFlow("");
+      setPendingWallet(null);
+      setRecoveryKey("");
+      setWalletPassword("");
+      setPasswordConfirm("");
+      setSection("overview");
+    } catch (failure) {
+      setKeyError(failure?.message === "wallet_password_invalid" ? "Use a password with at least 10 characters." : "The wallet could not be secured on this device. Check storage and try again.");
+    } finally {
+      setKeyBusy(false);
+    }
+  };
+
+  const submitCreateWallet = async (event) => {
+    event.preventDefault();
+    if (!pendingWallet || !backupConfirmed) return;
+    if (walletPassword !== passwordConfirm) {
+      setKeyError("The passwords do not match.");
+      return;
+    }
+    await persistWallet(pendingWallet.secret);
+  };
+
+  const submitRestoreWallet = async (event) => {
+    event.preventDefault();
+    setKeyError("");
+    if (walletPassword !== passwordConfirm) {
+      setKeyError("The passwords do not match.");
+      return;
+    }
+    await persistWallet(recoveryKey.trim().toUpperCase());
+  };
+
+  const submitUnlockWallet = async (event) => {
+    event.preventDefault();
+    setKeyBusy(true);
+    setKeyError("");
+    try {
+      const restored = await unlockEncryptedWallet(walletPassword);
+      signingSecretRef.current = restored.secret;
+      setUnlocked(true);
+      setWalletPassword("");
+      setKeyFlow("");
+    } catch {
+      setKeyError("That password did not unlock this wallet.");
+    } finally {
+      setKeyBusy(false);
+    }
+  };
+
+  const lockWallet = () => {
+    signingSecretRef.current = "";
+    setUnlocked(false);
+    setKeyFlow("");
+    setWalletPassword("");
+  };
+
+  const reviewSend = async (event) => {
+    event.preventDefault();
+    setError("");
+    setTxStatus(null);
+    if (!ownsWallet) { setError("This address is view-only. Restore or create a wallet you control to send NSAT."); return; }
+    if (!signingSecretRef.current || !unlocked) { setKeyError("Unlock your wallet before preparing a transfer."); setKeyFlow("unlock"); return; }
+    const destination = recipient.trim().toUpperCase();
+    let amount;
+    try { amount = parsePositiveAmount(sendAmount); }
+    catch (failure) { setError(failure.message === "amount_whole_number_required" ? "Enter a whole number of NSAT." : "Enter an amount greater than zero within the per transfer limit."); return; }
+    setSendBusy(true);
+    try {
+      const state = await walletApi.preflight(address, destination);
+      if (state.network !== MAINNET || state.source !== address || state.destination !== destination) throw new Error("The Mainnet account response did not match this transfer.");
+      const prepared = paymentPreflight({
+        sourceAddress: address,
+        destinationAddress: destination,
+        amount,
+        balance: state.balance,
+        sequence: state.sequence,
+        baseFee: state.fee,
+        baseReserve: state.base_reserve,
+        destinationExists: state.destination_exists,
+      });
+      setSendReview({ state, prepared, destination, amount: prepared.amount.toString() });
+    } catch (failure) {
+      const code = failure?.response?.data?.code;
+      const message = code === "source_account_not_found" ? "This wallet has no funded Mainnet account yet. Receive NSAT before sending." : code === "mainnet_unverified" ? "NSAT Mainnet could not be verified. Sending is paused." : code === "invalid_destination_address" ? "Enter a valid NSAT recipient address." : failure?.message || "Could not prepare this transfer.";
+      setError(message);
+    } finally { setSendBusy(false); }
+  };
+
+  const checkConfirmation = async (hash, submittedAt, { poll = false, transfer = null } = {}) => {
+    setTxStatus({ hash, state: "pending", submittedAt, transfer });
+    const deadline = Date.now() + (poll ? 90_000 : 12_000);
+    do {
+      try {
+        const result = await walletApi.confirmation(hash, submittedAt);
+        if (result.hash !== hash) throw new Error("Confirmation hash mismatch");
+        if (result.status === "confirmed" && result.success === true) {
+          setTxStatus({ hash, state: "confirmed", result, transfer });
+          setRefreshKey((value) => value + 1);
+          if (launch?.roomId && transfer && !postedReceiptHashesRef.current.has(hash)) {
+            postedReceiptHashesRef.current.add(hash);
+            const receipt = createWalletReceiptMessage({ hash, address: transfer.destination, amount: transfer.amount, ledger: result.ledger ?? "" });
+            void sendText(launch.roomId, receipt, null, { linkPreview: false });
+          }
+          return;
+        }
+        if (result.status === "failed" || (result.status === "confirmed" && result.success === false)) {
+          setTxStatus({ hash, state: "failed", result, transfer });
+          setRefreshKey((value) => value + 1);
+          return;
+        }
+        setTxStatus({ hash, state: result.status === "pending" ? "pending" : "unknown", result, submittedAt, transfer });
+        if (!poll || Date.now() >= deadline || ["unknown", "not_found"].includes(result.status)) return;
+      } catch {
+        setTxStatus((current) => current?.hash === hash ? { ...current, state: "unknown", submittedAt } : current);
+        if (!poll || Date.now() >= deadline) return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+    } while (Date.now() < deadline);
+    setTxStatus((current) => current?.hash === hash && current.state === "pending" ? { ...current, state: "unknown", submittedAt } : current);
+  };
+
+  const submitTransfer = async () => {
+    if (!sendReview || !signingSecretRef.current || !unlocked) return;
+    setSendBusy(true);
+    setError("");
+    let signed = null;
+    const submittedAt = Math.floor(Date.now() / 1000);
+    try {
+      const latest = await walletApi.preflight(address, sendReview.destination);
+      const previous = sendReview.state;
+      if (latest.network !== MAINNET || latest.source !== address || latest.destination !== sendReview.destination
+        || latest.balance !== previous.balance || latest.sequence !== previous.sequence
+        || latest.fee !== previous.fee || latest.base_reserve !== previous.base_reserve
+        || latest.destination_exists !== previous.destination_exists) {
+        setSendReview(null);
+        throw new Error("Account balance, sequence, network fee, or recipient state changed. Review the transfer again.");
+      }
+      signed = await buildSignedPayment({ secret: signingSecretRef.current, destinationAddress: sendReview.destination, preflight: sendReview.prepared });
+      const response = await walletApi.submit(signed.envelopeXdr);
+      if (!["PENDING", "DUPLICATE"].includes(String(response.status || "").toUpperCase())) {
+        if (response.status === "ERROR") {
+          setTxStatus({ hash: signed.hash, state: "failed", detail: "The NSAT node rejected this signed transaction." });
+          setSendReview(null);
+          return;
+        }
+        setTxStatus({ hash: signed.hash, state: "unknown", submittedAt });
+        setSendReview(null);
+        return;
+      }
+      setSendReview(null);
+      const transfer = { destination: sendReview.destination, amount: sendReview.amount };
+      setTxStatus({ hash: signed.hash, state: "pending", submittedAt, transfer });
+      void checkConfirmation(signed.hash, submittedAt, { poll: true, transfer });
+    } catch (failure) {
+      if (signed) {
+        // A timeout after submission may be ambiguous. Never sign a replacement or rebroadcast automatically.
+        setSendReview(null);
+        setTxStatus({ hash: signed.hash, state: "unknown", submittedAt, transfer: { destination: sendReview.destination, amount: sendReview.amount } });
+      } else setError(failure?.message || "The transfer was not signed or submitted.");
+    } finally { setSendBusy(false); }
+  };
+
   const actions = [
     { key: "send", label: "Send", icon: ArrowUpRight },
     { key: "receive", label: "Receive", icon: ArrowDownLeft },
@@ -158,21 +368,56 @@ export default function WalletPanel({ launch = null }) {
             <div className="wallet-native__mark"><WalletCards size={30} /></div>
             <p className="wallet-native__eyebrow">SATOSHICORE WALLET</p>
             <h1>Your NSAT wallet, inside chat</h1>
-            <p className="wallet-native__lead">View a public NSAT address and its on-chain activity without leaving Messenger.</p>
+            <p className="wallet-native__lead">Create a device-secured wallet, restore one, or watch a public address.</p>
+            {!keyFlow ? <div className="wallet-native__key-actions">
+              <button type="button" className="btn btn--primary" onClick={beginCreateWallet}>Create new wallet</button>
+              <button type="button" className="btn btn--secondary" onClick={() => { setKeyError(""); setKeyFlow("restore"); }}>Restore with recovery key</button>
+              <button type="button" className="wallet-native__text-button" onClick={() => setKeyFlow("watch")}>View a public address</button>
+            </div> : null}
+
+            {keyFlow === "create" && pendingWallet ? <form className="wallet-native__key-form" onSubmit={submitCreateWallet}>
+              <h2>Back up your recovery key</h2>
+              <p>This key controls the wallet. Anyone with it can spend the funds. Save it somewhere private; it will only be shown here now.</p>
+              <code className="wallet-native__recovery-key">{pendingWallet.secret}</code>
+              <label className="wallet-native__check"><input type="checkbox" checked={backupConfirmed} onChange={(event) => setBackupConfirmed(event.target.checked)} /> I saved this recovery key somewhere safe.</label>
+              <label>Device password<input type="password" autoComplete="new-password" minLength={10} value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} placeholder="At least 10 characters" required /></label>
+              <label>Confirm password<input type="password" autoComplete="new-password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} required /></label>
+              <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => { setKeyFlow(""); setPendingWallet(null); }}>Cancel</button><button type="submit" className="btn btn--primary" disabled={!backupConfirmed || keyBusy}>{keyBusy ? "Securing…" : "Secure wallet"}</button></div>
+            </form> : null}
+
+            {keyFlow === "restore" ? <form className="wallet-native__key-form" onSubmit={submitRestoreWallet}>
+              <h2>Restore wallet</h2>
+              <label>Recovery key<input value={recoveryKey} onChange={(event) => setRecoveryKey(event.target.value)} placeholder="S…" autoCapitalize="characters" autoComplete="off" spellCheck="false" required /></label>
+              <label>Create device password<input type="password" autoComplete="new-password" minLength={10} value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
+              <label>Confirm password<input type="password" autoComplete="new-password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} required /></label>
+              <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setKeyFlow("")}>Cancel</button><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Restoring…" : "Restore wallet"}</button></div>
+            </form> : null}
+
+            {keyFlow === "unlock" ? <form className="wallet-native__key-form" onSubmit={submitUnlockWallet}>
+              <h2>Unlock wallet</h2>
+              <label>Device password<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
+              <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setKeyFlow("")}>Cancel</button><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button></div>
+            </form> : null}
+
+            {keyFlow === "watch" ? <>
             <form className="wallet-native__address-form" onSubmit={saveAddress}>
               <label htmlFor="native-wallet-address">NSAT public address</label>
               <input id="native-wallet-address" value={addressInput} onChange={(event) => setAddressInput(event.target.value)} placeholder="G…" autoCapitalize="characters" autoComplete="off" spellCheck="false" />
               <button type="submit" className="btn btn--primary">View wallet</button>
             </form>
-            <p className="wallet-native__privacy"><ShieldCheck size={16} /> This is a public address only. Never enter a seed phrase or private key here.</p>
+            <button type="button" className="wallet-native__text-button" onClick={() => setKeyFlow("")}>Back</button>
+            <p className="wallet-native__privacy"><ShieldCheck size={16} /> This view-only mode never asks for a recovery key.</p>
+            </> : null}
+            {keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}
             {error ? <p className="wallet-native__error" role="alert">{error}</p> : null}
-            <p className="wallet-native__availability">Native wallet creation and transaction signing are not available in this build yet.</p>
+            <p className="wallet-native__availability">Your recovery key stays on this device. Transfers are signed locally and are public and irreversible.</p>
           </div>
         ) : (
           <>
             <div className="wallet-native__account-row">
               <div><span className="wallet-native__eyebrow">YOUR NSAT ADDRESS</span><strong title={address}>{shortAddress(address)}</strong></div>
               <button type="button" className="wallet-native__icon-button" aria-label="Copy address" onClick={copyAddress}><Copy size={17} /></button>
+              {ownsWallet ? <button type="button" className="wallet-native__lock-button" onClick={() => unlocked ? lockWallet() : (setKeyError(""), setKeyFlow("unlock"))}>{unlocked ? "Lock" : "Unlock"}</button> : null}
             </div>
 
             <section className="wallet-native__balance-card" aria-label="Wallet balance">
@@ -222,14 +467,25 @@ export default function WalletPanel({ launch = null }) {
                 <div className="wallet-native__section-title"><h2>Send NSAT</h2></div>
                 {recipient ? <p className="wallet-native__recipient">Chat recipient <code>{shortAddress(recipient)}</code></p> : null}
                 {requestAmount ? <p className="wallet-native__recipient">Requested amount <strong>{exactAmount(requestAmount)} NSAT</strong></p> : null}
-                <div className="wallet-native__notice"><ShieldCheck size={18} /><span>On-chain sending is not enabled in NSATChat yet. This server currently supports verified balance and activity reads only. No transfer will be submitted from this screen.</span></div>
-                <p className="wallet-native__availability">A native send flow needs local key creation or recovery, transaction review, and device-side signing before it can safely send NSAT.</p>
+                {ownsWallet ? <form className="wallet-native__send-form" onSubmit={reviewSend}>
+                  <label>Recipient NSAT address<input value={recipient} onChange={(event) => setRecipient(event.target.value.toUpperCase())} placeholder="G…" autoCapitalize="characters" autoComplete="off" spellCheck="false" required /></label>
+                  <label>Amount (whole NSAT)<input inputMode="numeric" value={sendAmount} onChange={(event) => setSendAmount(event.target.value)} placeholder="0" required /></label>
+                  {!unlocked ? <button type="button" className="btn btn--secondary" onClick={() => setKeyFlow("unlock")}>Unlock wallet to send</button> : <button type="submit" className="btn btn--primary" disabled={sendBusy}>{sendBusy ? "Checking Mainnet…" : "Review transfer"}</button>}
+                </form> : <div className="wallet-native__notice"><ShieldCheck size={18} /><span>This is a view-only address. Restore or create a wallet you control to send NSAT.</span></div>}
+                <p className="wallet-native__availability">The transfer is signed on this device. Before signing, NSATChat checks the Mainnet identity, live fee, latest sequence and balance, recipient address, and reserve requirement.</p>
+                {error ? <p className="wallet-native__error" role="alert">{error}</p> : null}
+                {sendReview ? <div className="wallet-native__review" role="dialog" aria-modal="true" aria-label="Review NSAT transfer">
+                  <h3>Review transfer</h3><dl><div><dt>To</dt><dd>{sendReview.destination}</dd></div><div><dt>Amount</dt><dd>{exactAmount(sendReview.amount)} NSAT</dd></div><div><dt>Network fee</dt><dd>{exactAmount(sendReview.prepared.fee)} NSAT</dd></div><div><dt>Total debit</dt><dd>{exactAmount(sendReview.prepared.total.toString())} NSAT</dd></div><div><dt>Network</dt><dd>Verified NSAT Mainnet</dd></div>{sendReview.prepared.create ? <div><dt>Account setup</dt><dd>Create new recipient account</dd></div> : null}</dl>
+                  {sendReview.prepared.create ? <p>The recipient address has no account yet. This transfer will create one and must meet the current Mainnet reserve requirement.</p> : null}
+                  <p>Transfers are public and irreversible. Check the full recipient address before approving.</p>
+                  <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setSendReview(null)}>Cancel</button><button type="button" className="btn btn--primary" onClick={submitTransfer} disabled={sendBusy}>{sendBusy ? "Signing and submitting…" : "Confirm and send"}</button></div>
+                </div> : null}
+                {txStatus ? <div className={`wallet-native__tx-status is-${txStatus.state}`} role="status"><strong>{txStatus.state === "confirmed" ? "Confirmed on Mainnet" : txStatus.state === "failed" ? "Transfer failed" : txStatus.state === "pending" ? "Waiting for Mainnet confirmation…" : "Status unknown — do not send again yet"}</strong><code>{txStatus.hash}</code>{txStatus.result?.ledger ? <span>Ledger #{txStatus.result.ledger}</span> : null}{txStatus.result?.result_code ? <span>{txStatus.result.result_code}</span> : null}{["unknown", "pending"].includes(txStatus.state) ? <button type="button" className="wallet-native__text-button" onClick={() => checkConfirmation(txStatus.hash, txStatus.submittedAt, { transfer: txStatus.transfer })}>Check status</button> : null}</div> : null}
               </section>
             ) : null}
 
-            <button type="button" className="wallet-native__change" onClick={() => { try { window.localStorage.removeItem(ADDRESS_KEY); } catch { /* ignore */ } setAddress(""); setWallet(null); setQr(""); setSection("overview"); }}>
-              Change or clear viewed address
-            </button>
+            {keyFlow === "unlock" ? <form className="wallet-native__inline-unlock" onSubmit={submitUnlockWallet}><label>Device password<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button>{keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}</form> : null}
+            {ownsWallet ? <button type="button" className="wallet-native__change" onClick={lockWallet}>Lock this device wallet</button> : <button type="button" className="wallet-native__change" onClick={() => { try { window.localStorage.removeItem(ADDRESS_KEY); } catch { /* ignore */ } setAddress(""); setWallet(null); setQr(""); setSection("overview"); }}>Change or clear viewed address</button>}
           </>
         )}
       </div>

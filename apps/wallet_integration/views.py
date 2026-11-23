@@ -1,8 +1,9 @@
-"""Messenger's read-only wallet view and ownership-proof bridge.
+"""Messenger wallet reads, signed-transaction relay, and ownership-proof bridge.
 
 Public watch addresses are request-scoped. A separate wallet-origin proof flow
-stores only an address whose NSAT key signed a short-lived challenge. Neither
-path accepts, stores, signs, or broadcasts a transaction.
+stores only an address whose NSAT key signed a short-lived challenge. The
+transaction relay accepts only a signed XDR envelope; private keys never reach
+the server.
 """
 
 import base64
@@ -45,8 +46,10 @@ def _decode_wallet_public_key(address):
     if not isinstance(address, str) or not ADDRESS_RE.fullmatch(address):
         return None
     try:
-        encoded = address[1:]
-        raw = base64.b32decode(encoded + "=" * (-len(encoded) % 8))
+        # StrKey encodes the version byte as the leading Base32 bits. The
+        # visible leading "G" is part of the encoded payload; it must not be
+        # stripped before decoding.
+        raw = base64.b32decode(address + "=" * (-len(address) % 8))
     except (binascii.Error, ValueError):
         return None
     if len(raw) != 35 or raw[0] != 48:
@@ -223,6 +226,219 @@ def _get_json(url):
     if not isinstance(payload, dict):
         raise ValueError("unexpected upstream response")
     return payload
+
+
+def _post_json(url, payload):
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "SatoshiCore-Messenger/1.0",
+        },
+    )
+    with urlopen(request, timeout=12) as response:
+        raw = response.read(65_537)
+    if len(raw) > 65_536:
+        raise ValueError("upstream response too large")
+    result = json.loads(raw.decode("utf-8"))
+    if not isinstance(result, dict):
+        raise ValueError("unexpected upstream response")
+    return result
+
+
+def _u32(value):
+    return int(value).to_bytes(4, "big")
+
+
+def _verify_signed_payment_envelope(envelope):
+    """Accept only one-signer NSAT V0 native payment/create-account XDR."""
+    raw = base64.b64decode(envelope, validate=True)
+    if base64.b64encode(raw).decode("ascii") != envelope:
+        raise ValueError("non-canonical base64")
+    offset = 0
+
+    def take(size):
+        nonlocal offset
+        if size < 0 or offset + size > len(raw):
+            raise ValueError("truncated envelope")
+        result = raw[offset:offset + size]
+        offset += size
+        return result
+
+    def uint32():
+        return int.from_bytes(take(4), "big")
+
+    if uint32() != 0:  # TransactionEnvelopeType::ENVELOPE_TYPE_TX_V0
+        raise ValueError("unsupported transaction envelope")
+    body_start = offset
+    source = take(32)
+    fee = uint32()
+    sequence = int.from_bytes(take(8), "big", signed=True)
+    if fee <= 0 or sequence <= 0 or uint32() != 0 or uint32() != 0 or uint32() != 1:
+        raise ValueError("unsupported transaction fields")
+    if uint32() != 1 or uint32() != 0 or take(32) != source:
+        raise ValueError("unsupported operation source")
+    operation_type = uint32()
+    if operation_type not in {0, 1}:  # CREATE_ACCOUNT / PAYMENT
+        raise ValueError("unsupported operation")
+    if uint32() != 0:
+        raise ValueError("unsupported destination key type")
+    destination = take(32)
+    if operation_type == 1 and uint32() != 0:  # native asset only
+        raise ValueError("unsupported asset")
+    amount = int.from_bytes(take(16), "big", signed=True)
+    if amount <= 0 or amount > (2**63 - 1) or uint32() != 0:
+        raise ValueError("invalid amount or transaction extension")
+    tx_body = raw[body_start:offset]
+    if uint32() != 1 or take(4) != source[-4:] or uint32() != 64:
+        raise ValueError("invalid transaction signature envelope")
+    signature = take(64)
+    if offset != len(raw):
+        raise ValueError("unexpected transaction envelope tail")
+    network_hash = hashlib.sha256(MAINNET_ID.encode("utf-8")).digest()
+    payload = hashlib.sha256(network_hash + _u32(2) + _u32(0) + tx_body).digest()
+    try:
+        Ed25519PublicKey.from_public_bytes(source).verify(signature, payload)
+    except (ValueError, InvalidSignature) as error:
+        raise ValueError("invalid transaction signature") from error
+    return {"amount": amount, "fee": fee}
+
+
+def _verified_mainnet():
+    network = _get_json(f"{GATEWAY}/api/v1/network/status")
+    return network if network.get("network") == MAINNET_ID and network.get("core") == "ok" else None
+
+
+def _safe_network_failure(error):
+    if isinstance(error, HTTPError):
+        return Response({"code": "wallet_gateway_rejected"}, status=status.HTTP_502_BAD_GATEWAY)
+    return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+class WalletPreflightAPIView(APIView):
+    """Read fresh source/destination and fee state needed to review a payment."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_scope = "wallet_read"
+
+    def get(self, request):
+        source = str(request.query_params.get("source", "")).strip().upper()
+        destination = str(request.query_params.get("destination", "")).strip().upper()
+        if not ADDRESS_RE.fullmatch(source) or not _decode_wallet_public_key(source):
+            return Response({"code": "invalid_source_address"}, status=status.HTTP_400_BAD_REQUEST)
+        if not ADDRESS_RE.fullmatch(destination) or not _decode_wallet_public_key(destination):
+            return Response({"code": "invalid_destination_address"}, status=status.HTTP_400_BAD_REQUEST)
+        if source == destination:
+            return Response({"code": "self_transfer_not_allowed"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            network = _verified_mainnet()
+            if not network:
+                return Response({"code": "mainnet_unverified"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            account, recipient, chain = (
+                _get_json(f"{GATEWAY}/api/v1/account?acc={source}"),
+                _get_json(f"{GATEWAY}/api/v1/account?acc={destination}"),
+                _get_json(f"{GATEWAY}/api/v1/chain/info"),
+            )
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            return _safe_network_failure(error)
+
+        info = chain.get("info") if isinstance(chain.get("info"), dict) else {}
+        ledger = info.get("ledger") if isinstance(info.get("ledger"), dict) else {}
+        fee, reserve = ledger.get("baseFee"), ledger.get("baseReserve")
+        if info.get("network") != MAINNET_ID or not isinstance(fee, int) or isinstance(fee, bool) or fee <= 0:
+            return Response({"code": "mainnet_unverified"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not isinstance(reserve, (int, str)) or not re.fullmatch(r"\d+", str(reserve)):
+            return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        account_status = account.get("status")
+        if account_status == "not_found":
+            return Response({"code": "source_account_not_found"}, status=status.HTTP_409_CONFLICT)
+        balance, sequence = account.get("balance128", account.get("balance")), account.get("seqnum")
+        source_id = account.get("id")
+        if account_status != "ok" or not isinstance(source_id, str) or source_id.upper() != source:
+            return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not isinstance(balance, (str, int)) or not re.fullmatch(r"\d+", str(balance)):
+            return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if not isinstance(sequence, (str, int)) or not re.fullmatch(r"\d+", str(sequence)):
+            return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        destination_exists = recipient.get("status") == "ok"
+        recipient_id = recipient.get("id")
+        if destination_exists and (not isinstance(recipient_id, str) or recipient_id.upper() != destination):
+            return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        if recipient.get("status") not in {"ok", "not_found"}:
+            return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({
+            "network": MAINNET_ID,
+            "ledger": network.get("ledger") if isinstance(network.get("ledger"), int) else None,
+            "source": source,
+            "balance": str(balance),
+            "sequence": str(sequence),
+            "fee": fee,
+            "base_reserve": str(reserve),
+            "destination": destination,
+            "destination_exists": destination_exists,
+        })
+
+
+class WalletSubmitAPIView(APIView):
+    """Relay one user-approved signed envelope to the verified NSAT gateway."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_scope = "wallet_send"
+
+    def post(self, request):
+        if not settings.FEATURE_FLAGS.get("wallet_send", False):
+            raise NotFound()
+        envelope = request.data.get("envelope_xdr") if isinstance(request.data, dict) else None
+        if not isinstance(envelope, str) or len(envelope) > 65_536 or not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", envelope):
+            return Response({"code": "invalid_signed_envelope"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            _verify_signed_payment_envelope(envelope)
+        except (binascii.Error, ValueError):
+            return Response({"code": "invalid_signed_envelope"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            if not _verified_mainnet():
+                return Response({"code": "mainnet_unverified"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            result = _post_json(f"{GATEWAY}/api/v1/tx", {"envelope_xdr": envelope})
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            return _safe_network_failure(error)
+        result_status = str(result.get("status", "UNKNOWN")).upper()
+        if result_status not in {"PENDING", "DUPLICATE", "ERROR", "TRY_AGAIN_LATER", "FILTERED"}:
+            result_status = "UNKNOWN"
+        return Response({"status": result_status})
+
+
+class WalletConfirmationAPIView(APIView):
+    """Return the indexer's verdict for the exact submitted transaction hash."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_scope = "wallet_read"
+
+    def get(self, request, tx_hash):
+        submitted_at = str(request.query_params.get("submitted_at", ""))
+        if not HASH_RE.fullmatch(tx_hash) or not re.fullmatch(r"\d{1,12}", submitted_at):
+            return Response({"code": "invalid_confirmation_query"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = _get_json(f"{INDEXER}/v1/confirmations/{tx_hash}?submitted_at={submitted_at}")
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            return _safe_network_failure(error)
+        status_value = str(result.get("status", "unknown"))
+        if status_value not in {"confirmed", "failed", "pending", "unknown", "not_found"}:
+            status_value = "unknown"
+        if str(result.get("hash", "")).lower() != tx_hash:
+            return Response({"code": "confirmation_hash_mismatch"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({
+            "hash": tx_hash,
+            "status": status_value,
+            "success": result.get("success") if isinstance(result.get("success"), bool) else None,
+            "result_code": str(result.get("result_code", ""))[:64],
+            "ledger": result.get("ledger") if isinstance(result.get("ledger"), int) else None,
+            "reason": str(result.get("reason", ""))[:128],
+        })
 
 
 def _safe_history(payload):
