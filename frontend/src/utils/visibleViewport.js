@@ -88,15 +88,17 @@ export function startVisibleViewportSync(windowRef = window, documentRef = docum
       visualViewport && !pinchZoomed && visualViewport.height < baselineHeight - 1,
     );
 
-    // iOS Safari can keep visualViewport shorter than clientHeight after the
-    // keyboard closes. Use a no-focus visual viewport baseline and explicitly
-    // clear keyboard state on blur. Pinch zoom is not keyboard resizing.
+    // iOS Safari may report a visual viewport smaller than the layout
+    // viewport after keyboard dismissal. Compare against the visual viewport
+    // size observed while no editable field is focused, not clientHeight.
+    // Pinch zoom is a separate viewport change and must never activate the
+    // keyboard safe-area state.
     if (!focused) {
       keyboardWasOpen = false;
       if (visualViewport && !pinchZoomed) baselineHeight = visualViewport.height;
     } else if (viewportReduced) {
       keyboardWasOpen = true;
-    } else {
+    } else if (!viewportReduced) {
       keyboardWasOpen = false;
     }
     const keyboardOpen = focused && keyboardWasOpen && viewportReduced;

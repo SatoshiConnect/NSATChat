@@ -42,20 +42,7 @@ function makeEnvironment() {
   return { windowRef, visualViewport, documentRef, styles };
 }
 
-test("pinch zoom on a focused input is not treated as an open keyboard", () => {
-  const { windowRef, visualViewport, documentRef, styles } = makeEnvironment();
-  documentRef.activeElement = { matches: (selector) => selector.includes("textarea") };
-  visualViewport.height = 520;
-  visualViewport.scale = 1.5;
-  const stop = startVisibleViewportSync(windowRef, documentRef);
-
-  assert.equal(styles.get("--app-viewport-height"), "800px");
-  assert.equal(styles.get("--app-viewport-top"), "0px");
-  assert.equal(styles.get("--composer-safe-area-bottom"), "env(safe-area-inset-bottom, 0px)");
-  stop();
-});
-
-test("tracks the visual viewport and pans the mobile shell only while an editable field has focus", () => {
+test("tracks keyboard viewport and clears keyboard offsets after blur even if Safari retains a reduced viewport", () => {
   const { windowRef, visualViewport, documentRef, styles } = makeEnvironment();
   const stop = startVisibleViewportSync(windowRef, documentRef);
   assert.equal(styles.get("--app-viewport-height"), "800px");
@@ -74,15 +61,39 @@ test("tracks the visual viewport and pans the mobile shell only while an editabl
   documentRef.activeElement = null;
   documentRef.dispatch("focusout");
   windowRef.flushFrames();
-  // Blur can happen before the keyboard animation finishes; retain the
-  // keyboard safe-area state until the visible viewport grows back.
-  assert.equal(styles.get("--app-viewport-top"), "36px");
-  assert.equal(styles.get("--composer-safe-area-bottom"), "0px");
+  assert.equal(styles.get("--app-viewport-top"), "0px");
+  assert.equal(styles.get("--composer-safe-area-bottom"), "env(safe-area-inset-bottom, 0px)");
 
-  visualViewport.height = 800;
+  // Some iOS Safari versions keep the visual viewport smaller than the layout
+  // viewport after dismissing the keyboard. It must not remain classified as
+  // an open keyboard or leave composer padding disabled.
+  visualViewport.height = 700;
   visualViewport.offsetTop = 0;
   visualViewport.dispatch("resize");
   windowRef.flushFrames();
+  assert.equal(styles.get("--app-viewport-top"), "0px");
+  assert.equal(styles.get("--composer-safe-area-bottom"), "env(safe-area-inset-bottom, 0px)");
+
+  documentRef.activeElement = { matches: (selector) => selector.includes("textarea") };
+  documentRef.dispatch("focusin");
+  windowRef.flushFrames();
+  assert.equal(styles.get("--composer-safe-area-bottom"), "env(safe-area-inset-bottom, 0px)");
+  visualViewport.height = 400;
+  visualViewport.dispatch("resize");
+  windowRef.flushFrames();
+  assert.equal(styles.get("--composer-safe-area-bottom"), "0px");
+  stop();
+});
+
+test("does not treat pinch zoom on a focused input as a keyboard resize", () => {
+  const { windowRef, visualViewport, documentRef, styles } = makeEnvironment();
+  const stop = startVisibleViewportSync(windowRef, documentRef);
+  documentRef.activeElement = { matches: (selector) => selector.includes("textarea") };
+  visualViewport.height = 420;
+  visualViewport.scale = 1.5;
+  visualViewport.dispatch("resize");
+  windowRef.flushFrames();
+  assert.equal(styles.get("--app-viewport-height"), "800px");
   assert.equal(styles.get("--app-viewport-top"), "0px");
   assert.equal(styles.get("--composer-safe-area-bottom"), "env(safe-area-inset-bottom, 0px)");
   stop();
