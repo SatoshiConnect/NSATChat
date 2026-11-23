@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.accounts.apps.AccountsConfig",
     "apps.chat",
     "apps.status",
+    "apps.social",
     "apps.calls",
     "apps.notifications",
     "apps.wallet_integration.apps.WalletIntegrationConfig",
