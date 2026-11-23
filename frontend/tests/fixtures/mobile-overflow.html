@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Mobile overflow layout fixture</title>
+    <link rel="stylesheet" href="../../src/styles/index.css" />
+    <style>
+      html, body, #root { min-height: 100%; }
+      .fixture-note { position: fixed; top: 0; left: 0; z-index: 100; font: 10px monospace; }
+      .fixture-screen { display: none; }
+      .fixture-screen.is-active { display: flex; }
+      .fixture-screen .conversation { flex: 1; }
+      .fixture-screen .conversation__body { overflow-x: visible; }
+      .fixture-screen .messages { overflow-x: visible; }
+      .fixture-screen .messages__inner { justify-content: flex-start; }
+      .fixture-screen .msg-row { flex: none; }
+      .fixture-screen .composer { flex: none; }
+      .fixture-screen .msg-row__inner { width: fit-content; }
+      .fixture-screen .composer__input { border: 0; }
+      .fixture-screen .assistant-chat { display: flex; }
+      .fixture-screen .ai-privacy-note { min-width: 0; overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body>
+    <main id="root">
+      <div class="app is-mobile-main">
+        <aside class="sidebar" aria-hidden="true"></aside>
+        <nav class="rail" aria-label="Primary navigation"></nav>
+        <div class="main">
+          <section class="conversation fixture-screen" data-screen="chat">
+            <header class="conv-header">
+              <div class="conv-header__who"><div class="conv-header__text"><span class="conv-header__title">Contact with a long display name</span><span class="conv-header__subtitle">online</span></div></div>
+              <div class="conv-header__actions"><button class="icon-btn" aria-label="Call">☎</button><button class="icon-btn" aria-label="More">⋯</button></div>
+            </header>
+            <div class="conversation__body"><div class="messages"><div class="messages__inner">
+              <div class="msg-row msg-row--out"><div class="msg-row__inner"><div class="bubble bubble--out"><span class="bubble__text">ข้อความภาษาไทยต่อเนื่องทดสอบการตัดบรรทัด https://example.invalid/very/long/url/that/must/wrap/inside/the/chat/bubble/without/causing/horizontal/overflow</span></div></div></div>
+              <div class="msg-row msg-row--out"><div class="msg-row__inner"><div class="bubble bubble--out"><div class="contact-card"><div class="contact-card__main">Contact card content at a narrow phone width</div></div></div></div></div>
+              <div class="msg-row msg-row--out"><div class="msg-row__inner"><div class="bubble bubble--out"><div class="status-reaction"><div class="status-reaction__preview"><span>Long status message preview</span></div></div></div></div></div>
+              <div class="msg-row msg-row--out"><div class="msg-row__inner"><div class="bubble bubble--voice"><div class="audio">Audio message controls</div></div></div></div>
+            </div></div></div>
+            <footer class="composer"><div class="composer__row"><div class="composer__pill"><button class="icon-btn" aria-label="Emoji">☺</button><textarea id="chat-input" class="composer__input" aria-label="Type a message" placeholder="Message"></textarea><button class="icon-btn" aria-label="Attach">＋</button><button class="icon-btn" aria-label="Camera">◉</button></div><button class="send-btn composer__action composer__mic" aria-label="Microphone">🎙</button><button class="send-btn composer__action" aria-label="Send" hidden>➤</button></div></footer>
+          </section>
+          <section class="conversation assistant-chat fixture-screen" data-screen="ai">
+            <header class="conv-header"><div class="conv-header__who"><div class="conv-header__text"><span class="conv-header__title">SatoshiCore AI</span></div></div></header>
+            <div class="conversation__body"><div class="messages"><div class="messages__inner"><div class="msg-row msg-row--out"><div class="msg-row__inner"><div class="bubble bubble--out"><span class="bubble__text ai-text">AI ข้อความยาวทดสอบ https://example.invalid/long/address/from/generated/content/to/verify/wrapping</span></div></div></div></div></div></div>
+            <form class="composer assistant-composer"><div class="ai-tool-row"><button class="btn ai-tool-trigger">Create image</button><span class="ai-privacy-note">Selected content is sent only when you submit a request to the assistant.</span></div><div class="composer__row"><div class="composer__pill"><button class="icon-btn" aria-label="Emoji">☺</button><textarea class="composer__input" aria-label="Ask SatoshiCore AI"></textarea><button class="icon-btn" aria-label="Paste">▣</button><button class="icon-btn" aria-label="Photo">▧</button><button class="icon-btn" aria-label="Camera">◉</button></div><button class="send-btn composer__action" aria-label="Send to SatoshiCore AI">➤</button></div></form>
+          </section>
+        </div>
+      </div>
+    </main>
+    <script>
+      const mode = new URLSearchParams(location.search).get("mode") || "chat";
+      document.querySelector(`[data-screen="${mode}"]`).classList.add("is-active");
+      const chatInput = document.getElementById("chat-input");
+      chatInput?.addEventListener("input", () => {
+        const typed = Boolean(chatInput.value.trim());
+        document.querySelector('[aria-label="Microphone"]').hidden = typed;
+        document.querySelector('[aria-label="Send"]').hidden = !typed;
+      });
+    </script>
+  </body>
+</html>
