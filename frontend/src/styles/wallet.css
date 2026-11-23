@@ -27,7 +27,7 @@
   background: var(--panel-bg);
 }
 .wallet-panel__back,
-.wallet-panel__open {
+.wallet-panel__secure-label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -37,6 +37,7 @@
   text-decoration: none;
   white-space: nowrap;
 }
+.wallet-panel__secure-label { color: var(--text-secondary); font-size: 12px; }
 .wallet-panel__back {
   padding: 0 8px;
   border: 0;
@@ -97,7 +98,7 @@
   }
   .wallet-panel__toolbar { min-height: 48px; padding: 5px 8px; }
   .wallet-panel__linkbar { padding: 5px 10px; }
-  .wallet-panel__open { font-size: 12px; }
+  .wallet-panel__secure-label { font-size: 11px; }
 }
 
 .wallet-hero {

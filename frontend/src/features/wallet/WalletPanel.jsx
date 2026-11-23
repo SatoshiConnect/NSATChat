@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, ExternalLink, WalletCards } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, WalletCards } from "lucide-react";
 import { walletApi } from "./api";
 import { useApp } from "../../components/layout/AppContext";
 import { toast } from "../../services/toast";
@@ -18,6 +18,9 @@ export default function WalletPanel({ launch = null }) {
   const [frameUrl, setFrameUrl] = useState(`${WALLET_ORIGIN}/messenger-embed/`);
   const [frameBusy, setFrameBusy] = useState(true);
   const [frameError, setFrameError] = useState("");
+  const frameRef = useRef(null);
+  const pendingLinkToken = useRef("");
+  const linkConfirmBusy = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -76,17 +79,75 @@ export default function WalletPanel({ launch = null }) {
     return () => { alive = false; };
   }, [launch]);
 
+  useEffect(() => {
+    const handleWalletMessage = async (event) => {
+      const proof = event.data;
+      if (event.origin !== WALLET_ORIGIN
+        || event.source !== frameRef.current?.contentWindow
+        || proof?.type !== "satoshicore:wallet-link-proof"
+        || typeof proof.token !== "string"
+        || proof.token !== pendingLinkToken.current
+        || !/^G[A-Z2-7]{55}$/.test(proof.address || "")
+        || typeof proof.signature !== "string"
+        || linkConfirmBusy.current) return;
+
+      linkConfirmBusy.current = true;
+      setLinkBusy(true);
+      try {
+        await walletApi.confirmLink({
+          token: proof.token,
+          address: proof.address,
+          signature: proof.signature,
+        });
+        const state = await walletApi.linkState();
+        setLinkedWallet(state);
+        frameRef.current?.contentWindow?.postMessage(
+          { type: "satoshicore:wallet-link-result", ok: true },
+          WALLET_ORIGIN,
+        );
+        pendingLinkToken.current = "";
+        toast.success("Wallet connected to Messenger.");
+      } catch (error) {
+        const code = error?.response?.data?.code;
+        frameRef.current?.contentWindow?.postMessage(
+          {
+            type: "satoshicore:wallet-link-result",
+            ok: false,
+            code: code === "wallet_link_expired" ? "expired" : "verification_failed",
+          },
+          WALLET_ORIGIN,
+        );
+      } finally {
+        linkConfirmBusy.current = false;
+        setLinkBusy(false);
+      }
+    };
+    window.addEventListener("message", handleWalletMessage);
+    return () => window.removeEventListener("message", handleWalletMessage);
+  }, []);
+
   const connectWallet = async () => {
     setLinkBusy(true);
     try {
       const result = await walletApi.startLink();
       const target = new URL(result.wallet_url);
-      if (target.origin !== WALLET_ORIGIN || target.pathname !== "/connect/messenger/") {
+      if (target.origin !== WALLET_ORIGIN || target.pathname !== "/messenger-embed/") {
         throw new Error("Invalid Wallet connection URL");
       }
-      // Ownership proof happens on the Wallet origin; the chat backend only
-      // receives the public address and a short-lived signature challenge.
-      window.location.assign(target.href);
+      const challenge = new URLSearchParams(target.hash.slice(1));
+      const token = challenge.get("token") || "";
+      const message = challenge.get("message") || "";
+      if (!/^[A-Za-z0-9_-]{43}$/.test(token) || !message.includes(`Challenge: ${token}`)) {
+        throw new Error("Invalid Wallet challenge");
+      }
+      // Keep the Wallet on its own origin inside the chat frame. Its key signs
+      // the one-use challenge; only that public proof returns to this page.
+      const embedded = new URL("/messenger-embed/", WALLET_ORIGIN);
+      embedded.hash = target.hash;
+      pendingLinkToken.current = token;
+      setFrameError("");
+      setFrameBusy(true);
+      setFrameUrl(embedded.href);
     } catch (error) {
       toast.error(error?.response?.data?.code === "wallet_link_unavailable"
         ? "Wallet linking is not available on this server version yet."
@@ -117,9 +178,7 @@ export default function WalletPanel({ launch = null }) {
           <ArrowLeft size={18} /> <span>Back to chat</span>
         </button>
         <div className="wallet-panel__title"><WalletCards size={19} /><strong>Wallet</strong></div>
-        <a className="wallet-panel__open" href={`${WALLET_ORIGIN}/`} target="_blank" rel="noreferrer">
-          Open separately <ExternalLink size={15} />
-        </a>
+        <span className="wallet-panel__secure-label">Wallet stays in chat</span>
       </header>
 
       <div className="wallet-panel__linkbar">
@@ -134,7 +193,7 @@ export default function WalletPanel({ launch = null }) {
           </button>
         ) : (
           <button type="button" className="btn btn--primary" onClick={connectWallet} disabled={linkBusy}>
-            {linkBusy ? "Opening Wallet…" : "Connect Wallet"}
+          {linkBusy ? "Preparing connection…" : "Connect Wallet"}
           </button>
         )}
       </div>
@@ -143,13 +202,14 @@ export default function WalletPanel({ launch = null }) {
       {frameBusy ? <div className="wallet-panel__loading" role="status">Opening your secure Wallet…</div> : null}
       <iframe
         key={frameUrl}
+        ref={frameRef}
         className={`wallet-panel__frame ${frameBusy ? "is-loading" : ""}`}
         src={frameUrl}
         title="SatoshiCore Wallet"
         referrerPolicy="strict-origin"
         allow="clipboard-read; clipboard-write"
-        onLoad={() => { setFrameBusy(false); setFrameError(""); }}
-        onError={() => { setFrameBusy(false); setFrameError("The Wallet site could not be loaded. Use “Open separately” to continue."); }}
+        onLoad={() => { setFrameBusy(false); setFrameError(""); setLinkBusy(false); }}
+        onError={() => { setFrameBusy(false); setLinkBusy(false); setFrameError("The Wallet could not be loaded. Check the network connection and retry."); }}
       />
     </section>
   );

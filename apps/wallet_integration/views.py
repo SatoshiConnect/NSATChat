@@ -37,7 +37,7 @@ MAINNET_ID = "NSAT Mainnet ; October 2026 ; bc3098829fffc717"
 ADDRESS_RE = re.compile(r"^G[A-Z2-7]{55}$")
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 LINK_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
-WALLET_URL = "https://wallet.satoshicore.org/connect/messenger/"
+WALLET_URL = "https://wallet.satoshicore.org/messenger-embed/"
 
 
 def _decode_wallet_public_key(address):
