@@ -10,6 +10,7 @@ services:
       # Keep the original HTTPS hostname/SNI but route its TCP connection to
       # Docker's host-gateway so the backend can reach the local TLS proxy.
       - "gateway.satoshicore.org:host-gateway"
+      - "satoshicore.org:host-gateway"
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0

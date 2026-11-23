@@ -523,10 +523,23 @@ class WalletReadAPIView(APIView):
                 "indexed_head": None,
             })
 
+        # The node-backed account endpoint currently returns an integer
+        # ``balance``; newer gateways may expose the exact decimal string as
+        # ``balance128``. Normalize either response to a string before JSON so
+        # JavaScript never rounds a value above Number.MAX_SAFE_INTEGER.
         balance = account.get("balance128")
+        if balance is None:
+            balance = account.get("balance")
         account_id = account.get("id")
-        if not isinstance(account_id, str) or account_id.upper() != address or not isinstance(balance, str) or not re.fullmatch(r"\d+", balance):
+        if (
+            not isinstance(account_id, str)
+            or account_id.upper() != address
+            or isinstance(balance, bool)
+            or not isinstance(balance, (str, int))
+            or not re.fullmatch(r"\d+", str(balance))
+        ):
             return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        balance = str(balance)
 
         history = []
         indexed_head = None
