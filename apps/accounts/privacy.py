@@ -195,6 +195,7 @@ def apply_user_privacy(data, user, ctx):
                 "display_name": DELETED_ACCOUNT_NAME,
                 "profile_picture": None,
                 "about": "",
+                "contact_phone": "",
                 "is_online": False,
                 "last_seen": None,
             })
@@ -207,6 +208,8 @@ def apply_user_privacy(data, user, ctx):
 
     if not isinstance(profile_data, dict) or profile is None:
         return data
+    # A user's optional, unverified contact number is only visible to them.
+    profile_data["contact_phone"] = ""
     if not can_see_photo(profile, owner_id, ctx):
         profile_data["profile_picture"] = None
     if not can_see_about(profile, owner_id, ctx):

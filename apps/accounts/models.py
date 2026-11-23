@@ -94,6 +94,10 @@ class Profile(models.Model):
         help_text="User status or bio.",
     )
 
+    # Optional unverified contact detail. It is separate from the account's
+    # login phone and must never be used for authentication or discovery.
+    contact_phone = models.CharField(max_length=20, blank=True, default="")
+
     last_seen = models.DateTimeField(
         default=timezone.now,
     )

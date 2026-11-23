@@ -116,6 +116,9 @@ export default function ProfilePanel() {
   const [editingEmail, setEditingEmail] = useState(false);
   const [emailDraft, setEmailDraft] = useState(me.email || "");
   const [savingEmail, setSavingEmail] = useState(false);
+  const [editingContactPhone, setEditingContactPhone] = useState(false);
+  const [contactPhoneDraft, setContactPhoneDraft] = useState(me.profile?.contact_phone || "");
+  const [savingContactPhone, setSavingContactPhone] = useState(false);
   const photo = me.profile?.profile_picture;
 
   async function update(fields, success) {
@@ -172,6 +175,19 @@ export default function ProfilePanel() {
     const ok = await update({ email }, email ? "Email updated" : "Email removed");
     setSavingEmail(false);
     if (ok) setEditingEmail(false);
+  }
+
+  async function saveContactPhone(event) {
+    event.preventDefault();
+    const contact_phone = contactPhoneDraft.trim();
+    if (contact_phone === (me.profile?.contact_phone || "")) {
+      setEditingContactPhone(false);
+      return;
+    }
+    setSavingContactPhone(true);
+    const ok = await update({ contact_phone }, contact_phone ? "Contact phone updated" : "Contact phone removed");
+    setSavingContactPhone(false);
+    if (ok) setEditingContactPhone(false);
   }
 
   const items = [
@@ -252,9 +268,41 @@ export default function ProfilePanel() {
         <div className="profile-field">
           <Phone size={20} className="profile-field__icon" />
           <div className="profile-field__body">
-            <span className="profile-field__label">Phone</span>
-            <div className="profile-field__value"><span>{me.phone_number ? formatPhone(me.phone_number) : <span className="profile-field__empty">Not added</span>}</span></div>
-            <span className="profile-field__hint">Phone number linked to your SatoshiCore account.</span>
+            <span className="profile-field__label">Login phone</span>
+            <div className="profile-field__value"><span>{me.phone_number ? formatPhone(me.phone_number) : <span className="profile-field__empty">Not linked</span>}</span></div>
+            <span className="profile-field__hint">Used to sign in to your account.</span>
+          </div>
+        </div>
+        <div className="profile-field">
+          <Phone size={20} className="profile-field__icon" />
+          <div className="profile-field__body">
+            <span className="profile-field__label">Contact phone · not verified</span>
+            {editingContactPhone ? (
+              <form className="profile-field__edit" onSubmit={saveContactPhone}>
+                <input
+                  type="tel"
+                  aria-label="Contact phone number"
+                  value={contactPhoneDraft}
+                  onChange={(event) => setContactPhoneDraft(event.target.value)}
+                  onKeyDown={(event) => event.key === "Escape" && setEditingContactPhone(false)}
+                  placeholder="+66812345678"
+                  maxLength={20}
+                  autoComplete="tel"
+                  autoFocus
+                />
+                <button type="submit" className="icon-btn" aria-label="Save contact phone" disabled={savingContactPhone}>
+                  {savingContactPhone ? <Spinner size={16} /> : <Check size={20} />}
+                </button>
+              </form>
+            ) : (
+              <div className="profile-field__value">
+                <span>{me.profile?.contact_phone ? formatPhone(me.profile.contact_phone) : <span className="profile-field__empty">Not added</span>}</span>
+                <button type="button" className="icon-btn" aria-label={me.profile?.contact_phone ? "Edit contact phone" : "Add contact phone"} onClick={() => { setContactPhoneDraft(me.profile?.contact_phone || ""); setEditingContactPhone(true); }}>
+                  <Pencil size={18} />
+                </button>
+              </div>
+            )}
+            <span className="profile-field__hint">Free to update. This number is private and is not used for sign-in or friend search.</span>
           </div>
         </div>
         <div className="profile-field">
