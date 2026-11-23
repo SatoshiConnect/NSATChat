@@ -20,14 +20,18 @@ class DigitalItemAdmin(admin.ModelAdmin):
 
     @admin.action(description="Approve selected marketplace items")
     def approve_items(self, request, queryset):
-        queryset.update(state=DigitalItem.State.APPROVED)
-        for item in queryset:
+        items = list(queryset)
+        for item in items:
+            item.state = DigitalItem.State.APPROVED
+            item.save(update_fields=("state", "updated_at"))
             MarketplaceAuditEvent.objects.create(actor=request.user, item=item, action="item.approved")
 
     @admin.action(description="Disable selected marketplace items")
     def disable_items(self, request, queryset):
-        queryset.update(state=DigitalItem.State.DISABLED)
-        for item in queryset:
+        items = list(queryset)
+        for item in items:
+            item.state = DigitalItem.State.DISABLED
+            item.save(update_fields=("state", "updated_at"))
             MarketplaceAuditEvent.objects.create(actor=request.user, item=item, action="item.disabled")
 
 

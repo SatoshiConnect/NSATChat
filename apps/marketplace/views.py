@@ -19,7 +19,7 @@ class CatalogAPIView(generics.ListAPIView):
     serializer_class = DigitalItemSerializer
 
     def get_queryset(self):
-        qs = DigitalItem.objects.filter(state=DigitalItem.State.APPROVED).select_related("creator", "creator__profile")
+        qs = DigitalItem.objects.filter(state=DigitalItem.State.APPROVED).select_related("creator", "creator__profile", "creator__creator_profile")
         kind = self.request.query_params.get("kind")
         query = self.request.query_params.get("q", "").strip()[:100]
         if kind in DigitalItem.Kind.values:
@@ -47,7 +47,7 @@ class InventoryAPIView(generics.ListAPIView):
     serializer_class = InventorySerializer
 
     def get_queryset(self):
-        return InventoryItem.objects.filter(owner=self.request.user).select_related("item", "item__creator")
+        return InventoryItem.objects.filter(owner=self.request.user).select_related("item", "item__creator", "item__creator__profile", "item__creator__creator_profile")
 
 
 class PurchaseHistoryAPIView(generics.ListAPIView):
@@ -55,7 +55,7 @@ class PurchaseHistoryAPIView(generics.ListAPIView):
     serializer_class = SimulatedPurchaseSerializer
 
     def get_queryset(self):
-        return SimulatedPurchase.objects.filter(buyer=self.request.user).select_related("item", "item__creator").prefetch_related("item__creator__profile")
+        return SimulatedPurchase.objects.filter(buyer=self.request.user).select_related("item", "item__creator", "item__creator__profile", "item__creator__creator_profile")
 
 
 class PurchaseSimulationAPIView(APIView):
@@ -80,7 +80,15 @@ class PurchaseSimulationAPIView(APIView):
                 InventoryItem.objects.create(owner=request.user, item=item, purchase=purchase)
                 MarketplaceAuditEvent.objects.create(actor=request.user, item=item, action="purchase.simulated", metadata={"purchase_id": str(purchase.pk), "amount_nsat": purchase.amount_nsat})
         except IntegrityError:
-            purchase = SimulatedPurchase.objects.get(buyer=request.user, idempotency_key=key)
+            # Concurrent requests may race on the unique idempotency key.
+            # Only replay a result for the same item; an unrelated constraint
+            # failure or key collision must not be reported as a purchase.
+            purchase = SimulatedPurchase.objects.filter(buyer=request.user, idempotency_key=key).first()
+            if purchase is None:
+                raise
+            if purchase.item_id != item.pk:
+                return Response({"detail": "This idempotency key was already used for another item."}, status=status.HTTP_409_CONFLICT)
+            return Response(self._payload(purchase), status=status.HTTP_200_OK)
         return Response(self._payload(purchase), status=status.HTTP_201_CREATED)
 
     @staticmethod
@@ -132,7 +140,7 @@ class CreatorDashboardAPIView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request):
-        items = DigitalItem.objects.filter(creator=request.user)
+        items = DigitalItem.objects.filter(creator=request.user).select_related("creator", "creator__profile", "creator__creator_profile")
         gifts = GiftEvent.objects.filter(recipient=request.user).select_related("item")[:100]
         notifications = CreatorNotification.objects.filter(recipient=request.user).values("id", "event_type", "message", "is_read", "created_at")[:100]
         creator_profile = CreatorProfile.objects.filter(user=request.user).first() or CreatorProfile(user=request.user)
@@ -157,7 +165,7 @@ class CreatorDirectoryAPIView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
     def get(self, request):
-        profiles = CreatorProfile.objects.filter(is_public=True, user__marketplace_items__state=DigitalItem.State.APPROVED).select_related("user", "user__profile").distinct()
+        profiles = CreatorProfile.objects.filter(is_public=True, user__marketplace_items__state=DigitalItem.State.APPROVED).select_related("user", "user__profile", "user__creator_profile").distinct()
         rows = []
         for profile in profiles:
             items = DigitalItem.objects.filter(creator=profile.user, state=DigitalItem.State.APPROVED)

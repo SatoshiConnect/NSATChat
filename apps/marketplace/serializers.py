@@ -15,6 +15,12 @@ class DigitalItemSerializer(serializers.ModelSerializer):
         if not obj.creator_id:
             return "SatoshiCore Studio"
         try:
+            display_name = obj.creator.creator_profile.display_name
+            if display_name:
+                return display_name
+        except AttributeError:
+            pass
+        try:
             return obj.creator.profile.display_name or "SatoshiCore creator"
         except AttributeError:
             return "SatoshiCore creator"

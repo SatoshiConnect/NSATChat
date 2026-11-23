@@ -1,11 +1,16 @@
 import uuid
+from unittest.mock import patch
 
+from django.contrib.admin.sites import AdminSite
+from django.db import IntegrityError
+from django.test import RequestFactory
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
-from .models import DigitalItem, GiftEvent, InventoryItem, MarketplaceAuditEvent, SimulatedPurchase
+from .admin import DigitalItemAdmin
+from .models import CreatorProfile, DigitalItem, GiftEvent, InventoryItem, MarketplaceAuditEvent, SimulatedPurchase
 
 
 class MarketplaceAPITests(APITestCase):
@@ -32,6 +37,12 @@ class MarketplaceAPITests(APITestCase):
         self.assertIn(self.item.pk, returned_ids)
         self.assertNotIn(pending.pk, returned_ids)
 
+    def test_catalog_uses_marketplace_creator_profile_name(self):
+        CreatorProfile.objects.create(user=self.creator, display_name="Studio Name")
+        response = self.client.get(reverse("marketplace:catalog"))
+        row = next(item for item in response.data if item["id"] == self.item.pk)
+        self.assertEqual(row["creator_name"], "Studio Name")
+
     def test_purchase_is_simulated_idempotent_and_grants_user_owned_inventory(self):
         key = str(uuid.uuid4())
         url = reverse("marketplace:purchase-simulation", args=(self.item.pk,))
@@ -55,6 +66,14 @@ class MarketplaceAPITests(APITestCase):
         key = str(uuid.uuid4())
         self.client.post(reverse("marketplace:purchase-simulation", args=(self.item.pk,)), {"idempotency_key": key}, format="json")
         response = self.client.post(reverse("marketplace:purchase-simulation", args=(other.pk,)), {"idempotency_key": key}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+    def test_concurrent_idempotency_key_collision_for_another_item_returns_conflict(self):
+        other = DigitalItem.objects.create(creator=self.creator, kind=DigitalItem.Kind.BADGE, title="Another", state=DigitalItem.State.APPROVED)
+        key = uuid.uuid4()
+        SimulatedPurchase.objects.create(buyer=self.buyer, item=self.item, idempotency_key=key, amount_nsat=250)
+        with patch.object(SimulatedPurchase.objects, "create", side_effect=IntegrityError("unique collision")):
+            response = self.client.post(reverse("marketplace:purchase-simulation", args=(other.pk,)), {"idempotency_key": str(key)}, format="json")
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
     def test_dispute_is_private_to_the_purchase_owner_and_simulated(self):
@@ -83,3 +102,13 @@ class MarketplaceAPITests(APITestCase):
         self.assertEqual(len(response.data["sent"]), 1)
         self.assertEqual(response.data["sent"][0]["item"]["title"], "Heart")
         self.assertEqual(response.data["received"], [])
+
+    def test_admin_approval_keeps_audit_event_for_state_filtered_queryset(self):
+        item = DigitalItem.objects.create(creator=self.creator, kind=DigitalItem.Kind.BADGE, title="Pending", state=DigitalItem.State.PENDING)
+        request = RequestFactory().post("/admin/marketplace/digitalitem/")
+        request.user = self.buyer
+        queryset = DigitalItem.objects.filter(pk=item.pk, state=DigitalItem.State.PENDING)
+        DigitalItemAdmin(DigitalItem, AdminSite()).approve_items(request, queryset)
+        item.refresh_from_db()
+        self.assertEqual(item.state, DigitalItem.State.APPROVED)
+        self.assertTrue(MarketplaceAuditEvent.objects.filter(item=item, action="item.approved").exists())
