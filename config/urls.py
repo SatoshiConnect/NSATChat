@@ -56,6 +56,7 @@ urlpatterns = [
         "api/status/",
         include("apps.status.urls"),
     ),
+    path("api/social/", include("apps.social.urls")),
 
     path(
         "api/calls/",

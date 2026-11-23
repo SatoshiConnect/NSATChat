@@ -178,6 +178,15 @@ export const statusApi = {
   remove: (id) => api.delete(`status/${id}/delete/`),
 };
 
+export const socialApi = {
+  posts: (params = {}) => api.get("social/posts/", { params }).then((r) => r.data),
+  createPost: (payload) => api.post("social/posts/", payload).then((r) => r.data),
+  toggleLike: (id) => api.post(`social/posts/${id}/`).then((r) => r.data),
+  removePost: (id) => api.delete(`social/posts/${id}/`),
+  comments: (id) => api.get(`social/posts/${id}/comments/`).then((r) => asList(r.data)),
+  addComment: (id, text) => api.post(`social/posts/${id}/comments/`, { text }).then((r) => r.data),
+};
+
 export const marketplaceApi = {
   catalog: (params = {}) => api.get("marketplace/items/", { params }).then((r) => asList(r.data)),
   inventory: () => api.get("marketplace/inventory/").then((r) => asList(r.data)),
