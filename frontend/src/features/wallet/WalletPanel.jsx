@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Eye, RefreshCw, WalletCards } from "lucide-react";
-import { walletApi } from "../../api/endpoints";
-import { PanelHeader } from "../common/ui";
+import { walletApi } from "./api";
+import { PanelHeader } from "../../components/common/ui";
 
 const STORAGE_KEY = "satoshicore.wallet.watch-address.v1";
 const ADDRESS_RE = /^G[A-Z2-7]{55}$/;

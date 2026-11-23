@@ -38,7 +38,8 @@ const SharedMedia = lazy(() => import("../info/SharedMedia"));
 const StarredPanel = lazy(() => import("../chat-list/StarredPanel"));
 const CallInfoPanel = lazy(() => import("../calls/CallInfoPanel"));
 const AddFriendsPanel = lazy(() => import("../chat-list/AddFriendsPanel"));
-const WalletPanel = lazy(() => import("../wallet/WalletPanel"));
+const WalletPanel = lazy(() => import("../../features/wallet").then((module) => ({ default: module.WalletPanel })));
+const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 const fallback = <div className="panel panel--loading"><Spinner /></div>;
 
@@ -100,6 +101,7 @@ export default function MainLayout({ onLogout }) {
   const closeDrawer = useCallback(() => setDrawer(null), []);
 
   const setSection = useCallback((next) => {
+    if (next === "wallet" && !WALLET_UI_ENABLED) return;
     setSectionState(next);
     setStack([]);
     if (next === "calls") {

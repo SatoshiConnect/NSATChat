@@ -224,6 +224,11 @@ class AssistantAPIView(APIView):
     def get(self, request):
         config = ai_settings()
         control, _ = AssistantControl.objects.get_or_create(pk=1)
+        flags = settings.FEATURE_FLAGS
+        assistant_enabled = bool(config["key"] and flags["ai_assistant"])
+        image_generation_enabled = bool(
+            assistant_enabled and flags["ai_image_generation"] and control.image_generation_enabled
+        )
         today = timezone.localdate()
         used = AssistantUsage.objects.filter(
             user=request.user,
@@ -233,15 +238,19 @@ class AssistantAPIView(APIView):
         ).count()
         return Response(
             {
-                "enabled": bool(config["key"]),
+                "enabled": assistant_enabled,
                 "name": "SatoshiCore AI",
                 "provider": "gemini",
                 "provider_label": "Google Gemini",
                 "model": config["model"],
                 "image_model": config["image_model"],
-                "image_generation_enabled": bool(config["key"] and control.image_generation_enabled),
+                "image_generation_enabled": image_generation_enabled,
                 "image_quota": {"daily": control.image_daily_quota, "used": used},
-                "tools": ["chat", "analyze", "translate", "summarize", "generate_image"],
+                "tools": (
+                    ["chat", "analyze", "translate", "summarize"]
+                    + (["generate_image"] if image_generation_enabled else [])
+                    if assistant_enabled else []
+                ),
                 "privacy": "Only the message or image you submit for an AI action is sent to Google Gemini. AI usage records contain no prompt or image data.",
             }
         )
@@ -249,6 +258,10 @@ class AssistantAPIView(APIView):
     @extend_schema(summary="Chat with SatoshiCore AI", tags=["Assistant"])
     def post(self, request):
         config = ai_settings()
+        if not settings.FEATURE_FLAGS["ai_assistant"]:
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound()
         if not config["key"]:
             return Response(
                 {"detail": "SatoshiCore AI isn't set up yet. Add a Gemini key as SATOSHICORE_AI_API_KEY in the backend .env file and restart."},
@@ -258,6 +271,10 @@ class AssistantAPIView(APIView):
         allowed = {"chat", "analyze", "translate", "summarize", "generate_image"}
         if mode not in allowed:
             return Response({"detail": "Choose a supported AI tool."}, status=status.HTTP_400_BAD_REQUEST)
+        if mode == "generate_image" and not settings.FEATURE_FLAGS["ai_image_generation"]:
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound()
         if request.data.get("consent") is not True:
             return Response({"detail": "Confirm that this selected content can be sent to Google Gemini."}, status=400)
         try:

@@ -26,9 +26,6 @@ from .serializers import (
     UserSerializer,
     LogoutSerializer,
 )
-from apps.chat.models import ChatRoom
-
-
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiResponse,
@@ -582,7 +579,7 @@ class AddChatParticipantContactAPIView(APIView):
 
     def post(self, request, pk):
         from apps.chat.choices import RoomType
-        from apps.chat.models import Participant
+        from apps.chat.models import ChatRoom, Participant
 
         try:
             room_id = int(request.data.get("room_id"))

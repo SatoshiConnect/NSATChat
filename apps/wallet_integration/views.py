@@ -9,6 +9,8 @@ import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from django.conf import settings
+from rest_framework.exceptions import NotFound
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -78,6 +80,11 @@ class WalletReadAPIView(APIView):
 
     permission_classes = [IsAuthenticated]
     throttle_scope = "wallet_read"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not settings.FEATURE_FLAGS["wallet_read_only"]:
+            raise NotFound()
 
     def get(self, request):
         address = str(request.query_params.get("address", "")).strip().upper()

@@ -36,6 +36,7 @@ from apps.accounts.privacy import (
 )
 from .group_events import GROUP_EVENT_PREFIX
 from .permissions import can_add_members, can_edit_group_info, send_message_error
+from .validation import parse_id_list
 
 from drf_spectacular.utils import (
     extend_schema,
@@ -85,42 +86,6 @@ from .serializers import (
 
 )
 
-
-
-def parse_id_list(value):
-    """Accept [1, 2], ["1", "2"], "1,2" or '[1, 2]' and return unique positive ints."""
-    import json as _json
-
-    if value is None:
-        return []
-    if isinstance(value, str):
-        text = value.strip()
-        if text.startswith("["):
-            try:
-                value = _json.loads(text)
-            except ValueError:
-                value = []
-        else:
-            value = [part for part in text.split(",") if part.strip()]
-    if not isinstance(value, (list, tuple)):
-        value = [value]
-    flattened = []
-    for item in value:
-        if isinstance(item, str) and "," in item:
-            flattened.extend(part for part in item.split(",") if part.strip())
-        else:
-            flattened.append(item)
-    ids = []
-    for item in flattened:
-        if isinstance(item, bool):
-            continue
-        try:
-            number = int(str(item).strip())
-        except (TypeError, ValueError):
-            continue
-        if number > 0 and number not in ids:
-            ids.append(number)
-    return ids
 
 
 def attach_link_preview(message, enabled=True):

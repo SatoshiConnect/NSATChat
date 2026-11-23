@@ -72,10 +72,6 @@ export const contactsApi = {
   commonGroups: (userId) => api.get(`accounts/users/${userId}/common-groups/`).then((r) => r.data),
 };
 
-export const walletApi = {
-  read: (address) => api.get("wallet/read/", { params: { address }, timeout: 25_000 }).then((r) => r.data),
-};
-
 export const chatApi = {
   recentGifs: () => api.get("chat/gifs/recent/").then((r) => r.data.results || []),
   recentStickers: () => api.get("chat/stickers/recent/").then((r) => r.data.results || []),

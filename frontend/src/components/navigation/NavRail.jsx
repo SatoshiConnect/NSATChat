@@ -6,6 +6,8 @@ import { Avatar } from "../common/ui";
 import { ChatsIcon, StatusIcon } from "../common/Icons";
 import { useAppUpdate } from "../../services/appUpdate";
 
+const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
+
 /**
  * Compact vertical navigation on desktop; on phones a WhatsApp-style bottom
  * tab bar (Chats, Updates, Calls, Contacts, You). SatoshiCore AI and Media move to
@@ -69,7 +71,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
     { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
     { id: "status", label: "Status", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
-    { id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> },
+    ...(WALLET_UI_ENABLED ? [{ id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> }] : []),
     { id: "ai", label: "SatoshiCore AI", icon: () => <span className="rail__ai"><Sparkles size={18} strokeWidth={2} /></span> },
   ];
 

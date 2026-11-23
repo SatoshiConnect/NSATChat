@@ -66,6 +66,10 @@ urlpatterns = [
         "api/notifications/",
         include("apps.notifications.urls"),
     ),
+    path("api/wallet/", include("apps.wallet_integration.urls")),
+    # Keep the initial read-only Wallet endpoint URL working for existing
+    # clients while ownership moves into its dedicated capability module.
+    path("api/accounts/wallet/read/", include("apps.wallet_integration.legacy_urls")),
 ]
 
 if settings.DEBUG or getattr(settings, "MHTALK_SERVE_MEDIA", False):

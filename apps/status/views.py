@@ -17,7 +17,7 @@ from apps.chat.serializers import MessageSerializer
 from apps.accounts.models import Contact, User
 from apps.accounts.serializers import UserSerializer
 
-from apps.status.choices import StatusVisibility
+from apps.status.policies import can_view_status
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiRequest,
@@ -176,55 +176,8 @@ class ContactsStatusAPIView(APIView):
     )
     
     def can_view_status(self, status_obj, user, contact_ids, saved_me_ids=None, chat_partner_ids=None):
-        # The owner's statuses are handled by MyStatusAPIView.
-        if status_obj.user_id == user.id:
-            return False
-
-        # Never expose deleted or expired statuses.
-        if (
-            status_obj.is_deleted
-            or status_obj.expires_at <= timezone.now()
-        ):
-            return False
-
-        visibility = status_obj.visibility
-
-        if saved_me_ids is not None:
-            owner_has_saved_viewer = status_obj.user_id in saved_me_ids
-        else:
-            owner_has_saved_viewer = Contact.objects.filter(
-                owner_id=status_obj.user_id,
-                contact_user_id=user.id,
-            ).exists()
-
-        # "Everyone": anyone who has a chat with the owner or has them saved
-        # (or whom the owner saved) — never strangers.
-        if visibility == StatusVisibility.EVERYONE:
-            return status_obj.user_id in contact_ids or owner_has_saved_viewer
-
-        # For all other privacy modes, the viewer must know the owner
-        # (saved them or chats with them).
-        if status_obj.user_id not in contact_ids:
-            return False
-
-        # "My contacts" (WhatsApp): only people the OWNER has saved. Just
-        # having a chat with the owner is not enough — a new person who
-        # messages you must not see your status.
-        if visibility == StatusVisibility.CONTACTS:
-            return owner_has_saved_viewer
-
-        # privacy_rules is prefetched by the feed query.
-        listed = any(rule.user_id == user.id for rule in status_obj.privacy_rules.all())
-
-        if visibility == StatusVisibility.CONTACTS_EXCEPT:
-            return owner_has_saved_viewer and not listed
-
-        # Only selected contacts.
-        if visibility == StatusVisibility.ONLY_SHARE_WITH:
-            return listed
-
-        # Fail closed for unknown visibility values.
-        return False
+        # Keep the existing view method contract while policy stays in domain code.
+        return can_view_status(status_obj, user, contact_ids, saved_me_ids, chat_partner_ids)
 
 
     def get(self, request):

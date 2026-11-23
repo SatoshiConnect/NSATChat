@@ -39,7 +39,7 @@ integer strings to avoid floating-point loss.
 
 ## Server behavior
 
-The proxy targets are constants in `apps/accounts/wallet_read.py`; the client
+The proxy targets are constants in `apps/wallet_integration/views.py`; the client
 cannot provide a URL. The endpoint rejects malformed addresses, checks the
 complete expected Mainnet identity before reading an account, requires an
 exact decimal-string balance, caps the response size and returns a safe subset

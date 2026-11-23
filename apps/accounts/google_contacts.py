@@ -49,6 +49,13 @@ class GoogleContactSyncAPIView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_scope = "contact_sync"
 
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not settings.FEATURE_FLAGS["google_contacts_sync"]:
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound()
+
     def get(self, request):
         state = GoogleContactSyncState.objects.filter(owner=request.user).first()
         sync_token = ""

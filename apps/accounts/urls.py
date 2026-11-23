@@ -22,7 +22,6 @@ from .views import (
     AddChatParticipantContactAPIView,
 )
 from .google_contacts import GoogleContactSyncAPIView
-from .wallet_read import WalletReadAPIView
 
 app_name = "accounts"
 
@@ -46,7 +45,6 @@ urlpatterns = [
     path("contacts/<int:pk>/", ContactDetailAPIView.as_view(), name="contact-detail"),
     path("users/lookup/", UserLookupAPIView.as_view(), name="user-lookup"),
     path("privacy/", PrivacySettingsAPIView.as_view(), name="privacy-settings"),
-    path("wallet/read/", WalletReadAPIView.as_view(), name="wallet-read"),
     path("delete/", DeleteAccountAPIView.as_view(), name="delete-account"),
     path("users/<int:pk>/common-groups/", UserCommonGroupsAPIView.as_view(), name="user-common-groups"),
 ]

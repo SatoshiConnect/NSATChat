@@ -18,6 +18,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = config("SECRET_KEY")
 GOOGLE_CLIENT_ID = config("GOOGLE_CLIENT_ID", default="")
+# Optional capability flags are independent from authentication and authorization.
+# Defaults preserve the current product behavior; experimental paths stay off.
+FEATURE_FLAGS = {
+    "ai_assistant": config("FEATURE_AI_ASSISTANT", default=True, cast=bool),
+    "ai_image_generation": config("FEATURE_AI_IMAGE_GENERATION", default=True, cast=bool),
+    "google_contacts_sync": config("FEATURE_GOOGLE_CONTACTS_SYNC", default=True, cast=bool),
+    "wallet_read_only": config("FEATURE_WALLET_READ_ONLY", default=True, cast=bool),
+    "experimental": config("FEATURE_EXPERIMENTAL", default=False, cast=bool),
+}
 # SECURITY WARNING: don't run with debug turned on in production!
 
 ALLOWED_HOSTS = config(
@@ -53,6 +62,7 @@ INSTALLED_APPS = [
     "apps.status",
     "apps.calls",
     "apps.notifications",
+    "apps.wallet_integration.apps.WalletIntegrationConfig",
 
     "drf_spectacular",
 ]
