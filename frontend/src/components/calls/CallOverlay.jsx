@@ -256,6 +256,7 @@ export default function CallOverlay({
   localStream,
   remoteStream,
   remoteStreams = {},
+  audioProcessing,
   shareStream,
   reactions = [],
   onAccept,
@@ -293,9 +294,13 @@ export default function CallOverlay({
   const [fullscreen, setFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [picker, setPicker] = useState(false);
+  const [audioOutputMenu, setAudioOutputMenu] = useState(false);
+  const [audioOutputs, setAudioOutputs] = useState([]);
+  const [audioOutputId, setAudioOutputId] = useState("");
   const rootRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const [soundBlocked, setSoundBlocked] = useState(false);
+  const supportsAudioOutputSelection = typeof HTMLMediaElement !== "undefined" && typeof HTMLMediaElement.prototype.setSinkId === "function";
 
   const ticking = call.phase === "ongoing" && Boolean(call.connectedAt);
   useEffect(() => {
@@ -310,8 +315,13 @@ export default function CallOverlay({
   }, [ticking]);
 
   useEffect(() => {
-    if (remoteAudioRef.current && remoteStream) {
-      remoteAudioRef.current.srcObject = remoteStream;
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteStream || null;
+      if (supportsAudioOutputSelection) Promise.resolve(remoteAudioRef.current.setSinkId(audioOutputId)).catch(() => {});
+      if (!remoteStream) {
+        remoteAudioRef.current.pause?.();
+        return;
+      }
       // Browsers block sound until the page was clicked once (e.g. right
       // after a reload): then offer a button that turns it on.
       remoteAudioRef.current
@@ -319,7 +329,23 @@ export default function CallOverlay({
         .then(() => setSoundBlocked(false))
         .catch((error) => setSoundBlocked(error?.name === "NotAllowedError"));
     }
-  }, [remoteStream, call.minimized, call.phase]);
+  }, [audioOutputId, remoteStream, supportsAudioOutputSelection]);
+
+  useEffect(() => {
+    if (!supportsAudioOutputSelection || !navigator.mediaDevices?.enumerateDevices) return undefined;
+    let active = true;
+    const refresh = () => navigator.mediaDevices.enumerateDevices()
+      .then((devices) => {
+        if (active) setAudioOutputs(devices.filter((device) => device.kind === "audiooutput"));
+      })
+      .catch(() => {});
+    refresh();
+    navigator.mediaDevices.addEventListener?.("devicechange", refresh);
+    return () => {
+      active = false;
+      navigator.mediaDevices.removeEventListener?.("devicechange", refresh);
+    };
+  }, [supportsAudioOutputSelection]);
 
   useEffect(() => {
     const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -342,7 +368,7 @@ export default function CallOverlay({
           : call.status;
 
   // The remote audio element(s) must exist in every layout.
-  const audio = call.group ? <GroupCallAudio remoteStreams={remoteStreams} /> : <audio ref={remoteAudioRef} autoPlay />;
+  const audio = call.group ? <GroupCallAudio remoteStreams={remoteStreams} outputDeviceId={audioOutputId} /> : <audio ref={remoteAudioRef} autoPlay />;
 
   if (call.phase === "incoming") {
     const subtitle = call.group ? `${callerName ? `${callerName} · ` : ""}Incoming group ${call.type === "video" ? "video" : "voice"} call` : "";
@@ -491,6 +517,34 @@ export default function CallOverlay({
                 </div>
               ) : null}
             </div>
+            {supportsAudioOutputSelection && audioOutputs.length > 0 ? (
+              <div className="call-bar__react">
+                <button type="button" className={`call-icon ${audioOutputMenu ? "is-active" : ""}`} onClick={() => setAudioOutputMenu((value) => !value)} aria-label="Choose audio output" title="Choose audio output">
+                  <Volume2 size={23} />
+                </button>
+                {audioOutputMenu ? (
+                  <div className="call-bar__picker call-bar__picker--audio" role="menu">
+                    <label htmlFor="call-audio-output">Audio output</label>
+                    <select
+                      id="call-audio-output"
+                      className="call-audio-output__select"
+                      value={audioOutputId}
+                      onChange={(event) => {
+                        setAudioOutputId(event.target.value);
+                        setAudioOutputMenu(false);
+                      }}
+                    >
+                      <option value="">System default</option>
+                      {audioOutputs.map((device, index) => (
+                        <option key={device.deviceId || `output-${index}`} value={device.deviceId}>
+                          {device.label || `Audio output ${index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {canShareScreen ? <button
               type="button"
               className={`call-icon ${call.sharing ? "is-active" : ""}`}
@@ -529,6 +583,7 @@ export default function CallOverlay({
           me={me}
           localStream={localStream}
           remoteStreams={remoteStreams}
+          audioProcessing={audioProcessing}
           shareStream={shareStream}
           status={status}
           reactions={reactions}
@@ -554,6 +609,11 @@ export default function CallOverlay({
       }}
     >
       {audio}
+      <div className="call-audio-advice" role="status">
+        If you use speakers near your microphone, echo may occur. Use headphones or lower speaker volume.
+        {audioProcessing?.echoCancellation === false ? " Echo cancellation is unavailable in this browser or device." : null}
+        {audioProcessing?.echoCancellation === null ? " This browser does not report echo-cancellation status." : null}
+      </div>
 
       {soundBlocked ? (
         <button
