@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Camera, Check, Eye, Image as ImageIcon, Info, Pencil, Phone, Smile, Trash2, User } from "lucide-react";
+import { Camera, Check, ChevronRight, ContactRound, Eye, Image as ImageIcon, Info, Mail, Pencil, Phone, Smile, Trash2, User } from "lucide-react";
 import { errorMessage } from "../../api/client";
 import { authApi } from "../../api/endpoints";
 import { scheduleRoomsReload } from "../../store/actions";
@@ -106,12 +106,16 @@ function EditableField({ icon: Icon, label, value, maxLength, onSave, hint, pres
 export default function ProfilePanel() {
   const app = useApp();
   const me = useStore((state) => state.me);
+  const contacts = useStore((state) => state.contacts);
   const [photoMenu, setPhotoMenu] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [camera, setCamera] = useState(false);
   const [viewing, setViewing] = useState(false);
   const [publicIdDraft, setPublicIdDraft] = useState("");
   const [savingPublicId, setSavingPublicId] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState(me.email || "");
+  const [savingEmail, setSavingEmail] = useState(false);
   const photo = me.profile?.profile_picture;
 
   async function update(fields, success) {
@@ -157,6 +161,19 @@ export default function ProfilePanel() {
     }
   }
 
+  async function saveEmail(event) {
+    event.preventDefault();
+    const email = emailDraft.trim();
+    if (email === (me.email || "")) {
+      setEditingEmail(false);
+      return;
+    }
+    setSavingEmail(true);
+    const ok = await update({ email }, email ? "Email updated" : "Email removed");
+    setSavingEmail(false);
+    if (ok) setEditingEmail(false);
+  }
+
   const items = [
     photo ? { label: "View photo", icon: Eye, onClick: () => setViewing(true) } : null,
     { label: "Take photo", icon: Camera, onClick: () => setCamera(true) },
@@ -186,6 +203,7 @@ export default function ProfilePanel() {
           <input id="profile-photo-input" type="file" accept="image/*" hidden onChange={(event) => { uploadPhoto(event.target.files?.[0]); event.target.value = ""; }} />
         </div>
 
+        <div className="profile-section-label">Profile information</div>
         <EditableField
           icon={User}
           label="Name"
@@ -230,13 +248,53 @@ export default function ProfilePanel() {
           presets={ABOUT_PRESETS}
           onSave={(about) => update({ about }, "About updated")}
         />
+        <div className="profile-section-label profile-section-label--separated">Contact information</div>
         <div className="profile-field">
           <Phone size={20} className="profile-field__icon" />
           <div className="profile-field__body">
             <span className="profile-field__label">Phone</span>
-            <div className="profile-field__value"><span>{formatPhone(me.phone_number)}</span></div>
+            <div className="profile-field__value"><span>{me.phone_number ? formatPhone(me.phone_number) : <span className="profile-field__empty">Not added</span>}</span></div>
+            <span className="profile-field__hint">Phone number linked to your SatoshiCore account.</span>
           </div>
         </div>
+        <div className="profile-field">
+          <Mail size={20} className="profile-field__icon" />
+          <div className="profile-field__body">
+            <span className="profile-field__label">Email</span>
+            {editingEmail ? (
+              <form className="profile-field__edit" onSubmit={saveEmail}>
+                <input
+                  type="email"
+                  aria-label="Email address"
+                  value={emailDraft}
+                  onChange={(event) => setEmailDraft(event.target.value)}
+                  onKeyDown={(event) => event.key === "Escape" && setEditingEmail(false)}
+                  placeholder="you@example.com"
+                  maxLength={254}
+                  autoComplete="email"
+                  autoFocus
+                />
+                <button type="submit" className="icon-btn" aria-label="Save email" disabled={savingEmail}>
+                  {savingEmail ? <Spinner size={16} /> : <Check size={20} />}
+                </button>
+              </form>
+            ) : (
+              <div className="profile-field__value">
+                <span>{me.email || <span className="profile-field__empty">Not added</span>}</span>
+                <button type="button" className="icon-btn" aria-label={me.email ? "Edit email" : "Add email"} onClick={() => { setEmailDraft(me.email || ""); setEditingEmail(true); }}>
+                  <Pencil size={18} />
+                </button>
+              </div>
+            )}
+            <span className="profile-field__hint">Email is part of your account information and is not your public SatoshiCore ID.</span>
+          </div>
+        </div>
+        <button type="button" className="profile-contact-link" onClick={() => app.setSection("contacts")}>
+          <ContactRound size={20} />
+          <span><strong>Contacts</strong><small>Manage your saved contacts</small></span>
+          <span className="profile-contact-link__count">{contacts.length}</span>
+          <ChevronRight size={18} />
+        </button>
       </div>
       {photoMenu ? <Menu anchor={photoMenu} items={items} align="left" onClose={() => setPhotoMenu(null)} /> : null}
       {camera ? (
