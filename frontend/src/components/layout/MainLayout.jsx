@@ -38,6 +38,7 @@ const SharedMedia = lazy(() => import("../info/SharedMedia"));
 const StarredPanel = lazy(() => import("../chat-list/StarredPanel"));
 const CallInfoPanel = lazy(() => import("../calls/CallInfoPanel"));
 const AddFriendsPanel = lazy(() => import("../chat-list/AddFriendsPanel"));
+const WalletPanel = lazy(() => import("../wallet/WalletPanel"));
 
 const fallback = <div className="panel panel--loading"><Spinner /></div>;
 
@@ -59,6 +60,7 @@ const SECTION_PANELS = {
   profile: ProfilePanel,
   settings: SettingsPanel,
   ai: AssistantPanel,
+  wallet: WalletPanel,
   aiChat: ChatListPanel, // SatoshiCore AI opened from the chat list
 };
 

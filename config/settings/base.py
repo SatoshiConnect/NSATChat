@@ -185,6 +185,7 @@ REST_FRAMEWORK = {
         # People API paging is client-side; this protects the server-side match
         # endpoint from contact harvesting while allowing large address books.
         "contact_sync": config("THROTTLE_CONTACT_SYNC", default="30/hour"),
+        "wallet_read": config("THROTTLE_WALLET_READ", default="30/min"),
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),
         # Group invite link preview/join (per user).
         "invite": config("THROTTLE_INVITE", default="30/min"),

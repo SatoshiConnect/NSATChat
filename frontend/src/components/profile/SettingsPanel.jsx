@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Volume2, Bell, ChevronRight, CircleHelp, Download, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, SquarePlus, UserX, RefreshCw } from "lucide-react";
+import { Volume2, Bell, ChevronRight, CircleHelp, Download, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, SquarePlus, UserX, RefreshCw, WalletCards } from "lucide-react";
 import { useStore } from "../../store/store";
 import { loadBlocked, setBlocked } from "../../store/actions";
 import { getNotificationPrefs, requestDesktopPermission, setNotificationPrefs } from "../../services/notify";
@@ -311,6 +311,7 @@ export default function SettingsPanel() {
     { key: "account", icon: KeyRound, title: "Account", subtitle: "Phone number, delete account", onClick: () => setView("account") },
     { key: "privacy", icon: Lock, title: "Privacy", subtitle: "Last seen, profile photo, read receipts, blocked contacts", onClick: () => setView("privacy") },
     { key: "chats", icon: MessageSquareText, title: "Chats", subtitle: "Theme, Enter is send", onClick: () => setView("chats") },
+    { key: "wallet", icon: WalletCards, title: "Wallet", subtitle: "View NSAT balance and public transaction history", onClick: () => app.setSection("wallet") },
     { key: "notifications", icon: Bell, title: "Notifications", subtitle: "Message sounds, desktop alerts", onClick: () => setView("notifications") },
     !install.installed
       ? { key: "install", icon: Download, title: "Install app", subtitle: install.ios ? "Add SatoshiCore to your Home Screen" : "Use SatoshiCore like a native app", onClick: onInstall }

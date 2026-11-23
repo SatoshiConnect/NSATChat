@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Contact, Images, Phone, Settings, Sparkles } from "lucide-react";
+import { Contact, Images, Phone, Settings, Sparkles, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { useStore } from "../../store/store";
 import { Avatar } from "../common/ui";
@@ -69,6 +69,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
     { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
     { id: "status", label: "Status", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
+    { id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> },
     { id: "ai", label: "SatoshiCore AI", icon: () => <span className="rail__ai"><Sparkles size={18} strokeWidth={2} /></span> },
   ];
 
