@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import { Eye, Image as ImageIcon, Info, MessageSquareText, Phone, Video } from "lucide-react";
 import { useApp } from "../layout/AppContext";
 import { useCalls } from "../calls/callContext";
-import { Avatar, Menu } from "../common/ui";
+import { Menu } from "../common/ui";
+import PresenceAvatar from "../common/PresenceAvatar";
 import Lightbox from "../media/Lightbox";
 import StatusViewer from "./StatusViewer";
 import { getOverlay, openPhoto, openUserStatus, setOverlay, subscribeOverlay } from "./profileOverlay";
@@ -32,7 +33,7 @@ function ProfilePeek({ room, title, photo, onClose }) {
     <div className="profile-peek__backdrop" onClick={onClose} role="presentation">
       <div className="profile-peek" role="dialog" aria-label={title} onClick={(event) => event.stopPropagation()}>
         <button type="button" className="profile-peek__photo" onClick={photo ? run(() => openPhoto(title, photo)) : undefined} aria-label="View profile picture">
-          {photo ? <Avatar src={photo} name={title} size={280} className="profile-peek__img" /> : <Avatar name={title} group={room.isGroup} size={280} className="profile-peek__img" />}
+          {photo ? <PresenceAvatar user={room.otherUser} src={photo} name={title} size={280} className="profile-peek__img" /> : <PresenceAvatar user={room.otherUser} name={title} group={room.isGroup} size={280} className="profile-peek__img" />}
           <span className="profile-peek__name">{title}</span>
         </button>
         <div className="profile-peek__actions">
