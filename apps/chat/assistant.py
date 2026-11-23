@@ -225,7 +225,12 @@ class AssistantAPIView(APIView):
         config = ai_settings()
         control, _ = AssistantControl.objects.get_or_create(pk=1)
         today = timezone.localdate()
-        used = AssistantUsage.objects.filter(user=request.user, task="IMAGE", created_at__date=today).count()
+        used = AssistantUsage.objects.filter(
+            user=request.user,
+            task="IMAGE",
+            created_at__date=today,
+            status__in=("OK", "PENDING"),
+        ).count()
         return Response(
             {
                 "enabled": bool(config["key"]),
@@ -363,7 +368,9 @@ class AssistantAPIView(APIView):
         except urllib.error.HTTPError as error:
             logger.warning("SatoshiCore AI request failed: task=%s status=%s", task, error.code)
             cache.delete(inflight_key)
-            AssistantUsage.objects.filter(pk=usage.pk).update(status="ERROR", finished_at=timezone.now())
+            AssistantUsage.objects.filter(pk=usage.pk).update(
+                status="ERROR", estimated_cost_usd=Decimal("0"), finished_at=timezone.now(),
+            )
             if error.code == 401:
                 message = "Google Gemini did not accept the server API key. Check whether it is active and copied correctly."
             elif error.code == 403:
@@ -380,7 +387,9 @@ class AssistantAPIView(APIView):
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
             logger.warning("SatoshiCore AI request failed: task=%s error=%s", task, type(error).__name__)
             cache.delete(inflight_key)
-            AssistantUsage.objects.filter(pk=usage.pk).update(status="ERROR", finished_at=timezone.now())
+            AssistantUsage.objects.filter(pk=usage.pk).update(
+                status="ERROR", estimated_cost_usd=Decimal("0"), finished_at=timezone.now(),
+            )
             return Response(
                 {"detail": "Google Gemini could not finish this request. Try again later."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -423,11 +432,13 @@ def _reserve_usage(request, request_id, task, model_id, input_tokens, reserved_c
         if image_generation:
             used_today = AssistantUsage.objects.filter(
                 user=request.user, task="IMAGE", created_at__date=today,
+                status__in=("OK", "PENDING"),
             ).count()
             if used_today >= control.image_daily_quota:
                 raise QuotaExceeded(f"Daily image quota reached ({control.image_daily_quota} image per user per day).")
         monthly_total = AssistantUsage.objects.filter(
             created_at__year=now.year, created_at__month=now.month,
+            status__in=("OK", "PENDING"),
         ).aggregate(total=Sum("estimated_cost_usd"))["total"] or Decimal("0")
         monthly_budget = Decimal(str(control.monthly_budget_usd))
         if monthly_total + reserved_cost > monthly_budget:
