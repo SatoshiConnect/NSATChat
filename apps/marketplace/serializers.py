@@ -1,15 +1,16 @@
 from rest_framework import serializers
 
-from .models import CreatorProfile, DigitalItem, GiftEvent, InventoryItem, ItemReport, SimulatedPurchase
+from .models import CreatorProfile, DigitalItem, DigitalItemAsset, GiftEvent, InventoryItem, ItemReport, SimulatedPurchase
 
 
 class DigitalItemSerializer(serializers.ModelSerializer):
     creator_name = serializers.SerializerMethodField()
     price_label = serializers.SerializerMethodField()
+    sticker_count = serializers.SerializerMethodField()
 
     class Meta:
         model = DigitalItem
-        fields = ("id", "kind", "title", "description", "preview", "proposed_price_nsat", "price_label", "usage_rights", "creator_name", "state", "created_at")
+        fields = ("id", "kind", "title", "description", "preview", "proposed_price_nsat", "price_label", "usage_rights", "creator_name", "state", "created_at", "sticker_count")
 
     def get_creator_name(self, obj):
         if not obj.creator_id:
@@ -28,11 +29,39 @@ class DigitalItemSerializer(serializers.ModelSerializer):
     def get_price_label(self, obj):
         return "Free" if not obj.proposed_price_nsat else f"{obj.proposed_price_nsat:,} NSAT proposed"
 
+    def get_sticker_count(self, obj):
+        return obj.assets.count() if obj.kind == DigitalItem.Kind.STICKER_PACK else 0
 
-class SubmitItemSerializer(serializers.ModelSerializer):
+
+class OwnedStickerAssetSerializer(serializers.ModelSerializer):
+    file = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DigitalItemAsset
+        fields = ("id", "file", "position")
+
+    def get_file(self, obj):
+        request = self.context.get("request")
+        url = obj.image.url
+        return request.build_absolute_uri(url) if request else url
+
+
+class OwnedStickerPackSerializer(serializers.ModelSerializer):
+    stickers = OwnedStickerAssetSerializer(source="assets", many=True, read_only=True)
+
     class Meta:
         model = DigitalItem
-        fields = ("id", "kind", "title", "description", "preview", "proposed_price_nsat", "usage_rights", "state", "created_at")
+        fields = ("id", "title", "description", "preview", "stickers")
+
+
+class SubmitItemSerializer(serializers.ModelSerializer):
+    assets = serializers.ListField(
+        child=serializers.ImageField(), required=False, write_only=True, allow_empty=True,
+    )
+
+    class Meta:
+        model = DigitalItem
+        fields = ("id", "kind", "title", "description", "preview", "assets", "proposed_price_nsat", "usage_rights", "state", "created_at")
         read_only_fields = ("id", "state", "created_at")
         extra_kwargs = {"description": {"required": False}, "usage_rights": {"required": False}}
 
@@ -54,6 +83,32 @@ class SubmitItemSerializer(serializers.ModelSerializer):
             if value.content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
                 raise serializers.ValidationError("Use a JPEG, PNG, WebP, or GIF preview.")
         return value
+
+    def validate_assets(self, files):
+        if len(files) > 30:
+            raise serializers.ValidationError("A sticker pack can contain at most 30 images.")
+        for image in files:
+            if image.size > 2 * 1024 * 1024:
+                raise serializers.ValidationError("Each sticker must be 2 MB or smaller.")
+        return files
+
+    def validate(self, attrs):
+        kind = attrs.get("kind")
+        assets = attrs.get("assets", [])
+        if kind == DigitalItem.Kind.STICKER_PACK and not assets:
+            raise serializers.ValidationError({"assets": "Add at least one sticker image to submit a sticker pack."})
+        if kind != DigitalItem.Kind.STICKER_PACK and assets:
+            raise serializers.ValidationError({"assets": "Sticker images can only be added to a sticker pack."})
+        return attrs
+
+    def create(self, validated_data):
+        assets = validated_data.pop("assets", [])
+        item = super().create(validated_data)
+        DigitalItemAsset.objects.bulk_create([
+            DigitalItemAsset(item=item, image=image, position=position)
+            for position, image in enumerate(assets)
+        ])
+        return item
 
 
 class InventorySerializer(serializers.ModelSerializer):

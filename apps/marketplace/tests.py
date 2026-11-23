@@ -1,7 +1,9 @@
 import uuid
+from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.test import RequestFactory
 from django.urls import reverse
@@ -10,7 +12,15 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import User
 from .admin import DigitalItemAdmin
-from .models import CreatorProfile, DigitalItem, GiftEvent, InventoryItem, MarketplaceAuditEvent, SimulatedPurchase
+from .models import CreatorProfile, DigitalItem, DigitalItemAsset, GiftEvent, InventoryItem, MarketplaceAuditEvent, SimulatedPurchase
+
+
+def png_upload(name="sticker.png"):
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGBA", (8, 8), (20, 180, 90, 255)).save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
 
 
 class MarketplaceAPITests(APITestCase):
@@ -93,6 +103,44 @@ class MarketplaceAPITests(APITestCase):
         item = DigitalItem.objects.get(pk=response.data["id"])
         self.assertEqual(item.creator, self.buyer)
         self.assertEqual(item.state, DigitalItem.State.PENDING)
+
+    def test_sticker_pack_submission_stores_uploaded_assets_pending_review(self):
+        response = self.client.post(
+            reverse("marketplace:submit"),
+            {"kind": "sticker_pack", "title": "Creator pack", "assets": [png_upload()]},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        item = DigitalItem.objects.get(pk=response.data["id"])
+        self.assertEqual(item.state, DigitalItem.State.PENDING)
+        self.assertEqual(item.assets.count(), 1)
+
+    def test_sticker_pack_requires_at_least_one_asset(self):
+        response = self.client.post(
+            reverse("marketplace:submit"),
+            {"kind": "sticker_pack", "title": "Empty pack"},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(DigitalItem.objects.filter(title="Empty pack").exists())
+
+    def test_only_inventory_owner_can_load_full_approved_sticker_assets(self):
+        asset = DigitalItemAsset.objects.create(item=self.item, image=png_upload(), position=0)
+        url = reverse("marketplace:owned-stickers")
+        self.assertEqual(self.client.get(url).data, [])
+
+        self.client.post(
+            reverse("marketplace:purchase-simulation", args=(self.item.pk,)),
+            {"idempotency_key": str(uuid.uuid4())}, format="json",
+        )
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["stickers"][0]["id"], asset.pk)
+        self.assertTrue(response.data[0]["stickers"][0]["file"].endswith(asset.image.url))
+
+        self.client.force_authenticate(self.creator)
+        self.assertEqual(self.client.get(url).data, [])
 
     def test_gift_history_is_limited_to_the_authenticated_user(self):
         gift = DigitalItem.objects.create(creator=self.creator, kind=DigitalItem.Kind.GIFT, title="Heart", state=DigitalItem.State.APPROVED)

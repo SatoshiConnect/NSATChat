@@ -11,7 +11,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import CreatorNotification, CreatorProfile, DigitalItem, GiftEvent, InventoryItem, ItemReport, MarketplaceAuditEvent, PurchaseDispute, SimulatedPurchase
-from .serializers import CreatorProfileSerializer, DigitalItemSerializer, GiftEventSerializer, InventorySerializer, ItemReportSerializer, SimulatedPurchaseSerializer, SubmitItemSerializer
+from .serializers import CreatorProfileSerializer, DigitalItemSerializer, GiftEventSerializer, InventorySerializer, ItemReportSerializer, OwnedStickerPackSerializer, SimulatedPurchaseSerializer, SubmitItemSerializer
 
 
 class CatalogAPIView(generics.ListAPIView):
@@ -19,7 +19,7 @@ class CatalogAPIView(generics.ListAPIView):
     serializer_class = DigitalItemSerializer
 
     def get_queryset(self):
-        qs = DigitalItem.objects.filter(state=DigitalItem.State.APPROVED).select_related("creator", "creator__profile", "creator__creator_profile")
+        qs = DigitalItem.objects.filter(state=DigitalItem.State.APPROVED).select_related("creator", "creator__profile", "creator__creator_profile").prefetch_related("assets")
         kind = self.request.query_params.get("kind")
         query = self.request.query_params.get("q", "").strip()[:100]
         if kind in DigitalItem.Kind.values:
@@ -48,6 +48,19 @@ class InventoryAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         return InventoryItem.objects.filter(owner=self.request.user).select_related("item", "item__creator", "item__creator__profile", "item__creator__creator_profile")
+
+
+class OwnedStickerPacksAPIView(generics.ListAPIView):
+    """Full sticker assets are exposed only to users with an inventory grant."""
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = OwnedStickerPackSerializer
+
+    def get_queryset(self):
+        return DigitalItem.objects.filter(
+            inventory_entries__owner=self.request.user,
+            kind=DigitalItem.Kind.STICKER_PACK,
+            state=DigitalItem.State.APPROVED,
+        ).prefetch_related("assets").distinct()
 
 
 class PurchaseHistoryAPIView(generics.ListAPIView):
