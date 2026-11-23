@@ -242,6 +242,10 @@
 @media (max-width: 900px) {
   .app {
     flex-direction: column-reverse;
+    position: fixed;
+    inset-inline: 0;
+    top: var(--app-viewport-top, 0px);
+    height: var(--app-viewport-height, 100dvh);
   }
   .rail {
     flex-direction: row;
