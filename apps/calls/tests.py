@@ -34,7 +34,11 @@ class CallSignallingSocketTests(TransactionTestCase):
     def socket(self, user):
         from config.asgi import application
 
-        return WebsocketCommunicator(application, f"/ws/calls/{self.room.id}/?token={AccessToken.for_user(user)}")
+        return WebsocketCommunicator(
+            application,
+            f"/ws/calls/{self.room.id}/?token={AccessToken.for_user(user)}",
+            headers=[(b"origin", b"http://testserver")],
+        )
 
     async def test_offer_is_delivered_to_target_and_mapping_is_shared(self):
         alice, bob = self.socket(self.alice), self.socket(self.bob)

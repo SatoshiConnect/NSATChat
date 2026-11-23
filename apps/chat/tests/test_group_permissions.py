@@ -234,7 +234,9 @@ class SendPermissionSocketTests(TransactionTestCase):
 
     async def test_websocket_send_and_forward_rejected_for_non_admins(self):
         communicator = WebsocketCommunicator(
-            application, f"/ws/chat/{self.room.id}/?token={AccessToken.for_user(self.bob)}"
+            application,
+            f"/ws/chat/{self.room.id}/?token={AccessToken.for_user(self.bob)}",
+            headers=[(b"origin", b"http://testserver")],
         )
         connected, _ = await communicator.connect()
         self.assertTrue(connected)

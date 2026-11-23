@@ -20,6 +20,7 @@ os.environ.setdefault("DB_PASSWORD", "unused-in-tests")
 from .base import *  # noqa: E402,F401,F403
 
 DEBUG = False
+ALLOWED_HOSTS = ["testserver", "localhost", "127.0.0.1"]
 
 DATABASES = {
     "default": {
