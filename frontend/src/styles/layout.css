@@ -363,7 +363,7 @@
     position: relative;
     display: grid;
     place-items: center;
-    width: 60px;
+    width: min(60px, 100%);
     height: 32px;
     border-radius: 16px;
     transition: background 0.18s ease;

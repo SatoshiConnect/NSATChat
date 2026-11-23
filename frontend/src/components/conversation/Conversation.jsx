@@ -6,7 +6,8 @@ import { formatPhone, phoneDigits } from "../../utils/phone";
 import { callUser } from "../calls/callUser";
 import { useMediaQuery } from "../../hooks";
 import { toast } from "../../services/toast";
-import { applyMessagePatch, openChatWith, reactTo, retryMessage, sendFile, toggleStar, togglePinMessage, votePoll } from "../../store/actions";
+import { applyMessagePatch, openChatWith, reactTo, retryMessage, sendFile, sendText, toggleStar, togglePinMessage, votePoll } from "../../store/actions";
+import { walletApi } from "../../features/wallet/api";
 import { getState, useStore } from "../../store/store";
 import { attachmentKind, contactsByUser, displayUserName, groupAbilities, isSavedContact, messageKind, profileName, roomTitle, canOpenViewOnceHere } from "../../utils/messages";
 import { askBlock } from "../chat-list/roomMenu";
@@ -28,7 +29,7 @@ import ReactionPicker from "./ReactionPicker";
 import { DeleteMessagesDialog, ForwardDialog, ReactionsDialog } from "./dialogs";
 import { confirmAction } from "../common/dialogs";
 import ViewContactDialog from "./ViewContactDialog";
-import { DisappearingDialog, PollVotesDialog, ViewOncePhoneOnly, ViewOnceViewer } from "./FeatureDialogs";
+import { DisappearingDialog, PollVotesDialog, ViewOncePhoneOnly, ViewOnceViewer, WalletRequestDialog } from "./FeatureDialogs";
 import StatusViewer from "../status/StatusViewer";
 
 /**
@@ -63,6 +64,7 @@ export default function Conversation({ roomId }) {
   const [viewOnce, setViewOnce] = useState(null); // message being viewed once
   const [statusView, setStatusView] = useState(null); // { groups, statusId } from a status reaction card
   const [disappearingOpen, setDisappearingOpen] = useState(false);
+  const [walletRequestOpen, setWalletRequestOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
 
@@ -91,6 +93,35 @@ export default function Conversation({ roomId }) {
     const handler = (event) => Number(event.detail) === Number(roomId) && setDisappearingOpen(true);
     window.addEventListener("mhtalk:disappearing", handler);
     return () => window.removeEventListener("mhtalk:disappearing", handler);
+  }, [roomId]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (Number(event.detail) === Number(roomId) && room && !room.isGroup && !blocked && room.otherUser && !room.otherUser.is_deleted) {
+        setWalletRequestOpen(true);
+      }
+    };
+    window.addEventListener("mhtalk:request-nsat", handler);
+    return () => window.removeEventListener("mhtalk:request-nsat", handler);
+  }, [blocked, room, roomId]);
+
+  const sendWalletRequest = useCallback(async (amount) => {
+    setWalletRequestOpen(false);
+    try {
+      const linked = await walletApi.linkState();
+      if (!linked?.connected || !/^G[A-Z2-7]{55}$/.test(linked.address || "")) {
+        toast.error("Connect and verify your SatoshiCore Wallet before requesting NSAT.");
+        return;
+      }
+      const target = new URL("/messenger-embed/", "https://wallet.satoshicore.org");
+      target.searchParams.set("view", "send");
+      target.searchParams.set("to", linked.address);
+      if (amount) target.searchParams.set("amount", amount);
+      const amountLabel = amount ? `${amount} NSAT` : "NSAT";
+      await sendText(roomId, `Payment request · ${amountLabel}\nOpen SatoshiCore Wallet to review: ${target.href}`, null, { linkPreview: false });
+    } catch {
+      toast.error("Could not create a payment request. Try again.");
+    }
   }, [roomId]);
 
   const messagesFor = useCallback(() => getState().messages[roomId]?.items || [], [roomId]);
@@ -577,6 +608,7 @@ export default function Conversation({ roomId }) {
         />
       ) : null}
       {disappearingOpen ? <DisappearingDialog room={room} canEdit={!room.isGroup || groupAbilities(room, me.id).canEditInfo} onClose={() => setDisappearingOpen(false)} /> : null}
+      {walletRequestOpen ? <WalletRequestDialog onClose={() => setWalletRequestOpen(false)} onSend={sendWalletRequest} /> : null}
       {statusView ? <StatusViewer groups={statusView.groups} startStatusId={statusView.statusId} onClose={() => setStatusView(null)} /> : null}
       {viewOnce ? (
         <ViewOnceViewer

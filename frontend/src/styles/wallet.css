@@ -2,6 +2,104 @@
   padding: 18px;
 }
 
+/* Full-screen Wallet web app hosted by the Wallet origin inside Messenger. */
+.wallet-panel--embedded {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--panel-bg);
+}
+.wallet-panel__toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 54px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--panel-bg);
+}
+.wallet-panel__back,
+.wallet-panel__open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.wallet-panel__back {
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.wallet-panel__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-strong);
+}
+.wallet-panel__linkbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 5px 16px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--panel-bg);
+}
+.wallet-panel__linkstatus {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.wallet-panel__linkbar .btn { flex: 0 0 auto; min-height: 34px; padding: 0 12px; font-size: 12px; }
+.wallet-panel__loading {
+  position: absolute;
+  z-index: 1;
+  inset: 104px 0 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+  background: var(--panel-bg);
+  pointer-events: none;
+}
+.wallet-panel__frame {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--panel-bg);
+}
+.wallet-panel__frame.is-loading { visibility: hidden; }
+
+@media (max-width: 900px) {
+  .app.is-wallet-view .main {
+    display: flex;
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+  }
+  .wallet-panel__toolbar { min-height: 48px; padding: 5px 8px; }
+  .wallet-panel__linkbar { padding: 5px 10px; }
+  .wallet-panel__open { font-size: 12px; }
+}
+
 .wallet-hero {
   display: flex;
   align-items: center;

@@ -35,11 +35,11 @@ import { openUserStatus } from "../status/profileOverlay";
 import { requestJoinCall } from "../calls/groupCall";
 import { askBlock, askClearChat, askDeleteChat, askExitGroup, askMute } from "../chat-list/roomMenu";
 import { typingLabel } from "../chat-list/useChatList";
-import { walletApi } from "../../features/wallet/api";
-import { toast } from "../../services/toast";
+import { useApp } from "../layout/AppContext";
 
 function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClose, onCall, onStarred, compact }) {
   useTicker(60000);
+  const app = useApp();
   const me = useStore((state) => state.me);
   const contacts = useStore((state) => state.contacts);
   const typing = useStore((state) => state.typing[room.id]);
@@ -78,19 +78,17 @@ function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClo
     !room.isGroup ? {
       label: "Send NSAT",
       icon: Coins,
-      onClick: async () => {
-        try {
-          const recipient = await walletApi.chatRecipient(room.id);
-          const walletUrl = new URL("https://wallet.satoshicore.org/");
-          walletUrl.searchParams.set("view", "send");
-          walletUrl.searchParams.set("to", recipient.address);
-          window.location.assign(walletUrl.href);
-        } catch (error) {
-          toast.error(error?.response?.data?.code === "recipient_wallet_not_connected"
-            ? "This contact has not connected an NSAT Wallet yet."
-            : "Could not load this contact’s verified wallet. Try again.");
-        }
-      },
+      onClick: () => app.openWallet({ roomId: room.id }),
+    } : null,
+    !room.isGroup ? {
+      label: "Receive NSAT",
+      icon: Coins,
+      onClick: () => app.openWallet({ view: "receive" }),
+    } : null,
+    !room.isGroup && room.otherUser && !room.otherUser.is_deleted && !blocked ? {
+      label: "Request NSAT",
+      icon: Coins,
+      onClick: () => window.dispatchEvent(new CustomEvent("mhtalk:request-nsat", { detail: room.id })),
     } : null,
     { label: "Search", icon: Search, onClick: onSearch },
     { label: "Select messages", icon: CheckSquare, onClick: onSelect },

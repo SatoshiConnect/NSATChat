@@ -7,7 +7,7 @@
 - Validate identifiers and payloads at their boundary; use domain helpers only after request parsing.
 - Keep OAuth/API keys in server-side environment configuration. Do not log tokens, contact contents, private prompts, or wallet secrets.
 - Google contact sync accepts explicit consent and minimizes retained data. Contact values must never be forwarded to AI providers.
-- Wallet Integration is read-only and public-data-only. The Messenger backend must not collect private keys/seed phrases or sign/broadcast transactions.
+- Messenger's Wallet API is limited to public data and verified public-address links. The independently hosted Wallet owns keys, signing and broadcasting; the Messenger backend must not collect private keys/seed phrases or sign/broadcast transactions.
 - Feature flags only disable optional capabilities; they never bypass identity, object permissions, cryptographic verification, or rate limits.
 
 ## Feature switches

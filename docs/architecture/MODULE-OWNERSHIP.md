@@ -7,7 +7,7 @@
 | Calls | Call and call participant records, call lifecycle and signaling | Chat room lifecycle or user credentials |
 | Status | Status records, privacy rules, status feed and status reply snapshot/policy | Chat message storage; account identity |
 | Notifications | Push subscriptions and delivery formatting/adapters | Ownership of source events or recipient identity |
-| Wallet Integration | Read-only gateway/indexer access and Wallet UI | Private keys, seed phrases, signing, broadcasting, wallet engine, Mainnet operations |
+| Wallet Integration | Public address/balance reads, verified address links, and embedded Wallet entry point | Private keys, seed phrases, signing, broadcasting, wallet engine, Mainnet operations |
 
 ## Source ownership and persistence
 

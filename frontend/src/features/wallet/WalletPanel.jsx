@@ -1,77 +1,94 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, ExternalLink, Eye, RefreshCw, WalletCards } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, ExternalLink, WalletCards } from "lucide-react";
 import { walletApi } from "./api";
-import { PanelHeader } from "../../components/common/ui";
+import { useApp } from "../../components/layout/AppContext";
+import { toast } from "../../services/toast";
 
-const STORAGE_KEY = "satoshicore.wallet.watch-address.v1";
-const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
-const EXPLORER = "https://wallet.satoshicore.org/explorer/?q=";
+const WALLET_ORIGIN = "https://wallet.satoshicore.org";
 
-function readSavedAddress() {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY) || "";
-    return ADDRESS_RE.test(value) ? value : "";
-  } catch {
-    return "";
-  }
-}
-
-function formatInteger(value) {
-  const text = String(value ?? "");
-  return /^\d+$/.test(text) ? text.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "—";
-}
-
-function shortAddress(address) {
-  return address ? `${address.slice(0, 10)}…${address.slice(-8)}` : "";
-}
-
-function formatDate(seconds) {
-  const value = Number(seconds);
-  if (!Number.isFinite(value) || value <= 0) return "Time unavailable";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value * 1000));
-}
-
-function messageForError(error) {
-  const code = error?.response?.data?.code;
-  if (code === "invalid_address") return "Enter a valid NSAT public address starting with G.";
-  if (code === "mainnet_unverified") return "The NSAT Mainnet identity could not be verified. Wallet data is hidden for safety.";
-  if (code === "wallet_unavailable" || error?.response?.status === 503) return "NSAT Mainnet data is temporarily unavailable. Try again shortly.";
-  return "Could not load wallet data. Check your connection and try again.";
-}
-
-export default function WalletPanel() {
-  const [address, setAddress] = useState(readSavedAddress);
-  const [snapshot, setSnapshot] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+/**
+ * Messenger hosts the real Wallet web app in a narrowly allowlisted iframe.
+ * The frame stays on wallet.satoshicore.org, so its encrypted local keystore,
+ * unlock flow, receive tools and transaction signing all remain Wallet-owned.
+ */
+export default function WalletPanel({ launch = null }) {
+  const app = useApp();
   const [linkedWallet, setLinkedWallet] = useState(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  const [frameUrl, setFrameUrl] = useState(`${WALLET_ORIGIN}/messenger-embed/`);
+  const [frameBusy, setFrameBusy] = useState(true);
+  const [frameError, setFrameError] = useState("");
 
-  const refreshLink = useCallback(async () => {
-    try { setLinkedWallet(await walletApi.linkState()); }
-    catch { setLinkedWallet(null); }
+  useEffect(() => {
+    let alive = true;
+    walletApi.linkState()
+      .then((state) => { if (alive) setLinkedWallet(state); })
+      .catch(() => { if (alive) setLinkedWallet(null); });
+    const refresh = () => walletApi.linkState()
+      .then((state) => { if (alive) setLinkedWallet(state); })
+      .catch(() => { if (alive) setLinkedWallet(null); });
+    window.addEventListener("satoshicore:wallet-link-changed", refresh);
+    return () => {
+      alive = false;
+      window.removeEventListener("satoshicore:wallet-link-changed", refresh);
+    };
   }, []);
 
   useEffect(() => {
-    void refreshLink();
-    window.addEventListener("satoshicore:wallet-link-changed", refreshLink);
-    return () => window.removeEventListener("satoshicore:wallet-link-changed", refreshLink);
-  }, [refreshLink]);
+    let alive = true;
+    const request = launch;
+    if (!request?.roomId) {
+      const target = new URL("/messenger-embed/", WALLET_ORIGIN);
+      if (["send", "receive"].includes(request?.view)) target.searchParams.set("view", request.view);
+      Promise.resolve().then(() => {
+        if (!alive) return;
+        setFrameUrl(target.href);
+        setFrameError("");
+        setFrameBusy(true);
+      });
+      return () => { alive = false; };
+    }
+
+    Promise.resolve().then(() => {
+      if (!alive) return;
+      setFrameError("");
+      setFrameBusy(true);
+    });
+    walletApi.chatRecipient(request.roomId)
+      .then((recipient) => {
+        const target = new URL("/messenger-embed/", WALLET_ORIGIN);
+        if (recipient?.network !== "NSAT Mainnet ; October 2026 ; bc3098829fffc717"
+          || !/^G[A-Z2-7]{55}$/.test(recipient?.address || "")) {
+          throw new Error("recipient_unavailable");
+        }
+        target.searchParams.set("view", "send");
+        target.searchParams.set("to", recipient.address);
+        if (alive) setFrameUrl(target.href);
+      })
+      .catch((error) => {
+        if (!alive) return;
+        const code = error?.response?.data?.code;
+        setFrameError(code === "recipient_wallet_not_connected"
+          ? "This contact has not connected an NSAT Wallet yet. You can still open your Wallet and receive NSAT."
+          : "Could not verify this contact’s Wallet. Open the Wallet without a recipient or try again.");
+        setFrameUrl(`${WALLET_ORIGIN}/messenger-embed/`);
+      });
+    return () => { alive = false; };
+  }, [launch]);
 
   const connectWallet = async () => {
     setLinkBusy(true);
-    setError("");
     try {
       const result = await walletApi.startLink();
       const target = new URL(result.wallet_url);
-      if (target.origin !== "https://wallet.satoshicore.org"
-        || target.pathname !== "/connect/messenger/") {
-        throw new Error("The Wallet connection address is invalid.");
+      if (target.origin !== WALLET_ORIGIN || target.pathname !== "/connect/messenger/") {
+        throw new Error("Invalid Wallet connection URL");
       }
+      // Ownership proof happens on the Wallet origin; the chat backend only
+      // receives the public address and a short-lived signature challenge.
       window.location.assign(target.href);
-    } catch (requestError) {
-      setError(requestError?.response?.data?.code === "wallet_link_unavailable"
+    } catch (error) {
+      toast.error(error?.response?.data?.code === "wallet_link_unavailable"
         ? "Wallet linking is not available on this server version yet."
         : "Could not start the secure Wallet connection. Try again.");
       setLinkBusy(false);
@@ -85,180 +102,55 @@ export default function WalletPanel() {
       await walletApi.disconnect();
       setLinkedWallet({ connected: false, address: "" });
     } catch {
-      setError("Could not disconnect the wallet. Try again.");
+      toast.error("Could not disconnect the Wallet. Try again.");
     } finally {
       setLinkBusy(false);
     }
   };
 
-  const load = useCallback(async (candidate) => {
-    const normalized = String(candidate || "").trim().toUpperCase();
-    setAddress(normalized);
-    setSnapshot(null);
-    setError("");
-    setCopied(false);
-    if (!ADDRESS_RE.test(normalized)) {
-      setError("Enter a valid NSAT public address starting with G.");
-      return;
-    }
-    try { localStorage.setItem(STORAGE_KEY, normalized); } catch { /* optional device preference */ }
-    setLoading(true);
-    try {
-      setSnapshot(await walletApi.read(normalized));
-    } catch (requestError) {
-      setError(messageForError(requestError));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (linkedWallet?.connected && linkedWallet.address && !address) {
-      void load(linkedWallet.address);
-    }
-  }, [linkedWallet, address, load]);
-
-  const clear = () => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* optional device preference */ }
-    setAddress("");
-    setSnapshot(null);
-    setError("");
-  };
-
-  const copyAddress = async () => {
-    if (!snapshot?.address) return;
-    try {
-      await navigator.clipboard.writeText(snapshot.address);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      setError("Clipboard access is unavailable in this browser.");
-    }
-  };
-
-  const active = snapshot?.account_status === "active";
-  const history = Array.isArray(snapshot?.history) ? snapshot.history : [];
+  const shortAddress = (address) => address ? `${address.slice(0, 10)}…${address.slice(-8)}` : "";
 
   return (
-    <section className="panel wallet-panel">
-      <PanelHeader title="Wallet" />
-      <div className="panel__scroll wallet-panel__scroll">
-        <div className="wallet-hero">
-          <span className="wallet-hero__icon"><WalletCards size={25} /></span>
-          <div>
-            <h2>NSAT Wallet</h2>
-            <span className="wallet-hero__tag"><Eye size={14} /> View only · NSAT Mainnet</span>
-          </div>
-        </div>
-
-        <section className="wallet-link-card" aria-label="Connected NSAT wallet">
-          <div>
-            <strong>{linkedWallet?.connected ? "Wallet connected" : "Connect your NSAT Wallet"}</strong>
-            <p>{linkedWallet?.connected
-              ? `Verified wallet · ${shortAddress(linkedWallet.address)}`
-              : "Prove wallet ownership by signing a one-time message in Wallet. Your seed and private key stay on your device."}</p>
-          </div>
-          {linkedWallet?.connected ? (
-            <button type="button" className="wallet-text-button wallet-text-button--danger" onClick={disconnectWallet} disabled={linkBusy}>
-              Disconnect
-            </button>
-          ) : (
-            <button type="button" className="btn btn--primary" onClick={connectWallet} disabled={linkBusy}>
-              {linkBusy ? "Opening Wallet…" : "Connect Wallet"}
-            </button>
-          )}
-        </section>
-
-        <div className="wallet-address-form">
-          <label htmlFor="wallet-watch-address">Public wallet address</label>
-          <form onSubmit={(event) => { event.preventDefault(); load(address); }}>
-            <input
-              id="wallet-watch-address"
-              value={address}
-              onChange={(event) => setAddress(event.target.value.toUpperCase())}
-              autoCapitalize="characters"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck="false"
-              placeholder="G…"
-              aria-describedby="wallet-address-help"
-            />
-            <button className="btn btn--primary" type="submit" disabled={loading}>
-              {loading ? <RefreshCw size={17} className="wallet-spin" /> : "View"}
-            </button>
-          </form>
-          <p id="wallet-address-help">Paste a public address from your NSAT Wallet. This does not connect signing keys.</p>
-        </div>
-
-        <div className="wallet-privacy-note">
-          The address is saved only on this device and sent to SatoshiCore Messenger to read public Mainnet data. No private key or seed phrase is requested or stored. This screen cannot send NSAT.
-        </div>
-
-        {error ? <div className="wallet-error" role="alert">{error}</div> : null}
-        {loading ? <div className="wallet-state">Checking the NSAT Mainnet…</div> : null}
-
-        {snapshot ? (
-          <>
-            {active ? (
-              <section className="wallet-balance-card" aria-label="NSAT balance">
-                <span className="wallet-balance-card__label">On-chain balance</span>
-                <strong>{formatInteger(snapshot.balance)} <small>NSAT</small></strong>
-                <div className="wallet-balance-card__address">
-                  <span title={snapshot.address}>{shortAddress(snapshot.address)}</span>
-                  <button type="button" className="wallet-text-button" onClick={copyAddress}>{copied ? "Copied" : "Copy address"}</button>
-                  <button type="button" className="wallet-text-button wallet-text-button--danger" onClick={clear}>Remove</button>
-                </div>
-                <span className="wallet-balance-card__ledger">Mainnet snapshot · ledger {formatInteger(snapshot.ledger)}</span>
-              </section>
-            ) : (
-              <section className="wallet-empty-card">
-                <strong>No account found on NSAT Mainnet</strong>
-                <span>This address has no active on-chain account yet. No zero balance is inferred.</span>
-                <button type="button" className="wallet-text-button" onClick={clear}>Remove address</button>
-              </section>
-            )}
-
-            {active ? (
-              <section className="wallet-history">
-                <div className="wallet-history__header">
-                  <h3>Recent activity</h3>
-                  {snapshot.indexed_head ? <span>Indexed through {formatInteger(snapshot.indexed_head)}</span> : null}
-                </div>
-                {snapshot.history_status !== "available" ? (
-                  <div className="wallet-state wallet-state--inline">Balance is live, but indexed transaction history is temporarily unavailable.</div>
-                ) : history.length ? (
-                  <div className="wallet-tx-list">
-                    {history.map((item) => {
-                      const outgoing = item.direction === "out";
-                      const sign = item.direction === "self" ? "" : outgoing ? "−" : "+";
-                      const signedAmount = `${sign}${formatInteger(item.amount)}`;
-                      return (
-                        <a className="wallet-tx" href={`${EXPLORER}${encodeURIComponent(item.hash)}`} target="_blank" rel="noreferrer" key={item.hash}>
-                          <span className={`wallet-tx__icon ${outgoing ? "is-out" : "is-in"}`}>{outgoing ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}</span>
-                          <span className="wallet-tx__body">
-                            <strong>{outgoing ? "Sent" : item.direction === "self" ? "Self transfer" : "Received"} · {item.success ? "Confirmed" : "Failed"}</strong>
-                            <span>{formatDate(item.close_time)} · ledger {formatInteger(item.ledger)}</span>
-                            <span className="wallet-tx__address">{item.counterparty ? shortAddress(item.counterparty) : item.kind}</span>
-                          </span>
-                          <span className={`wallet-tx__amount ${outgoing ? "is-out" : "is-in"}`}>{signedAmount}<small>NSAT</small></span>
-                          <ExternalLink size={14} className="wallet-tx__external" />
-                        </a>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="wallet-state wallet-state--inline">No indexed transactions were found for this address.</div>
-                )}
-              </section>
-            ) : null}
-          </>
-        ) : null}
-
-        <a className="wallet-open-link" href="https://wallet.satoshicore.org/" target="_blank" rel="noreferrer">
-          Open SatoshiCore Wallet <ExternalLink size={16} />
+    <section className="wallet-panel wallet-panel--embedded" aria-label="SatoshiCore Wallet">
+      <header className="wallet-panel__toolbar">
+        <button type="button" className="wallet-panel__back" onClick={() => app.setSection("chats")}>
+          <ArrowLeft size={18} /> <span>Back to chat</span>
+        </button>
+        <div className="wallet-panel__title"><WalletCards size={19} /><strong>Wallet</strong></div>
+        <a className="wallet-panel__open" href={`${WALLET_ORIGIN}/`} target="_blank" rel="noreferrer">
+          Open separately <ExternalLink size={15} />
         </a>
-        <p className="wallet-footer-note">Wallet creation, recovery, receiving tools and transaction signing remain on the secure Wallet site. Verify network details there before approving any transaction.</p>
+      </header>
+
+      <div className="wallet-panel__linkbar">
+        <span className="wallet-panel__linkstatus">
+          {linkedWallet?.connected
+            ? `Connected · ${shortAddress(linkedWallet.address)}`
+            : "Connect your verified Wallet to receive payments from chat contacts"}
+        </span>
+        {linkedWallet?.connected ? (
+          <button type="button" className="wallet-text-button wallet-text-button--danger" onClick={disconnectWallet} disabled={linkBusy}>
+            Disconnect
+          </button>
+        ) : (
+          <button type="button" className="btn btn--primary" onClick={connectWallet} disabled={linkBusy}>
+            {linkBusy ? "Opening Wallet…" : "Connect Wallet"}
+          </button>
+        )}
       </div>
+
+      {frameError ? <div className="wallet-error" role="alert">{frameError}</div> : null}
+      {frameBusy ? <div className="wallet-panel__loading" role="status">Opening your secure Wallet…</div> : null}
+      <iframe
+        key={frameUrl}
+        className={`wallet-panel__frame ${frameBusy ? "is-loading" : ""}`}
+        src={frameUrl}
+        title="SatoshiCore Wallet"
+        referrerPolicy="strict-origin"
+        allow="clipboard-read; clipboard-write"
+        onLoad={() => { setFrameBusy(false); setFrameError(""); }}
+        onError={() => { setFrameBusy(false); setFrameError("The Wallet site could not be loaded. Use “Open separately” to continue."); }}
+      />
     </section>
   );
 }

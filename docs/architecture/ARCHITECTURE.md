@@ -15,7 +15,7 @@ The React source is currently organized mostly by component role (`components/ch
 - **Calls**: call state, call participants, call APIs, consumers, and signaling lifecycle. Source: `apps/calls/models/`, `views.py`, `consumers.py`, `lifecycle.py`, `group.py`.
 - **Status**: status records, visibility/privacy policy, feed, reactions, and replies. Source: `apps/status/models/`, `views.py`, `policies.py`, `replies.py`.
 - **Notifications**: push subscriptions and delivery adapters. Source: `apps/notifications/models.py`, `push.py`, `consumers.py`.
-- **Wallet Integration**: authenticated read-only public Mainnet snapshots for the Wallet screen. It stores no wallet keys and has no models. Source: `apps/wallet_integration/views.py` and `frontend/src/features/wallet/`.
+- **Wallet Integration**: authenticated public Mainnet reads and verified address linking; the Wallet screen embeds the independently hosted SatoshiCore Wallet so signing and Mainnet operations stay on the Wallet origin. Messenger stores no wallet keys and has no Wallet models. Source: `apps/wallet_integration/views.py` and `frontend/src/features/wallet/`.
 
 ## Refactor boundaries
 
