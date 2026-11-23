@@ -5,6 +5,7 @@ import { toast } from "../../services/toast";
 import { detailTime } from "../../utils/format";
 import { contactsByUser, displayUserName } from "../../utils/messages";
 import { Avatar, EmptyState, IconButton, Menu, MenuButton, PanelHeader, Spinner } from "../common/ui";
+import PresenceAvatar from "../common/PresenceAvatar";
 import { normalizeFiles, validateFiles } from "../../utils/files";
 import { useMediaQuery } from "../../hooks";
 import StatusComposer from "./StatusComposer";
@@ -107,7 +108,7 @@ export default function StatusPanel() {
         <div className="list-pad">
           {recent.map((group, index) => (
             <button key={group.user.id} type="button" className="row status-row" onClick={() => openGroup(recent, index)}>
-              <Avatar src={group.user.profile?.profile_picture} name={displayUserName(group.user, contactMap)} size={46} ring="new" />
+              <PresenceAvatar user={group.user} src={group.user.profile?.profile_picture} name={displayUserName(group.user, contactMap)} size={46} ring="new" />
               <span className="row__body">
                 <span className="row__title">{displayUserName(group.user, contactMap)}</span>
                 <span className="row__subtitle">{detailTime(group.statuses[0]?.created_at)}</span>
@@ -120,7 +121,7 @@ export default function StatusPanel() {
         <div className="list-pad">
           {viewed.map((group, index) => (
             <button key={group.user.id} type="button" className="row status-row" onClick={() => openGroup(viewed, index)}>
-              <Avatar src={group.user.profile?.profile_picture} name={displayUserName(group.user, contactMap)} size={46} ring="seen" />
+              <PresenceAvatar user={group.user} src={group.user.profile?.profile_picture} name={displayUserName(group.user, contactMap)} size={46} ring="seen" />
               <span className="row__body">
                 <span className="row__title">{displayUserName(group.user, contactMap)}</span>
                 <span className="row__subtitle">{detailTime(group.statuses[0]?.created_at)}</span>

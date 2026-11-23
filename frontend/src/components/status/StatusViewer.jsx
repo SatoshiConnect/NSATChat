@@ -8,7 +8,8 @@ import { dispatch, getState, useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { detailTime, listTime } from "../../utils/format";
 import { contactsByUser, displayUserName } from "../../utils/messages";
-import { Avatar, IconButton, MenuButton, Spinner } from "../common/ui";
+import { IconButton, MenuButton, Spinner } from "../common/ui";
+import PresenceAvatar from "../common/PresenceAvatar";
 import { confirmAction } from "../common/dialogs";
 import StatusReplyBar from "./StatusReplyBar";
 
@@ -61,7 +62,7 @@ function ViewersSheet({ statusId, count, onClose }) {
         {rows && !rows.length ? <p className="status-sheet__empty">No views yet</p> : null}
         {rows?.map((row) => (
           <div key={row.id} className="row row--static">
-            <Avatar src={row.viewer?.profile?.profile_picture} name={displayUserName(row.viewer, contactMap)} size={40} />
+            <PresenceAvatar user={row.viewer} src={row.viewer?.profile?.profile_picture} name={displayUserName(row.viewer, contactMap)} size={40} />
             <span className="row__body">
               <span className="row__title">{displayUserName(row.viewer, contactMap)}</span>
               <span className="row__subtitle">{detailTime(row.viewed_at)}</span>
@@ -228,7 +229,7 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
           ))}
         </div>
         <header className="status-viewer__top">
-          <Avatar src={owner?.profile?.profile_picture} name={ownerName} size={40} />
+          <PresenceAvatar user={owner} src={owner?.profile?.profile_picture} name={ownerName} size={40} />
           <div className="status-viewer__who">
             <strong>{ownerName}</strong>
             <span>{listTime(status.created_at)}</span>

@@ -5,6 +5,7 @@ import { mediaUrl, errorMessage } from "../../api/client";
 import { useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { Avatar, EmptyState, Spinner } from "../common/ui";
+import PresenceAvatar from "../common/PresenceAvatar";
 import { detailTime } from "../../utils/format";
 
 function PostCard({ post, me, onChange }) {
@@ -27,7 +28,7 @@ function PostCard({ post, me, onChange }) {
   return (
     <article className="social-post">
       <header className="social-post__author">
-        <Avatar src={post.author?.profile?.profile_picture} name={author} size={42} />
+        <PresenceAvatar user={post.author} src={post.author?.profile?.profile_picture} name={author} size={42} />
         <div><strong>{author}</strong><span>{detailTime(post.created_at)} · {post.visibility === "EVERYONE" ? "Public" : "Contacts"}</span></div>
         {Number(post.author?.id) === Number(me?.id) ? <button type="button" className="social-post__delete" aria-label="Delete post" onClick={async () => { if (!window.confirm("Delete this post?")) return; try { await socialApi.removePost(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't delete post.")); } }}><Trash2 size={17} /></button> : null}
       </header>
@@ -38,7 +39,7 @@ function PostCard({ post, me, onChange }) {
         <button type="button" className={post.is_liked ? "is-liked" : ""} onClick={async () => { try { await socialApi.toggleLike(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't update reaction.")); } }}><ThumbsUp size={17} /> Like</button>
         <span><MessageCircle size={17} /> Comment</span>
       </div>
-      {comments.slice(-3).map((item) => <div className="social-post__comment" key={item.id}><Avatar src={item.author?.profile?.profile_picture} name={item.author?.profile?.display_name} size={28} /><p><strong>{item.author?.profile?.display_name || "Member"}</strong> {item.text}</p></div>)}
+      {comments.slice(-3).map((item) => <div className="social-post__comment" key={item.id}><PresenceAvatar user={item.author} src={item.author?.profile?.profile_picture} name={item.author?.profile?.display_name} size={28} /><p><strong>{item.author?.profile?.display_name || "Member"}</strong> {item.text}</p></div>)}
       <form className="social-post__comment-form" onSubmit={submitComment}><input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={1000} placeholder="Write a comment…" aria-label="Write a comment" /><button type="submit" disabled={!comment.trim() || busy} aria-label="Post comment">{busy ? <Spinner size={16} /> : <Send size={17} />}</button></form>
     </article>
   );
