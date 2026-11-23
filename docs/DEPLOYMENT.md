@@ -78,6 +78,12 @@ Updating later: push to `main`. GitHub Actions runs the tests, then
 [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md#automatic-deploys-cd)). By hand:
 `bash deploy/deploy.sh`. Migrations run automatically.
 
+For the existing host-Caddy mode (`docker-compose.host-proxy.yml`), the deploy
+script also builds the React bundle into a staging directory and switches the
+host-served `frontend/dist` only after both builds succeed. It retains the
+previous frontend bundle until health checks pass, then restores it with the
+backend and container images on rollback.
+
 Backups: `deploy/backup.sh` (nightly database dump, weekly uploaded-files
 archive, copied to Object Storage); see [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md#nightly-backups).
 Keep dumps off GitHub (`*.sql` is git-ignored).
