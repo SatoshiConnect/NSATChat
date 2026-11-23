@@ -66,6 +66,17 @@ def _digest_link_token(token):
     return hashlib.sha256(token.encode("ascii")).hexdigest()
 
 
+def _wallet_link_message(account, token, issued, expires):
+    return (
+        "SatoshiCore Messenger wallet link v1\n"
+        "Origin: https://chat.satoshicore.org\n"
+        f"Account: @{account}\n"
+        f"Challenge: {token}\n"
+        f"Issued: {issued}\n"
+        f"Expires: {expires}"
+    )
+
+
 class WalletLinkStartAPIView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_scope = "wallet_read"
@@ -75,21 +86,18 @@ class WalletLinkStartAPIView(APIView):
         now = timezone.now()
         WalletLinkChallenge.objects.filter(expires_at__lt=now - timedelta(days=1)).delete()
         issued = int(now.timestamp())
+        issued_at = now.replace(microsecond=0)
         expires = issued + 300
         account = request.user.public_id or f"member-{request.user.pk}"
-        message = (
-            "SatoshiCore Messenger wallet link v1\n"
-            "Origin: https://chat.satoshicore.org\n"
-            f"Account: @{account}\n"
-            f"Challenge: {token}\n"
-            f"Issued: {issued}\n"
-            f"Expires: {expires}"
-        )
+        if len(account) > 64:
+            return Response({"code": "wallet_link_unavailable"}, status=status.HTTP_400_BAD_REQUEST)
+        message = _wallet_link_message(account, token, issued, expires)
         WalletLinkChallenge.objects.create(
             user=request.user,
             token_digest=_digest_link_token(token),
-            message=message,
-            expires_at=timezone.now() + timedelta(minutes=5),
+            account=account,
+            issued_at=issued,
+            expires_at=issued_at + timedelta(seconds=300),
         )
         # Keep the one-time capability out of HTTP access logs and referrers.
         wallet_url = f"{WALLET_URL}#{urlencode({'token': token, 'message': message})}"
@@ -129,8 +137,14 @@ class WalletLinkConfirmAPIView(APIView):
                     consumed_at__isnull=True,
                     expires_at__gt=timezone.now(),
                 )
+                expected_message = _wallet_link_message(
+                    challenge.account,
+                    token,
+                    challenge.issued_at,
+                    challenge.issued_at + 300,
+                )
                 Ed25519PublicKey.from_public_bytes(public_key).verify(
-                    signature_bytes, challenge.message.encode("utf-8"),
+                    signature_bytes, expected_message.encode("utf-8"),
                 )
                 # Bind to the owner captured by the authenticated start request.
                 # The confirmation is intentionally capability-based so an iOS

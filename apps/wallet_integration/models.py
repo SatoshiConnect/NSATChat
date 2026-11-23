@@ -22,7 +22,8 @@ class WalletLinkChallenge(models.Model):
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     token_digest = models.CharField(max_length=64, unique=True)
-    message = models.TextField()
+    account = models.CharField(max_length=64)
+    issued_at = models.PositiveBigIntegerField()
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

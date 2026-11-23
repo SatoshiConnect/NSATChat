@@ -25,7 +25,8 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("token_digest", models.CharField(max_length=64, unique=True)),
-                ("message", models.TextField()),
+                ("account", models.CharField(max_length=64)),
+                ("issued_at", models.PositiveBigIntegerField()),
                 ("expires_at", models.DateTimeField()),
                 ("consumed_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
