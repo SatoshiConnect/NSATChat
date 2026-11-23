@@ -115,7 +115,7 @@ class ProfileModelTestCase(TestCase):
         """
         self.assertEqual(
             self.profile.about,
-            "Hey there! I'm using MHTalk.",
+            "Hey there! I'm using SatoshiCore.",
         )
 
     def test_default_online_status(self):

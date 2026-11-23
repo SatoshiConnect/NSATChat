@@ -68,11 +68,11 @@ export default function SignupPage({ onAuthenticated }) {
     <div className="auth">
       <div className="auth__brand">
         <LogoMark size={36} />
-        <span>MHTalk</span>
+        <span>SatoshiCore</span>
       </div>
       <form className="auth__card" onSubmit={submit} noValidate>
         <h1>Create your account</h1>
-        <p className="auth__lead">People can find you on MHTalk by this phone number.</p>
+        <p className="auth__lead">People can find you on SatoshiCore by this phone number.</p>
         {error ? <div className="form-error" role="alert">{error}</div> : null}
 
         <div className="field">

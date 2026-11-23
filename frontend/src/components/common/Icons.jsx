@@ -71,7 +71,7 @@ export function NewChatIcon({ size = 22 }) {
   );
 }
 
-/** MHTalk's own mark: a chat bubble with an upward chevron ("up"). */
+/** SatoshiCore's own mark: a chat bubble with an upward chevron ("up"). */
 export function LogoMark({ size = 40 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>

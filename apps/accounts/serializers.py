@@ -72,6 +72,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         fields = (
             "id",
+            "public_id",
             "phone_number",
             "email",
             "is_verified",
@@ -96,6 +97,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         min_length=8,
         style={"input_type": "password"},
     )
+
+    phone_number = serializers.CharField(required=True)
 
     display_name = serializers.CharField(
         write_only=True,
@@ -231,12 +234,21 @@ class PrivacySettingsSerializer(serializers.Serializer):
     profile_photo = serializers.ChoiceField(choices=Profile.PRIVACY_CHOICES, source="photo_privacy", required=False)
     about = serializers.ChoiceField(choices=Profile.PRIVACY_CHOICES, source="about_privacy", required=False)
     read_receipts = serializers.BooleanField(required=False)
+    allow_id_search = serializers.BooleanField(required=False)
+    allow_phone_search = serializers.BooleanField(required=False)
+    allow_contact_discovery = serializers.BooleanField(required=False)
 
     def update(self, instance, validated_data):
         for field, value in validated_data.items():
             setattr(instance, field, value)
         if validated_data:
             instance.save(update_fields=[*validated_data.keys(), "updated_at"])
+        if validated_data.get("allow_contact_discovery") is False:
+            # Remove associations already found by other users after this
+            # account revokes discoverability.
+            from .models import GoogleContactMatch
+
+            GoogleContactMatch.objects.filter(matched_user=instance.user).delete()
         return instance
 
 

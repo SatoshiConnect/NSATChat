@@ -65,13 +65,18 @@ class PrivacySettingsTests(TestCase):
         self.assertEqual(response.data, {
             "last_seen": "everyone", "online": "everyone", "profile_photo": "everyone",
             "about": "everyone", "read_receipts": True,
+            "allow_id_search": True, "allow_phone_search": True,
+            "allow_contact_discovery": False,
         })
         response = self.as_user(self.alice).patch(
-            "/api/accounts/privacy/", {"last_seen": "contacts", "read_receipts": False}, format="json"
+            "/api/accounts/privacy/", {
+                "last_seen": "contacts", "read_receipts": False, "allow_contact_discovery": True,
+            }, format="json"
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["last_seen"], "contacts")
         self.assertFalse(response.data["read_receipts"])
+        self.assertTrue(response.data["allow_contact_discovery"])
         self.assertEqual(
             self.as_user(self.alice).patch("/api/accounts/privacy/", {"about": "friends"}, format="json").status_code, 400
         )

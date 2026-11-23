@@ -3,10 +3,11 @@ import { UserPlus, Users } from "lucide-react";
 import { errorMessage } from "../../api/client";
 import { contactsApi } from "../../api/endpoints";
 import { useDebouncedValue } from "../../hooks";
-import { openChatWith } from "../../store/actions";
+import { loadContacts, openChatWith } from "../../store/actions";
 import { useStore } from "../../store/store";
 import { toast } from "../../services/toast";
-import { formatPhone, looksLikePhone, phoneDigits } from "../../utils/phone";
+import { formatPhone, phoneDigits } from "../../utils/phone";
+import { contactLookupType } from "../../utils/contactLookup";
 import { profileName } from "../../utils/messages";
 import { Avatar, EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
 import { groupByLetter } from "../../utils/rules";
@@ -45,9 +46,9 @@ export default function NewChatPanel() {
     );
   }, [contacts, query]);
 
-  // Number typed that isn't a saved contact: look it up on the server.
+  // Explicit ID syntax avoids confusing numeric IDs with phone numbers.
   const term = debounced.trim();
-  const shouldLookup = looksLikePhone(term) && !filtered.length;
+  const shouldLookup = Boolean(contactLookupType(term)) && !filtered.length;
   const [lookupResult, setLookupResult] = useState({ term: "", state: "idle" });
   useEffect(() => {
     if (!shouldLookup) return undefined;
@@ -55,7 +56,7 @@ export default function NewChatPanel() {
     contactsApi
       .lookup(term)
       .then((data) => !cancelled && setLookupResult({ term, state: "found", data }))
-      .catch((error) => !cancelled && setLookupResult({ term, state: "missing", message: errorMessage(error, "This phone number isn't on MHTalk.") }));
+      .catch((error) => !cancelled && setLookupResult({ term, state: "missing", message: errorMessage(error, "No matching SatoshiCore account was found.") }));
     return () => {
       cancelled = true;
     };
@@ -75,10 +76,23 @@ export default function NewChatPanel() {
     }
   }
 
+  async function saveContact(user) {
+    setOpening(user.id);
+    try {
+      const saved = user.public_id
+        ? await contactsApi.createByPublicId(profileName(user) || "", user.public_id)
+        : await contactsApi.create(profileName(user) || formatPhone(user.phone_number), user.phone_number);
+      await loadContacts();
+      setLookupResult((current) => current.term === term ? { ...current, data: { ...current.data, saved_contact: { id: saved.id, name: saved.name } } } : current);
+      toast.success("Friend added to your contacts");
+    } catch (error) { toast.error(errorMessage(error)); }
+    finally { setOpening(null); }
+  }
+
   return (
     <section className="panel">
       <PanelHeader title="New chat" onBack={app.popPanel} variant="sub" />
-      <SearchInput value={query} onChange={setQuery} placeholder="Search name or number" autoFocus />
+      <SearchInput value={query} onChange={setQuery} placeholder="Search name, public ID, email or phone" autoFocus />
       <div className="panel__scroll">
         {!query ? (
           <div className="list-pad list-pad--top">
@@ -86,9 +100,9 @@ export default function NewChatPanel() {
               <span className="row__icon-circle"><Users size={22} /></span>
               <span className="row__body"><span className="row__title">New group</span></span>
             </button>
-            <button type="button" className="row row--action" onClick={() => app.pushPanel("newContact")}>
+            <button type="button" className="row row--action" onClick={() => app.pushPanel("addFriends")}>
               <span className="row__icon-circle"><UserPlus size={22} /></span>
-              <span className="row__body"><span className="row__title">New contact</span></span>
+              <span className="row__body"><span className="row__title">Add friends</span></span>
             </button>
           </div>
         ) : null}
@@ -101,21 +115,21 @@ export default function NewChatPanel() {
               <button type="button" className="row" onClick={() => open(lookup.data.user)} disabled={opening === lookup.data.user.id}>
                 <Avatar src={lookup.data.user.profile?.profile_picture} name={profileName(lookup.data.user)} />
                 <span className="row__body">
-                  <span className="row__title">{lookup.data.saved_contact?.name || formatPhone(lookup.data.user.phone_number)}</span>
-                  <span className="row__subtitle">{profileName(lookup.data.user) ? `~ ${profileName(lookup.data.user)}` : lookup.data.user.profile?.about}</span>
+                  <span className="row__title">{lookup.data.saved_contact?.name || profileName(lookup.data.user) || formatPhone(lookup.data.user.phone_number) || `User ${lookup.data.user.id}`}</span>
+                  <span className="row__subtitle">{lookup.data.user.public_id ? `@${lookup.data.user.public_id}` : lookup.data.user.phone_number ? formatPhone(lookup.data.user.phone_number) : "SatoshiCore user"}</span>
                 </span>
                 {opening === lookup.data.user.id ? <Spinner size={18} /> : null}
               </button>
               {!lookup.data.saved_contact ? (
-                <button type="button" className="btn btn--text add-contact-link" onClick={() => app.pushPanel("newContact", { initialPhone: lookup.data.user.phone_number })}>
-                  <UserPlus size={16} /> Save as contact
+                <button type="button" className="btn btn--text add-contact-link" onClick={() => saveContact(lookup.data.user)}>
+                  <UserPlus size={16} /> Add friend
                 </button>
               ) : null}
             </div>
           </>
         ) : null}
-        {lookup.state === "found" && lookup.data.is_self ? <EmptyState text="That's your own number." /> : null}
-        {lookup.state === "missing" ? <EmptyState title="Not on MHTalk" text={lookup.message} /> : null}
+        {lookup.state === "found" && lookup.data.is_self ? <EmptyState text="That's your own account." /> : null}
+        {lookup.state === "missing" ? <EmptyState title="Not on SatoshiCore" text={lookup.message} /> : null}
 
         {filtered.length ? (
           groupByLetter(filtered).map(([letter, items]) => (
@@ -134,11 +148,11 @@ export default function NewChatPanel() {
             </div>
           ))
         ) : !query ? (
-          <EmptyState title="No contacts yet" text="Add a contact using their MHTalk phone number to start chatting.">
-            <button type="button" className="btn btn--primary" onClick={() => app.pushPanel("newContact")}>Add contact</button>
+          <EmptyState title="No contacts yet" text="Find people by public ID or phone, scan a friend QR code, share an invite link, or sync selected contacts.">
+            <button type="button" className="btn btn--primary" onClick={() => app.pushPanel("addFriends")}>Find friends</button>
           </EmptyState>
         ) : lookup.state === "idle" ? (
-          <EmptyState text={`No contacts match "${query}". Type a full phone number to find someone on MHTalk.`} />
+          <EmptyState text={`No contacts match "${query}". Search with ID: username, @username, a full phone number, or email.`} />
         ) : null}
       </div>
     </section>

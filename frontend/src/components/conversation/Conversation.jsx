@@ -170,7 +170,7 @@ export default function Conversation({ roomId }) {
           if (!found?.user) throw new Error("missing");
           return found.user;
         } catch {
-          toast.error(`${card.name || phone} isn't on MHTalk.`);
+          toast.error(`${card.name || phone} isn't on SatoshiCore.`);
           return null;
         }
       };
@@ -464,7 +464,7 @@ export default function Conversation({ roomId }) {
               <button
                 type="button"
                 className="btn btn--outline"
-                onClick={() => app.pushPanel("newContact", { initialPhone: room.otherUser.phone_number })}
+                onClick={() => app.pushPanel("newContact", { initialUser: room.otherUser, sourceRoomId: room.id, initialName: profileName(room.otherUser) })}
               >
                 Add to contacts
               </button>

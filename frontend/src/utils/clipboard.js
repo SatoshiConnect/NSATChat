@@ -32,7 +32,7 @@ export async function readClipboardFiles() {
 }
 
 /**
- * Shrink a photo for MHTalk AI: a JPEG (max 1280 px) as base64 for the
+ * Shrink a photo for SatoshiCore AI: a JPEG (max 1280 px) as base64 for the
  * server, plus a small preview (data URL) to show in the chat.
  */
 export function shrinkImage(file, max = 1280, thumbMax = 360) {

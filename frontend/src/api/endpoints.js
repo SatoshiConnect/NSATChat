@@ -1,4 +1,5 @@
-import api, { asList } from "./client";
+import api, { API_BASE, asList } from "./client";
+import { contactLookupType, normalizePublicIdQuery } from "../utils/contactLookup";
 
 /**
  * Every backend call used by the UI lives here, grouped by feature, so
@@ -17,6 +18,17 @@ const form = (fields) => {
 };
 
 export const authApi = {
+  googleConfig: async () => {
+    const response = await fetch(`${API_BASE}accounts/google/config/`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`Google sign-in configuration returned ${response.status}.`);
+    return response.json();
+  },
+  googleLogin: (credential, csrf) =>
+    api.post("accounts/google/login/", { credential }, { headers: { "X-CSRFToken": csrf } }).then((r) => r.data),
   login: (phone_number, password) =>
     api.post("accounts/login/", { phone_number, password }).then((r) => r.data),
   register: (payload) => api.post("accounts/register/", payload).then((r) => r.data),
@@ -24,6 +36,8 @@ export const authApi = {
   me: () => api.get("accounts/me/").then((r) => r.data),
   updateProfile: (fields) =>
     api.patch("accounts/profile/update/", form(fields)).then((r) => r.data),
+  setPublicId: (public_id) => api.post("accounts/profile/public-id/", { public_id }).then((r) => r.data),
+  createContact: (name, phone_number) => api.post("accounts/contacts/", { name, phone_number }).then((r) => r.data),
   privacy: () => api.get("accounts/privacy/").then((r) => r.data),
   updatePrivacy: (fields) => api.patch("accounts/privacy/", fields).then((r) => r.data),
   deleteAccount: (phone_number, password) =>
@@ -34,9 +48,27 @@ export const contactsApi = {
   list: () => api.get("accounts/contacts/").then((r) => asList(r.data)),
   create: (name, phone_number) =>
     api.post("accounts/contacts/", { name, phone_number }).then((r) => r.data),
+  createByPublicId: (name, public_id) => api.post("accounts/contacts/", { name, public_id }).then((r) => r.data),
+  createSuggestion: (name, suggested_user_id) => api.post("accounts/contacts/", { name, suggested_user_id }).then((r) => r.data),
+  suggestions: () => api.get("accounts/contacts/suggestions/").then((r) => asList(r.data)),
+  sync: (contacts) => api.post("accounts/contacts/sync/", { contacts }).then((r) => r.data),
+  googleStatus: () => api.get("accounts/contacts/google/").then((r) => r.data),
+  googleSync: (payload) => api.post("accounts/contacts/google/", payload).then((r) => r.data),
+  googleDisconnect: () => api.delete("accounts/contacts/google/"),
+  addGroupMember: (userId, groupId, name) => api.post(`accounts/users/${userId}/add-contact-from-group/`, { group_id: groupId, name }).then((r) => r.data),
+  addFromChat: (userId, roomId, name) => api.post(`accounts/users/${userId}/add-contact-from-chat/`, { room_id: roomId, name }).then((r) => r.data),
   update: (id, fields) => api.patch(`accounts/contacts/${id}/`, fields).then((r) => r.data),
   remove: (id) => api.delete(`accounts/contacts/${id}/`),
-  lookup: (phone) => api.get("accounts/users/lookup/", { params: { phone } }).then((r) => r.data),
+  lookup: (term) => {
+    const value = String(term || "").trim();
+    const type = contactLookupType(value);
+    const params = type === "public_id"
+      ? { public_id: normalizePublicIdQuery(value) }
+      : type === "email"
+        ? { email: value }
+        : { phone: value };
+    return api.get("accounts/users/lookup/", { params }).then((r) => r.data);
+  },
   commonGroups: (userId) => api.get(`accounts/users/${userId}/common-groups/`).then((r) => r.data),
 };
 
@@ -161,5 +193,5 @@ export const callApi = {
 
 export const assistantApi = {
   status: () => api.get("chat/ai/").then((r) => r.data),
-  send: (messages, image) => api.post("chat/ai/", image ? { messages, image } : { messages }, { timeout: 90000 }).then((r) => r.data),
+  send: (payload) => api.post("chat/ai/", payload, { timeout: 120000 }).then((r) => r.data),
 };

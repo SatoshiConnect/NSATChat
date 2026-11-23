@@ -174,7 +174,14 @@ function ParticipantSheet({ people, onClose }) {
 
 export default function GroupCallScreen({ call, title, groupPhoto, people, me, localStream, remoteStreams, shareStream, status, controls, reactions, rootRef, onDoubleClick }) {
   const [sheet, setSheet] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const myVideoOn = Boolean(localStream?.getVideoTracks().length) && !call.cameraOff;
+  const inProgress = call.phase === "ongoing";
+  useEffect(() => {
+    if (!inProgress || !controlsVisible) return undefined;
+    const timer = window.setTimeout(() => setControlsVisible(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [inProgress, controlsVisible]);
 
   // Tiles: everyone in the call or still being rung; you last (like WhatsApp).
   const tiles = useMemo(() => {
@@ -211,7 +218,17 @@ export default function GroupCallScreen({ call, title, groupPhoto, people, me, l
   const inCall = people.filter((person) => person.state === "joined").length + 1;
 
   return (
-    <div ref={rootRef} className="call-screen gcall" role="dialog" aria-label={`Group call: ${title}`}>
+    <div
+      ref={rootRef}
+      className={`call-screen gcall ${controlsVisible ? "" : "controls-hidden"}`}
+      role="dialog"
+      aria-label={`Group call: ${title}`}
+      onPointerMove={() => setControlsVisible(true)}
+      onClick={(event) => {
+        if (event.target.closest(".call-bar, .gcall__head button, .gcall-sheet, button")) return;
+        setControlsVisible(true);
+      }}
+    >
       <header className="gcall__head">
         <Avatar src={groupPhoto} name={title} group size={40} />
         <div className="gcall__title">

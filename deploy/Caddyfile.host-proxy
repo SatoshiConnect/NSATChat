@@ -1,0 +1,35 @@
+# Inner app proxy for hosts that already terminate TLS at the system Caddy.
+# The outer Caddy forwards chat.satoshicore.org to 127.0.0.1:3001.
+:3001 {
+	bind 127.0.0.1
+	encode zstd gzip
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		Permissions-Policy "geolocation=(self), camera=(self), microphone=(self), display-capture=(self)"
+	}
+	@backend path /api/* /ws/* /admin/* /static/* /media/*
+	handle @backend {
+		reverse_proxy 127.0.0.1:18002 {
+			header_up X-Forwarded-Proto https
+			flush_interval -1
+		}
+	}
+	@pwa path /sw.js /manifest.webmanifest
+	handle @pwa {
+		root * /Users/migssa-ngakhaonu/Desktop/nsat-messenger/mhtalk-stage/frontend/dist
+		header Cache-Control "no-cache"
+		file_server
+	}
+	handle {
+		root * /Users/migssa-ngakhaonu/Desktop/nsat-messenger/mhtalk-stage/frontend/dist
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+	request_body {
+		max_size 110MB
+	}
+}

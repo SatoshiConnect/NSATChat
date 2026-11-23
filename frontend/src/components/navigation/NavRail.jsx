@@ -8,7 +8,7 @@ import { useAppUpdate } from "../../services/appUpdate";
 
 /**
  * Compact vertical navigation on desktop; on phones a WhatsApp-style bottom
- * tab bar (Chats, Updates, Calls, Contacts, You). MHTalk AI and Media move to
+ * tab bar (Chats, Updates, Calls, Contacts, You). SatoshiCore AI and Media move to
  * the floating button / chat menu there, so the bar keeps five roomy tabs.
  * Badges are derived from real state: unread chats (non-archived), unseen
  * statuses and unacknowledged missed calls.
@@ -69,7 +69,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
     { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
     { id: "status", label: "Status", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
-    { id: "ai", label: "MHTalk AI", icon: () => <span className="rail__ai"><Sparkles size={18} strokeWidth={2} /></span> },
+    { id: "ai", label: "SatoshiCore AI", icon: () => <span className="rail__ai"><Sparkles size={18} strokeWidth={2} /></span> },
   ];
 
   return (

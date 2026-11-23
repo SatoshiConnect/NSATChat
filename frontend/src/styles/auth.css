@@ -66,6 +66,32 @@
   margin-top: 10px;
   min-height: 44px;
 }
+.auth__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 14px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.auth__divider::before,
+.auth__divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--divider);
+}
+.auth__google {
+  display: flex;
+  justify-content: center;
+  min-height: 40px;
+}
+.auth__google-status {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
 .auth__switch {
   margin: 22px 0 0;
   text-align: center;

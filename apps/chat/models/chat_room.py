@@ -26,6 +26,8 @@ class ChatRoom(models.Model):
         help_text="Group name. Leave blank for private chats.",
     )
 
+    legacy_id = models.CharField(max_length=255, unique=True, null=True, blank=True, default=None)
+
     room_type = models.CharField(
         max_length=10,
         choices=RoomType.choices,

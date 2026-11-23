@@ -44,7 +44,7 @@ function file1Label(file) {
 }
 
 /**
- * Things shared into the installed app ("Share → MHTalk" from the gallery,
+ * Things shared into the installed app ("Share → SatoshiCore" from the gallery,
  * Gboard's GIF/sticker share, other apps) open a "Send to…" chat picker.
  */
 export default function ShareReceiver() {

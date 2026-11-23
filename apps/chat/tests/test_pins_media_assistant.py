@@ -1,4 +1,4 @@
-"""Pinned messages (max 3), media from all chats and the MHTalk AI endpoint."""
+"""Pinned messages (max 3), media from all chats and the SatoshiCore AI endpoint."""
 
 from unittest import mock
 
@@ -83,19 +83,26 @@ class AssistantTests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(make_user("+923000000871"))
 
-    @override_settings(MHTALK_AI_API_KEY="")
+    def post_ai(self, payload):
+        import uuid
+
+        request = {"consent": True, "request_id": str(uuid.uuid4()), **payload}
+        return self.client.post("/api/chat/ai/", request, format="json")
+
+    @override_settings(SATOSHICORE_AI_API_KEY="")
     def test_disabled_without_a_key(self):
         self.assertFalse(self.client.get("/api/chat/ai/").data["enabled"])
-        response = self.client.post("/api/chat/ai/", {"messages": [{"role": "user", "content": "hi"}]}, format="json")
+        response = self.post_ai({"messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(response.status_code, 503)
 
-    @override_settings(MHTALK_AI_API_KEY="test-key")
+    @override_settings(SATOSHICORE_AI_API_KEY="test-key")
     def test_relays_the_conversation(self):
-        with mock.patch("apps.chat.assistant.call_model", return_value="Hello!") as call:
-            response = self.client.post(
-                "/api/chat/ai/",
-                {"messages": [{"role": "assistant", "content": "ignored lead"}, {"role": "user", "content": "hi"}]},
-                format="json",
+        with mock.patch(
+            "apps.chat.assistant.call_model",
+            return_value={"reply": "Hello!", "input_tokens": 2, "output_tokens": 2},
+        ) as call:
+            response = self.post_ai(
+                {"messages": [{"role": "assistant", "content": "ignored lead"}, {"role": "user", "content": "hi"}]}
             )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.data["reply"], "Hello!")
@@ -125,7 +132,7 @@ class AssistantTests(TestCase):
 
         return captured, fake_urlopen
 
-    @override_settings(MHTALK_AI_API_KEY="AQ.free-key", MHTALK_AI_PROVIDER="gemini", MHTALK_AI_MODEL="", MHTALK_AI_BASE_URL="")
+    @override_settings(SATOSHICORE_AI_API_KEY="AQ.free-key", SATOSHICORE_AI_PROVIDER="gemini", SATOSHICORE_AI_MODEL="", SATOSHICORE_AI_BASE_URL="")
     def test_gemini_uses_the_native_endpoint(self):
         captured, fake = self._capture({"candidates": [{"content": {"parts": [{"text": "Salam!"}]}}]})
         history = [
@@ -134,7 +141,7 @@ class AssistantTests(TestCase):
             {"role": "user", "content": "kya haal hai"},
         ]
         with mock.patch("apps.chat.assistant.urllib.request.urlopen", fake):
-            response = self.client.post("/api/chat/ai/", {"messages": history}, format="json")
+            response = self.post_ai({"messages": history})
         self.assertEqual(response.data["reply"], "Salam!")
         self.assertEqual(
             captured["url"],
@@ -143,18 +150,16 @@ class AssistantTests(TestCase):
         self.assertEqual(captured["headers"]["x-goog-api-key"], "AQ.free-key")
         self.assertNotIn("authorization", captured["headers"])
         self.assertEqual([c["role"] for c in captured["body"]["contents"]], ["user", "model", "user"])
-        self.assertIn("MHTalk AI", captured["body"]["systemInstruction"]["parts"][0]["text"])
+        self.assertIn("SatoshiCore AI", captured["body"]["systemInstruction"]["parts"][0]["text"])
 
-    @override_settings(MHTALK_AI_API_KEY="AQ.free-key", MHTALK_AI_PROVIDER="gemini", MHTALK_AI_MODEL="", MHTALK_AI_BASE_URL="")
+    @override_settings(SATOSHICORE_AI_API_KEY="AQ.free-key", SATOSHICORE_AI_PROVIDER="gemini", SATOSHICORE_AI_MODEL="", SATOSHICORE_AI_BASE_URL="")
     def test_gemini_gets_the_photo_with_the_last_message(self):
         import base64
 
         captured, fake = self._capture({"candidates": [{"content": {"parts": [{"text": "A cat"}]}}]})
         image = {"mime_type": "image/jpeg", "data": base64.b64encode(b"fake-jpeg").decode()}
         with mock.patch("apps.chat.assistant.urllib.request.urlopen", fake):
-            response = self.client.post(
-                "/api/chat/ai/", {"messages": [{"role": "user", "content": "What is this?"}], "image": image}, format="json"
-            )
+            response = self.post_ai({"messages": [{"role": "user", "content": "What is this?"}], "image": image})
         self.assertEqual(response.data["reply"], "A cat")
         parts = captured["body"]["contents"][-1]["parts"]
         self.assertEqual(parts[0]["inline_data"]["mime_type"], "image/jpeg")
@@ -166,17 +171,17 @@ class AssistantTests(TestCase):
         self.assertIsNone(clean_image({"mime_type": "image/gif", "data": "AAAA"}))
         self.assertIsNone(clean_image({"mime_type": "image/png", "data": "not base64!!"}))
 
-    @override_settings(MHTALK_AI_API_KEY="gsk_x", MHTALK_AI_PROVIDER="groq", MHTALK_AI_MODEL="")
-    def test_groq_uses_the_openai_compatible_endpoint(self):
-        captured, fake = self._capture({"choices": [{"message": {"content": "Hi"}}]})
+    @override_settings(SATOSHICORE_AI_API_KEY="AQ.free-key", SATOSHICORE_AI_PROVIDER="groq", SATOSHICORE_AI_MODEL="")
+    def test_only_gemini_provider_is_used(self):
+        captured, fake = self._capture({"candidates": [{"content": {"parts": [{"text": "Hi"}]}}]})
         with mock.patch("apps.chat.assistant.urllib.request.urlopen", fake):
-            response = self.client.post("/api/chat/ai/", {"messages": [{"role": "user", "content": "hi"}]}, format="json")
+            response = self.post_ai({"messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(response.data["reply"], "Hi")
-        self.assertIn("api.groq.com", captured["url"])
-        self.assertEqual(captured["headers"]["authorization"], "Bearer gsk_x")
-        self.assertEqual(captured["body"]["messages"][0]["role"], "system")
+        self.assertIn("generativelanguage.googleapis.com", captured["url"])
+        self.assertEqual(captured["headers"]["x-goog-api-key"], "AQ.free-key")
+        self.assertNotIn("authorization", captured["headers"])
 
-    @override_settings(MHTALK_AI_API_KEY="AQ.bad", MHTALK_AI_PROVIDER="gemini")
+    @override_settings(SATOSHICORE_AI_API_KEY="AQ.bad", SATOSHICORE_AI_PROVIDER="gemini")
     def test_rejected_key_message(self):
         import io
         import urllib.error
@@ -187,18 +192,27 @@ class AssistantTests(TestCase):
             )
 
         with mock.patch("apps.chat.assistant.urllib.request.urlopen", fake):
-            response = self.client.post("/api/chat/ai/", {"messages": [{"role": "user", "content": "hi"}]}, format="json")
+            response = self.post_ai({"messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(response.status_code, 502)
         self.assertIn("rejected", response.data["detail"])
 
-    @override_settings(MHTALK_AI_API_KEY="gsk_x", MHTALK_AI_PROVIDER="groq")
+    @override_settings(SATOSHICORE_AI_API_KEY="gsk_x", SATOSHICORE_AI_PROVIDER="groq")
     def test_status_reports_the_provider(self):
         data = self.client.get("/api/chat/ai/").data
-        self.assertEqual((data["enabled"], data["provider"]), (True, "groq"))
+        self.assertEqual((data["enabled"], data["provider"]), (True, "gemini"))
 
-    @override_settings(MHTALK_AI_API_KEY="test-key")
+    @override_settings(SATOSHICORE_AI_API_KEY="test-key")
     def test_rejects_bad_history(self):
-        response = self.client.post("/api/chat/ai/", {"messages": [{"role": "system", "content": "x"}]}, format="json")
+        response = self.post_ai({"messages": [{"role": "system", "content": "x"}]})
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(SATOSHICORE_AI_API_KEY="test-key")
+    def test_requires_explicit_consent(self):
+        response = self.client.post(
+            "/api/chat/ai/",
+            {"request_id": "4406b2b8-2bd2-42f0-9c6a-11293db501c2", "messages": [{"role": "user", "content": "hi"}]},
+            format="json",
+        )
         self.assertEqual(response.status_code, 400)
 
 

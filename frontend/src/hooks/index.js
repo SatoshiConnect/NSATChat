@@ -3,11 +3,14 @@ import { messageApi } from "../api/endpoints";
 
 /** Value that only updates after `delay` ms without changes (search inputs). */
 export function useDebouncedValue(value, delay = 300) {
-  const [debounced, setDebounced] = useState(value);
+  // Search inputs can be populated from browser/device APIs that return null.
+  // Keep the hook's string consumers safe to call .trim() on during render.
+  const normalizedValue = value ?? "";
+  const [debounced, setDebounced] = useState(normalizedValue);
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delay);
+    const timer = window.setTimeout(() => setDebounced(normalizedValue), delay);
     return () => window.clearTimeout(timer);
-  }, [value, delay]);
+  }, [normalizedValue, delay]);
   return debounced;
 }
 

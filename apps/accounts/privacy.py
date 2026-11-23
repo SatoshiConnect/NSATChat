@@ -170,6 +170,8 @@ def privacy_settings(profile):
         "profile_photo": profile.photo_privacy,
         "about": profile.about_privacy,
         "read_receipts": bool(profile.read_receipts),
+        "allow_id_search": bool(profile.allow_id_search),
+        "allow_phone_search": bool(profile.allow_phone_search),
     }
 
 

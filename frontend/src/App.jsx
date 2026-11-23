@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { onSessionExpired, tokens } from "./api/client";
 import { authApi } from "./api/endpoints";
 import { Spinner, ToastHost } from "./components/common/ui";
+import UpdatePrompt from "./components/common/UpdatePrompt";
 import DialogHost from "./components/common/DialogHost";
 import { LogoMark } from "./components/common/Icons";
 import JoinGroupDialog from "./components/join/JoinGroupDialog";
+import AddFriendDialog from "./components/join/AddFriendDialog";
 import MainLayout from "./components/layout/MainLayout";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
@@ -16,13 +18,14 @@ import { dispatch, useStore } from "./store/store";
 
 const AFTER_LOGIN_KEY = "mhtalk:after-login";
 const JOIN_PATTERN = /^\/join\/([A-Za-z0-9_-]{1,64})$/;
+const ADD_PATTERN = /^\/add\/([a-z0-9._-]{4,20})$/i;
 
 /** Where to go after signing in (e.g. back to a /join/<code> link). */
 function takeAfterLogin() {
   try {
     const path = sessionStorage.getItem(AFTER_LOGIN_KEY);
     sessionStorage.removeItem(AFTER_LOGIN_KEY);
-    return path && JOIN_PATTERN.test(path) ? path : "/";
+    return path && (JOIN_PATTERN.test(path) || ADD_PATTERN.test(path)) ? path : "/";
   } catch {
     return "/";
   }
@@ -38,6 +41,7 @@ function takeAfterLogin() {
 export default function App() {
   const path = usePathname();
   const joinCode = JOIN_PATTERN.exec(path)?.[1] || null;
+  const addPublicId = ADD_PATTERN.exec(path)?.[1] || null;
   const me = useStore((state) => state.me);
   const [checking, setChecking] = useState(Boolean(tokens.access || tokens.refresh));
 
@@ -144,6 +148,7 @@ export default function App() {
       <>
         <MainLayout onLogout={handleLogout} />
         {joinCode ? <JoinGroupDialog key={joinCode} code={joinCode} /> : null}
+        {addPublicId ? <AddFriendDialog key={addPublicId} publicId={decodeURIComponent(addPublicId)} /> : null}
       </>
     );
   }
@@ -153,6 +158,7 @@ export default function App() {
       {content}
       <DialogHost />
       <ToastHost />
+      <UpdatePrompt />
     </>
   );
 }

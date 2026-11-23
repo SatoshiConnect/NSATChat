@@ -85,7 +85,7 @@ export default function ContactInfo({ roomId }) {
 
         <div className="info-section">
           <span className="info-label">About</span>
-          <p className="info-value">{about || "Hey there! I'm using MHTalk."}</p>
+          <p className="info-value">{about || "Hey there! I'm using SatoshiCore."}</p>
           {!saved ? (
             <>
               <span className="info-label">Phone number</span>
@@ -141,7 +141,16 @@ export default function ContactInfo({ roomId }) {
 
       {editing ? (
         <Modal title={saved ? "Edit contact" : "Save contact"} onClose={() => setEditing(false)} width={460}>
-          <ContactForm contact={saved} initialPhone={user.phone_number} openChatOnCreate={false} onDone={() => setEditing(false)} onCancel={() => setEditing(false)} />
+          <ContactForm
+            contact={saved}
+            initialPhone={user.phone_number}
+            initialName={saved ? "" : profileName(user)}
+            initialUser={saved ? null : user}
+            sourceRoomId={saved ? null : room.id}
+            openChatOnCreate={false}
+            onDone={() => setEditing(false)}
+            onCancel={() => setEditing(false)}
+          />
         </Modal>
       ) : null}
       {disappearingOpen ? <DisappearingDialog room={room} onClose={() => setDisappearingOpen(false)} /> : null}

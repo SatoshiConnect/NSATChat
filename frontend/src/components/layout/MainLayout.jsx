@@ -17,7 +17,6 @@ import { CallProvider } from "../calls/CallManager";
 import { AppContext } from "./AppContext";
 import IntroPane from "./IntroPane";
 import ProfileOverlays from "../status/ProfileOverlays";
-import UpdatePrompt from "../common/UpdatePrompt";
 import ShareReceiver from "../common/ShareReceiver";
 import { Spinner } from "../common/ui";
 
@@ -38,6 +37,7 @@ const MessageInfo = lazy(() => import("../info/MessageInfo"));
 const SharedMedia = lazy(() => import("../info/SharedMedia"));
 const StarredPanel = lazy(() => import("../chat-list/StarredPanel"));
 const CallInfoPanel = lazy(() => import("../calls/CallInfoPanel"));
+const AddFriendsPanel = lazy(() => import("../chat-list/AddFriendsPanel"));
 
 const fallback = <div className="panel panel--loading"><Spinner /></div>;
 
@@ -46,6 +46,7 @@ const PANELS = {
   callInfo: CallInfoPanel,
   newChat: NewChatPanel,
   newContact: NewContactPanel,
+  addFriends: AddFriendsPanel,
   newGroup: NewGroupPanel,
   starred: StarredPanel,
 };
@@ -58,7 +59,7 @@ const SECTION_PANELS = {
   profile: ProfilePanel,
   settings: SettingsPanel,
   ai: AssistantPanel,
-  aiChat: ChatListPanel, // MHTalk AI opened from the chat list
+  aiChat: ChatListPanel, // SatoshiCore AI opened from the chat list
 };
 
 const DRAWERS = {
@@ -105,7 +106,7 @@ export default function MainLayout({ onLogout }) {
     if (next === "status") loadStatus();
   }, []);
 
-  // MHTalk AI from the chat list: the list stays, the AI chat opens beside it.
+  // SatoshiCore AI from the chat list: the list stays, the AI chat opens beside it.
   const openAssistant = useCallback(() => {
     setActiveRoom(null);
     realtime.openRoom(null);
@@ -201,7 +202,7 @@ export default function MainLayout({ onLogout }) {
     main = (
       <IntroPane
         onNewChat={() => { setSectionState("chats"); setStack([{ name: "newChat", props: {} }]); }}
-        onNewContact={() => { setSectionState("chats"); setStack([{ name: "newContact", props: {} }]); }}
+        onNewContact={() => { setSectionState("chats"); setStack([{ name: "addFriends", props: {} }]); }}
         onCalls={() => setSection("calls")}
       />
     );
@@ -239,7 +240,6 @@ export default function MainLayout({ onLogout }) {
           </Suspense>
         ) : null}
         <ProfileOverlays />
-        <UpdatePrompt />
         <ShareReceiver />
       </CallProvider>
     </AppContext.Provider>

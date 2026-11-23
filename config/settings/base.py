@@ -17,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 
 SECRET_KEY = config("SECRET_KEY")
+GOOGLE_CLIENT_ID = config("GOOGLE_CLIENT_ID", default="")
 # SECURITY WARNING: don't run with debug turned on in production!
 
 ALLOWED_HOSTS = config(
@@ -181,6 +182,9 @@ REST_FRAMEWORK = {
         "anon": config("THROTTLE_ANON", default="120/min"),
         "user": config("THROTTLE_USER", default="2000/min"),
         "auth": config("THROTTLE_AUTH", default="20/min"),
+        # People API paging is client-side; this protects the server-side match
+        # endpoint from contact harvesting while allowing large address books.
+        "contact_sync": config("THROTTLE_CONTACT_SYNC", default="30/hour"),
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),
         # Group invite link preview/join (per user).
         "invite": config("THROTTLE_INVITE", default="30/min"),
@@ -189,7 +193,7 @@ REST_FRAMEWORK = {
 
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "MHTalk Backend API",
+    "TITLE": "SatoshiCore Backend API",
     "DESCRIPTION": """
     Production-ready real-time messaging and calling backend built with Django,
     Django REST Framework, Django Channels, Redis and WebRTC signaling.
@@ -368,15 +372,16 @@ MHTALK_MAX_PINNED_MESSAGES = 3
 # Largest photo / video / document a chat message may carry (Caddy allows 110 MB).
 CHAT_MAX_UPLOAD_MB = config("CHAT_MAX_UPLOAD_MB", default=100, cast=int)
 
-# MHTalk AI (assistant chat). Leave the key empty to turn it off.
+# SatoshiCore AI (assistant chat). Leave the key empty to turn it off.
 # Providers: gemini (free key, default), groq (free key), openai, anthropic.
 # View once media opens only on phones (desktop browsers allow screenshots).
 VIEW_ONCE_PHONE_ONLY = config("VIEW_ONCE_PHONE_ONLY", default=True, cast=bool)
 
-MHTALK_AI_PROVIDER = config("MHTALK_AI_PROVIDER", default="gemini")
-MHTALK_AI_API_KEY = config("MHTALK_AI_API_KEY", default="")
-MHTALK_AI_MODEL = config("MHTALK_AI_MODEL", default="")
-MHTALK_AI_BASE_URL = config("MHTALK_AI_BASE_URL", default="")
+SATOSHICORE_AI_PROVIDER = config("SATOSHICORE_AI_PROVIDER", default=config("MHTALK_AI_PROVIDER", default="gemini"))
+SATOSHICORE_AI_API_KEY = config("SATOSHICORE_AI_API_KEY", default=config("MHTALK_AI_API_KEY", default=""))
+SATOSHICORE_AI_MODEL = config("SATOSHICORE_AI_MODEL", default=config("MHTALK_AI_MODEL", default=""))
+SATOSHICORE_AI_BASE_URL = config("SATOSHICORE_AI_BASE_URL", default=config("MHTALK_AI_BASE_URL", default=""))
+SATOSHICORE_AI_IMAGE_MODEL = config("SATOSHICORE_AI_IMAGE_MODEL", default="gemini-3.1-flash-lite-image")
 # GIF tab in the emoji panel (free key: https://developers.giphy.com/dashboard/)
 GIPHY_API_KEY = config("GIPHY_API_KEY", default="")
 

@@ -22,7 +22,7 @@ const ONLINE = [
   { value: "everyone", label: "Everyone" },
   { value: "same_as_last_seen", label: "Same as last seen" },
 ];
-const DEFAULTS = { last_seen: "everyone", online: "everyone", profile_photo: "everyone", about: "everyone", read_receipts: true };
+const DEFAULTS = { last_seen: "everyone", online: "everyone", profile_photo: "everyone", about: "everyone", read_receipts: true, allow_id_search: true, allow_phone_search: true, allow_contact_discovery: false };
 const label = (options, value) => options.find((option) => option.value === value)?.label || "Everyone";
 
 function RadioGroup({ name, options, value, onChange, disabled }) {
@@ -143,6 +143,27 @@ export function PrivacyView({ onBack, blockedCount, onOpenBlocked, onOpenStatus 
           <Toggle checked={Boolean(settings.read_receipts)} label="Read receipts" onChange={(value) => update({ read_receipts: value })} />
         </div>
         <div className="section-label section-label--muted">Contacts</div>
+        <div className="settings-toggle">
+          <span className="settings-row__body">
+            <span className="settings-row__title">Allow ID search</span>
+            <span className="settings-row__subtitle settings-row__subtitle--wrap">Let people find you with your public NSAT ID and QR link.</span>
+          </span>
+          <Toggle checked={Boolean(settings.allow_id_search)} label="Allow ID search" onChange={(value) => update({ allow_id_search: value })} />
+        </div>
+        <div className="settings-toggle">
+          <span className="settings-row__body">
+            <span className="settings-row__title">Allow phone search</span>
+            <span className="settings-row__subtitle settings-row__subtitle--wrap">Let people find you by your phone number and contact sync.</span>
+          </span>
+          <Toggle checked={Boolean(settings.allow_phone_search)} label="Allow phone search" onChange={(value) => update({ allow_phone_search: value })} />
+        </div>
+        <div className="settings-toggle">
+          <span className="settings-row__body">
+            <span className="settings-row__title">Allow contact sync discovery</span>
+            <span className="settings-row__subtitle settings-row__subtitle--wrap">Let verified members find you when they choose to sync Google Contacts. This is separate from phone search.</span>
+          </span>
+          <Toggle checked={Boolean(settings.allow_contact_discovery)} label="Allow contact sync discovery" onChange={(value) => update({ allow_contact_discovery: value })} />
+        </div>
         <Row icon={UserX} title="Blocked contacts" subtitle={blockedCount ? `${blockedCount}` : "None"} onClick={onOpenBlocked} />
       </div>
     </section>
@@ -185,7 +206,7 @@ function DeleteAccountView({ onBack }) {
               <p className="delete-account__title">Deleting this account will:</p>
               <ul>
                 <li>Delete your account info and profile photo</li>
-                <li>Delete you from all MHTalk groups</li>
+                <li>Delete you from all SatoshiCore groups</li>
                 <li>Delete your status updates, contacts and blocked list</li>
                 <li>Sign you out on every device</li>
               </ul>

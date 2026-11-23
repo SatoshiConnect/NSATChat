@@ -14,7 +14,7 @@ import EmojiPicker from "../conversation/EmojiPicker";
 import CameraCapture from "../media/CameraCapture";
 import Lightbox from "../media/Lightbox";
 
-const ABOUT_PRESETS = ["Available", "Busy", "At school", "At the movies", "At work", "Battery about to die", "Can't talk, MHTalk only", "In a meeting", "At the gym", "Sleeping", "Urgent calls only"];
+const ABOUT_PRESETS = ["Available", "Busy", "At school", "At the movies", "At work", "Battery about to die", "Can't talk, SatoshiCore only", "In a meeting", "At the gym", "Sleeping", "Urgent calls only"];
 
 function EditableField({ icon: Icon, label, value, maxLength, onSave, hint, presets }) {
   const [editing, setEditing] = useState(false);
@@ -110,6 +110,8 @@ export default function ProfilePanel() {
   const [uploading, setUploading] = useState(false);
   const [camera, setCamera] = useState(false);
   const [viewing, setViewing] = useState(false);
+  const [publicIdDraft, setPublicIdDraft] = useState("");
+  const [savingPublicId, setSavingPublicId] = useState(false);
   const photo = me.profile?.profile_picture;
 
   async function update(fields, success) {
@@ -139,6 +141,20 @@ export default function ProfilePanel() {
     setUploading(true);
     await update({ profile_picture: file }, "Profile photo updated");
     setUploading(false);
+  }
+
+  async function setPublicId() {
+    setSavingPublicId(true);
+    try {
+      const user = await authApi.setPublicId(publicIdDraft);
+      dispatch({ type: "me", me: user });
+      setPublicIdDraft("");
+      toast.success("Your public ID is set");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setSavingPublicId(false);
+    }
   }
 
   const items = [
@@ -175,9 +191,37 @@ export default function ProfilePanel() {
           label="Name"
           value={me.profile?.display_name && me.profile.display_name !== me.phone_number ? me.profile.display_name : ""}
           maxLength={25}
-          hint="This is not your username or PIN. This name will be visible to your MHTalk contacts."
+          hint="This is not your username or PIN. This name will be visible to your SatoshiCore contacts."
           onSave={(display_name) => update({ display_name }, "Name updated")}
         />
+        <div className="profile-field">
+          <User size={20} className="profile-field__icon" />
+          <div className="profile-field__body">
+            <span className="profile-field__label">User ID</span>
+            {me.public_id ? (
+              <div className="profile-field__value"><span>@{me.public_id}</span></div>
+            ) : (
+              <>
+                <div className="profile-field__edit">
+                  <input
+                    aria-label="Choose a public user ID"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    maxLength={20}
+                    placeholder="e.g. migs.2026"
+                    value={publicIdDraft}
+                    onChange={(event) => setPublicIdDraft(event.target.value.toLowerCase())}
+                    onKeyDown={(event) => { if (event.key === "Enter") setPublicId(); }}
+                  />
+                  <button type="button" className="icon-btn" aria-label="Save user ID" onClick={setPublicId} disabled={savingPublicId || publicIdDraft.length < 4}>
+                    {savingPublicId ? <Spinner size={16} /> : <Check size={20} />}
+                  </button>
+                </div>
+                <span className="profile-field__hint">4–20 lowercase letters, numbers, . - or _. You can set this once; it cannot be changed. Others can search it.</span>
+              </>
+            )}
+          </div>
+        </div>
         <EditableField
           icon={Info}
           label="About"

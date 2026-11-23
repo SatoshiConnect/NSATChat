@@ -1,7 +1,7 @@
-# Deploying MHTalk on Oracle Cloud (Always Free), step by step
+# Deploying SatoshiCore on Oracle Cloud (Always Free), step by step
 
-At the end of this guide MHTalk runs on your own Linux server at
-`https://<yourname>.duckdns.org`, with HTTPS, voice/video calls (TURN relay),
+At the end of this guide SatoshiCore runs on your own Linux server at
+`https://chat.satoshicore.org`, with HTTPS, voice/video calls (TURN relay),
 push notifications and automatic restarts. It costs nothing, as long as you stay
 inside the Always Free limits.
 
@@ -30,7 +30,7 @@ The server downloads the code from GitHub.
 3. Check the list of changed files. **`.env`, `*.sqlite3`, `sqlite_backup.json`
    and `media/` must NOT appear** (they are git-ignored). If one does, stop and fix
    `.gitignore` first.
-4. Write a summary such as "Production-ready MHTalk", then click **Commit**, then **Push origin**.
+4. Write a summary such as "Production-ready SatoshiCore", then click **Commit**, then **Push origin**.
 
 ## Step 1. Create the Oracle Cloud account
 
@@ -81,8 +81,8 @@ sudo netfilter-persistent save
 ## Step 4. Free domain (DuckDNS)
 
 1. Go to https://www.duckdns.org and sign in (with Google or GitHub).
-2. Add a sub-domain, e.g. `mhtalk`. In **current ip**, paste the server's public IP and click **update ip**.
-3. Your address is now `mhtalk.duckdns.org`.
+2. Add the domain you control, such as `chat.satoshicore.org`. In **current ip**, paste the server's public IP and click **update ip**.
+3. Point the domain DNS to your server and configure HTTPS for `chat.satoshicore.org`.
 
 ## Step 5. Connect to the server
 
@@ -119,7 +119,7 @@ Fill in your domain everywhere (`DOMAIN`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS
 `CORS_ALLOWED_ORIGINS`, `TURN_URLS`) and the generated secrets. Set
 `TURN_EXTERNAL_IP=<public IP>/<private IP>` so calls work through Oracle's NAT
 (the private IP is the first address printed by `hostname -I`). Optional:
-`MHTALK_AI_API_KEY` (free Gemini key), `GIPHY_API_KEY` (free key from
+`SATOSHICORE_AI_API_KEY` (free Gemini key), `GIPHY_API_KEY` (free key from
 developers.giphy.com, turns on GIF search) and the push-notification keys
 (Step 8). Save with **Ctrl+O**, **Enter**, **Ctrl+X**.
 
@@ -138,7 +138,7 @@ then run the `up -d` command again:
 docker compose -f docker-compose.prod.yml --env-file .env.prod exec web python manage.py generate_vapid_keys
 ```
 
-The first build takes a few minutes. Open `https://mhtalk.duckdns.org`
+The first build takes a few minutes. Open `https://chat.satoshicore.org`
 and the padlock should appear. Admin: `/admin/`, API docs: `/api/docs/`.
 
 ## Step 9. Check it works

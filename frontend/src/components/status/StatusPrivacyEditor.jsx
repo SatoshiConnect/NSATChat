@@ -8,7 +8,7 @@ const PRIVACY_OPTIONS = [
   { value: "CONTACTS", label: "My contacts", hint: "Share with all of your contacts" },
   { value: "CONTACTS_EXCEPT", label: "My contacts except…", hint: "Share with your contacts except people you select" },
   { value: "ONLY_SHARE_WITH", label: "Only share with…", hint: "Only share with selected contacts" },
-  { value: "EVERYONE", label: "Everyone", hint: "Anyone who has a chat with you on MHTalk" },
+  { value: "EVERYONE", label: "Everyone", hint: "Anyone who has a chat with you on SatoshiCore" },
 ];
 
 /** Who can see my status updates: the radio list and the contact picker. */

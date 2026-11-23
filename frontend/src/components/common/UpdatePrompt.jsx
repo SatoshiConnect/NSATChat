@@ -12,7 +12,7 @@ export default function UpdatePrompt() {
     <div className="update-prompt" role="status" aria-live="polite">
       <span className="update-prompt__icon"><Sparkles size={20} /></span>
       <div className="update-prompt__text">
-        <strong>New version of MHTalk</strong>
+        <strong>New version of SatoshiCore</strong>
         <span>{title ? `${title}. ` : ""}Update now or later from Settings.</span>
         <button
           type="button"

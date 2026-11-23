@@ -1,11 +1,15 @@
 from django.contrib import admin
 
 from .models import (
+    AssistantControl,
+    AssistantUsage,
     Attachment,
     ChatRoom,
     Message,
     Participant,
 )
+from django.db.models import Sum
+from django.utils import timezone
 
 
 # =============================================================================
@@ -47,6 +51,36 @@ class AttachmentInline(admin.TabularInline):
     )
 
     show_change_link = True
+
+
+@admin.register(AssistantControl)
+class AssistantControlAdmin(admin.ModelAdmin):
+    list_display = ("image_generation_enabled", "image_daily_quota", "monthly_budget_usd", "updated_at")
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not AssistantControl.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(AssistantUsage)
+class AssistantUsageAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "user", "task", "model_id", "status", "input_tokens", "output_tokens", "image_count", "estimated_cost_usd")
+    list_filter = ("task", "status", "created_at", "model_id")
+    search_fields = ("user__phone_number", "user__public_id", "model_id")
+    readonly_fields = tuple(field.name for field in AssistantUsage._meta.fields)
+    date_hierarchy = "created_at"
+    list_per_page = 50
+
+    def changelist_view(self, request, extra_context=None):
+        today = timezone.localdate()
+        month_start = today.replace(day=1)
+        extra_context = extra_context or {}
+        extra_context["ai_usage_today"] = AssistantUsage.objects.filter(status="OK", created_at__date=today).aggregate(total=Sum("estimated_cost_usd"))["total"] or 0
+        extra_context["ai_usage_month"] = AssistantUsage.objects.filter(status__in=("OK", "PENDING"), created_at__date__gte=month_start).aggregate(total=Sum("estimated_cost_usd"))["total"] or 0
+        return super().changelist_view(request, extra_context=extra_context)
 
 
 # =============================================================================

@@ -1,6 +1,6 @@
 /**
  * Background (Web Push) notifications: subscribe this browser so the server
- * can notify it when no MHTalk tab is open. Needs the production service
+ * can notify it when no SatoshiCore tab is open. Needs the production service
  * worker (see services/pwa.js) and VAPID keys on the server.
  */
 import api from "../api/client";

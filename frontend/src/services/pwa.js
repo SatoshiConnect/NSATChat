@@ -74,12 +74,24 @@ function promptUpdate(worker) {
 }
 
 function watchForUpdates(registration) {
-  if (registration.waiting && navigator.serviceWorker.controller) promptUpdate(registration.waiting);
+  const activateOnAuthPage = (worker) => {
+    if ((window.location.pathname === "/login" || window.location.pathname === "/signup") && navigator.serviceWorker.controller) {
+      // Auth routes have no Settings screen where a waiting update can be applied.
+      worker.postMessage({ type: "SKIP_WAITING" });
+      return true;
+    }
+    return false;
+  };
+  if (registration.waiting && navigator.serviceWorker.controller) {
+    if (!activateOnAuthPage(registration.waiting)) promptUpdate(registration.waiting);
+  }
   registration.addEventListener("updatefound", () => {
     const worker = registration.installing;
     worker?.addEventListener("statechange", () => {
       // "installed" with an existing controller = an update is waiting.
-      if (worker.state === "installed" && navigator.serviceWorker.controller) promptUpdate(worker);
+      if (worker.state === "installed" && navigator.serviceWorker.controller) {
+        if (!activateOnAuthPage(worker)) promptUpdate(worker);
+      }
     });
   });
   // Long-lived tabs / installed apps: look for new deploys now and then.

@@ -291,12 +291,18 @@ export default function CallOverlay({
   const [swapped, setSwapped] = useState(false);
   const [corner, setCorner] = useState(CORNERS[0]);
   const [fullscreen, setFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const [picker, setPicker] = useState(false);
   const rootRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const [soundBlocked, setSoundBlocked] = useState(false);
 
   const ticking = call.phase === "ongoing" && Boolean(call.connectedAt);
+  useEffect(() => {
+    if (!ticking || !controlsVisible) return undefined;
+    const timer = window.setTimeout(() => setControlsVisible(false), 4500);
+    return () => window.clearTimeout(timer);
+  }, [ticking, controlsVisible]);
   useEffect(() => {
     if (!ticking) return undefined;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -536,7 +542,17 @@ export default function CallOverlay({
   }
 
   return createPortal(
-    <div ref={rootRef} className={`call-screen ${main && !ringingPreview ? "has-video" : ""}`} role="dialog" aria-label={`Call with ${name}`}>
+    <div
+      ref={rootRef}
+      className={`call-screen ${main && !ringingPreview ? "has-video" : ""} ${controlsVisible ? "" : "controls-hidden"}`}
+      role="dialog"
+      aria-label={`Call with ${name}`}
+      onPointerMove={() => setControlsVisible(true)}
+      onClick={(event) => {
+        if (event.target.closest(".call-bar, .call-pip, button")) return;
+        setControlsVisible(true);
+      }}
+    >
       {audio}
 
       {soundBlocked ? (

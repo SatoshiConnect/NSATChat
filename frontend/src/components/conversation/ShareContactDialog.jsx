@@ -116,7 +116,7 @@ export default function ShareContactDialog({ room, onClose }) {
           people.map((person, index) => (
             <div key={person.id} className="share-contact__group">
               {index === 0 && person.self ? <p className="share-contact__section">You</p> : null}
-              {!person.self && (index === 0 || people[index - 1].self) ? <p className="share-contact__section">Contacts on MHTalk</p> : null}
+              {!person.self && (index === 0 || people[index - 1].self) ? <p className="share-contact__section">Contacts on SatoshiCore</p> : null}
               <button type="button" role="option" aria-selected={isPicked(person)} className="share-contact__row" onClick={() => toggle(person)}>
                 <Checkbox checked={isPicked(person)} label={`Select ${person.name}`} decorative />
                 <span className="share-contact__avatar">

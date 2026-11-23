@@ -7,7 +7,7 @@ export default function IntroPane({ onNewChat, onNewContact, onCalls }) {
     <section className="intro">
       <div className="intro__card">
         <LogoMark size={72} />
-        <h2>MHTalk Web</h2>
+        <h2>SatoshiCore Web</h2>
         <p>Send and receive messages, photos, videos and voice notes. Everything stays in sync across your open tabs.</p>
       </div>
       <div className="intro__actions">
@@ -17,7 +17,7 @@ export default function IntroPane({ onNewChat, onNewContact, onCalls }) {
         </button>
         <button type="button" onClick={onNewContact}>
           <span><UserPlus size={22} /></span>
-          Add contact
+          Find friends
         </button>
         <button type="button" onClick={onCalls}>
           <span><Phone size={22} /></span>

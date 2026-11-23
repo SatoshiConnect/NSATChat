@@ -5,33 +5,39 @@ import { contactsApi } from "../../api/endpoints";
 import { useDebouncedValue } from "../../hooks";
 import { loadContacts, openChatWith, scheduleRoomsReload } from "../../store/actions";
 import { toast } from "../../services/toast";
-import { formatPhone, looksLikePhone, normalizePhone } from "../../utils/phone";
+import { formatPhone, normalizePhone } from "../../utils/phone";
 import { profileName } from "../../utils/messages";
+import { contactLookupType } from "../../utils/contactLookup";
 import { Avatar, PanelHeader, Spinner } from "../common/ui";
 import { confirmAction } from "../common/dialogs";
 import { useApp } from "../layout/AppContext";
+
 
 /**
  * Create or edit a saved contact.
  *
  * A saved contact is private to the current user: a name plus a link to an
- * existing MHTalk account (found by phone number). Editing the number only
+ * existing SatoshiCore account (found by phone number). Editing the number only
  * re-links this contact to another account — it never changes anybody's
  * account phone number.
  */
-export function ContactForm({ contact, initialPhone = "", initialName = "", onDone, onCancel, openChatOnCreate = true }) {
+export function ContactForm({ contact, initialPhone = "", initialName = "", initialUser = null, sourceRoomId = null, onDone, onCancel, openChatOnCreate = true }) {
   const isEdit = Boolean(contact);
+  const addFromChat = !isEdit && Boolean(initialUser?.id && sourceRoomId);
   // null = not typed yet: the name then follows the person's own profile
   // name (set when they signed up), which you can keep or change.
   const [typedName, setTypedName] = useState(contact ? contact.name || "" : initialName || null);
-  const [phone, setPhone] = useState(contact?.contact_user?.phone_number || initialPhone);
+  const [phone, setPhone] = useState(contact?.contact_user?.phone_number || initialPhone || "");
   const debouncedPhone = useDebouncedValue(phone, 450);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const phoneChanged = normalizePhone(phone) !== (contact?.contact_user?.phone_number || "");
   const term = debouncedPhone.trim();
-  const needsLookup = looksLikePhone(term) && !(isEdit && !phoneChanged);
+  const lookupType = contactLookupType(term);
+  const phoneQuery = lookupType === "phone";
+  const publicIdQuery = lookupType === "public_id";
+  const identifierChanged = term.toLowerCase() !== String(contact?.contact_user?.phone_number || "").trim().toLowerCase();
+  const needsLookup = !addFromChat && (phoneQuery || publicIdQuery) && !(isEdit && !identifierChanged);
   const [lookupResult, setLookupResult] = useState({ term: "", state: "idle" });
 
   useEffect(() => {
@@ -46,17 +52,19 @@ export function ContactForm({ contact, initialPhone = "", initialName = "", onDo
           setLookupResult({ term, state: "error", message: `Already saved as "${data.saved_contact.name || formatPhone(data.user.phone_number)}".` });
         else setLookupResult({ term, state: "found", data });
       })
-      .catch((err) => !cancelled && setLookupResult({ term, state: "error", message: errorMessage(err, "This phone number isn't on MHTalk.") }));
+      .catch((err) => !cancelled && setLookupResult({ term, state: "error", message: errorMessage(err, "This phone number isn't on SatoshiCore.") }));
     return () => {
       cancelled = true;
     };
   }, [term, needsLookup, contact]);
 
   let lookup;
-  if (!looksLikePhone(term)) lookup = { state: "idle" };
-  else if (isEdit && !phoneChanged) lookup = { state: "found", data: { user: contact.contact_user } };
+  if (!phoneQuery && !publicIdQuery) lookup = { state: "idle" };
+  else if (isEdit && !identifierChanged) lookup = { state: "found", data: { user: contact.contact_user } };
   else lookup = lookupResult.term === term ? lookupResult : { state: "loading" };
-  const suggestedName = !isEdit && lookup.state === "found" ? profileName(lookup.data.user) : "";
+  const suggestedName = addFromChat
+    ? profileName(initialUser)
+    : !isEdit && lookup.state === "found" ? profileName(lookup.data.user) : "";
   const name = typedName ?? suggestedName;
   const setName = setTypedName;
 
@@ -67,8 +75,8 @@ export function ContactForm({ contact, initialPhone = "", initialName = "", onDo
       setError("Enter a name for this contact.");
       return;
     }
-    if (!looksLikePhone(phone)) {
-      setError("Enter the contact's phone number with country code.");
+    if (!addFromChat && lookup.state !== "found") {
+      setError("Find an account by phone number or NSAT ID before saving.");
       return;
     }
     setBusy(true);
@@ -76,11 +84,20 @@ export function ContactForm({ contact, initialPhone = "", initialName = "", onDo
       let saved;
       if (isEdit) {
         const fields = { name: name.trim() };
-        if (phoneChanged) fields.phone_number = normalizePhone(phone);
+        if (identifierChanged) {
+          if (phoneQuery) fields.phone_number = normalizePhone(term);
+          else fields.public_id = lookup.data.user.public_id;
+        }
         saved = await contactsApi.update(contact.id, fields);
         toast.success("Contact updated");
+      } else if (addFromChat) {
+        saved = await contactsApi.addFromChat(initialUser.id, sourceRoomId, name.trim());
+        toast.success("Friend added to your contacts");
+      } else if (lookup.data.user.public_id) {
+        saved = await contactsApi.createByPublicId(name.trim(), lookup.data.user.public_id);
+        toast.success("Friend added to your contacts");
       } else {
-        saved = await contactsApi.create(name.trim(), normalizePhone(phone));
+        saved = await contactsApi.create(name.trim(), normalizePhone(term));
         toast.success("Contact saved");
       }
       await loadContacts();
@@ -117,7 +134,7 @@ export function ContactForm({ contact, initialPhone = "", initialName = "", onDo
     });
   }
 
-  const found = lookup.state === "found" ? lookup.data.user : null;
+  const found = addFromChat ? initialUser : lookup.state === "found" ? lookup.data.user : null;
 
   return (
     <form className="contact-form" onSubmit={submit} noValidate>
@@ -132,32 +149,43 @@ export function ContactForm({ contact, initialPhone = "", initialName = "", onDo
           <input id="contact-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={100} autoFocus />
         </div>
       </div>
-      <div className="contact-form__field">
-        <Phone size={20} />
-        <div className="field">
-          <label htmlFor="contact-phone">Phone</label>
-          <input id="contact-phone" type="tel" placeholder="+92 300 1234567" value={phone} onChange={(event) => setPhone(event.target.value)} />
-          {lookup.state === "loading" ? <span className="field__hint"><Spinner size={12} /> Checking number…</span> : null}
-          {lookup.state === "found" && found ? (
-            <span className="lookup-ok">
-              <CheckCircle2 size={14} /> This number is on MHTalk{profileName(found) ? ` · ~ ${profileName(found)}` : ""}
-            </span>
-          ) : null}
-          {lookup.state === "error" ? <span className="field__error">{lookup.message}</span> : null}
+      {addFromChat ? (
+        <div className="contact-form__field">
+          <CheckCircle2 size={20} />
+          <div className="field">
+            <span className="field__hint">SatoshiCore account</span>
+            <strong>{profileName(initialUser) || `User ${initialUser.id}`}</strong>
+            {initialUser.public_id ? <span className="field__hint">@{initialUser.public_id}</span> : null}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="contact-form__field">
+          <Phone size={20} />
+          <div className="field">
+          <label htmlFor="contact-phone">Phone number or NSAT ID</label>
+          <input id="contact-phone" type="text" placeholder="+66… or @your-id" value={phone} onChange={(event) => setPhone(event.target.value)} />
+            {lookup.state === "loading" ? <span className="field__hint"><Spinner size={12} /> Checking number…</span> : null}
+            {lookup.state === "found" && found ? (
+            <span className="lookup-ok">
+              <CheckCircle2 size={14} /> SatoshiCore account found{profileName(found) ? ` · ~ ${profileName(found)}` : ""}
+              </span>
+            ) : null}
+            {lookup.state === "error" ? <span className="field__error">{lookup.message}</span> : null}
+          </div>
+        </div>
+      )}
       {isEdit ? (
         <p className="contact-form__note">
           <Info size={16} />
           <span>
-            Changing the number links this saved contact to a different MHTalk account. It does not change anyone's
+            Changing the number links this saved contact to a different SatoshiCore account. It does not change anyone's
             account phone number. The saved name is shown in your chat list, chat header and groups.
           </span>
         </p>
       ) : (
         <p className="contact-form__note">
           <Info size={16} />
-          <span>The contact must already have a MHTalk account with this number. Only you can see the name you save.</span>
+          <span>{addFromChat ? "You are chatting with this SatoshiCore account. Save a private contact name to find them easily." : "Find by phone number or NSAT ID. Use Add friends for QR codes, friend links, and contact suggestions. The name you save is private."}</span>
         </p>
       )}
       <div className="contact-form__actions">
@@ -175,7 +203,7 @@ export function ContactForm({ contact, initialPhone = "", initialName = "", onDo
   );
 }
 
-export default function NewContactPanel({ contact, initialPhone, initialName }) {
+export default function NewContactPanel({ contact, initialPhone, initialName, initialUser, sourceRoomId }) {
   const app = useApp();
   return (
     <section className="panel">
@@ -185,6 +213,8 @@ export default function NewContactPanel({ contact, initialPhone, initialName }) 
           contact={contact}
           initialPhone={initialPhone}
           initialName={initialName}
+          initialUser={initialUser}
+          sourceRoomId={sourceRoomId}
           onDone={(saved, roomId) => {
             app.popPanel();
             if (roomId) app.openRoom(roomId);

@@ -54,10 +54,10 @@ export function showDesktopNotification(title, body, onClick, options = {}) {
   }
 }
 
-let baseTitle = "MHTalk";
+let baseTitle = "SatoshiCore";
 let titleOverride = null;
 export function setTitleBadge(count) {
-  baseTitle = count > 0 ? `(${count}) MHTalk` : "MHTalk";
+  baseTitle = count > 0 ? `(${count}) SatoshiCore` : "SatoshiCore";
   if (!titleOverride) document.title = baseTitle;
 }
 

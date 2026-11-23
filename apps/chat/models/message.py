@@ -79,6 +79,8 @@ class Message(models.Model):
         help_text="Text message content.",
     )
 
+    legacy_id = models.CharField(max_length=255, unique=True, null=True, blank=True, default=None)
+
     # Added in migration 0016 for safe client-side retry/idempotency. Keep a
     # non-null empty-string default so older clients can omit the value.
     client_message_id = models.CharField(

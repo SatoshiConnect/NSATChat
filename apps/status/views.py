@@ -48,7 +48,7 @@ class StatusContactsAPIView(APIView):
 
     @extend_schema(summary="Contacts for status privacy", tags=["Status"])
     def get(self, request):
-        # The current MHTalk Contacts UI is populated from existing private
+        # The current SatoshiCore Contacts UI is populated from existing private
         # conversations as well as saved Contact records. Include both sources
         # so the privacy picker does not omit a contact visible in the app.
         saved_ids = set(Contact.objects.filter(owner=request.user).values_list("contact_user_id", flat=True))
