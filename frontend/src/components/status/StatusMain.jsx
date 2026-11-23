@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Image as ImageIcon, MessageCircle, Send, ThumbsUp, Trash2 } from "lucide-react";
+import { Flag, Image as ImageIcon, MessageCircle, Send, ThumbsUp, Trash2 } from "lucide-react";
 import { socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
 import { useStore } from "../../store/store";
@@ -11,6 +11,10 @@ import { detailTime } from "../../utils/format";
 function PostCard({ post, me, onChange }) {
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("SPAM");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
   const author = post.author?.profile?.display_name || post.author?.public_id || "SatoshiCore member";
   const comments = (post.comments || []).filter((item) => item.text);
   const submitComment = async (event) => {
@@ -25,12 +29,23 @@ function PostCard({ post, me, onChange }) {
     } catch (error) { toast.error(errorMessage(error, "Couldn't post comment.")); }
     finally { setBusy(false); }
   };
+  const submitReport = async (event) => {
+    event.preventDefault();
+    if (reportBusy) return;
+    setReportBusy(true);
+    try {
+      const result = await socialApi.reportPost(post.id, { reason: reportReason, details: reportDetails.trim() });
+      toast.success(result.detail || "Thanks. Your report was sent for review.");
+      setReportOpen(false);
+    } catch (error) { toast.error(errorMessage(error, "Couldn't send report.")); }
+    finally { setReportBusy(false); }
+  };
   return (
     <article className="social-post">
       <header className="social-post__author">
         <PresenceAvatar user={post.author} src={post.author?.profile?.profile_picture} name={author} size={42} />
         <div><strong>{author}</strong><span>{detailTime(post.created_at)} · {post.visibility === "EVERYONE" ? "Public" : "Contacts"}</span></div>
-        {Number(post.author?.id) === Number(me?.id) ? <button type="button" className="social-post__delete" aria-label="Delete post" onClick={async () => { if (!window.confirm("Delete this post?")) return; try { await socialApi.removePost(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't delete post.")); } }}><Trash2 size={17} /></button> : null}
+        {Number(post.author?.id) === Number(me?.id) ? <button type="button" className="social-post__delete" aria-label="Delete post" onClick={async () => { if (!window.confirm("Delete this post?")) return; try { await socialApi.removePost(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't delete post.")); } }}><Trash2 size={17} /></button> : <button type="button" className="social-post__report-toggle" onClick={() => setReportOpen((open) => !open)} aria-expanded={reportOpen}><Flag size={16} /> Report</button>}
       </header>
       {post.text ? <p className="social-post__text">{post.text}</p> : null}
       {post.image ? <img className="social-post__image" src={mediaUrl(post.image)} alt="Post attachment" loading="lazy" /> : null}
@@ -39,6 +54,11 @@ function PostCard({ post, me, onChange }) {
         <button type="button" className={post.is_liked ? "is-liked" : ""} onClick={async () => { try { await socialApi.toggleLike(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't update reaction.")); } }}><ThumbsUp size={17} /> Like</button>
         <span><MessageCircle size={17} /> Comment</span>
       </div>
+      {reportOpen ? <form className="social-post__report-form" onSubmit={submitReport}>
+        <label>Reason<select value={reportReason} onChange={(event) => setReportReason(event.target.value)}><option value="SPAM">Spam or misleading</option><option value="HARASSMENT">Harassment</option><option value="HATE">Hate or abusive content</option><option value="SEXUAL">Sexual content</option><option value="VIOLENCE">Violence or dangerous content</option><option value="SCAM">Scam or fraud</option><option value="OTHER">Other</option></select></label>
+        <textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} maxLength={1000} rows={2} placeholder="Add details (optional)" />
+        <div><button type="button" className="btn btn--ghost" onClick={() => setReportOpen(false)} disabled={reportBusy}>Cancel</button><button type="submit" className="btn btn--primary" disabled={reportBusy}>{reportBusy ? <Spinner size={16} /> : "Send report"}</button></div>
+      </form> : null}
       {comments.slice(-3).map((item) => <div className="social-post__comment" key={item.id}><PresenceAvatar user={item.author} src={item.author?.profile?.profile_picture} name={item.author?.profile?.display_name} size={28} /><p><strong>{item.author?.profile?.display_name || "Member"}</strong> {item.text}</p></div>)}
       <form className="social-post__comment-form" onSubmit={submitComment}><input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={1000} placeholder="Write a comment…" aria-label="Write a comment" /><button type="submit" disabled={!comment.trim() || busy} aria-label="Post comment">{busy ? <Spinner size={16} /> : <Send size={17} />}</button></form>
     </article>

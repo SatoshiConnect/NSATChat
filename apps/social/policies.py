@@ -9,7 +9,12 @@ def visible_posts_for(user):
     contact_authors = Contact.objects.filter(owner_id__isnull=False, contact_user=user).values("owner_id")
     blocked = blocked_user_ids(user.id)
     return (
-        Post.objects.filter(deleted_at__isnull=True, author__is_active=True, author__is_deleted=False)
+        Post.objects.filter(
+            deleted_at__isnull=True,
+            moderation_status__in=(Post.MODERATION_ACTIVE, Post.MODERATION_REVIEW),
+            author__is_active=True,
+            author__is_deleted=False,
+        )
         .filter(Q(author=user) | Q(visibility=Post.EVERYONE) | Q(visibility=Post.CONTACTS, author_id__in=contact_authors))
         .exclude(author_id__in=blocked)
     )

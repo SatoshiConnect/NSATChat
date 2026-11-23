@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import Post, PostComment, PostLike
+from django.utils import timezone
+from .models import Post, PostComment, PostLike, PostReport
 
 
 class PostCommentInline(admin.TabularInline):
@@ -10,10 +11,10 @@ class PostCommentInline(admin.TabularInline):
 
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
-    list_display = ("id", "author", "visibility", "created_at", "deleted_at")
-    list_filter = ("visibility", "created_at", "deleted_at")
+    list_display = ("id", "author", "visibility", "moderation_status", "created_at", "deleted_at")
+    list_filter = ("moderation_status", "visibility", "created_at", "deleted_at")
     search_fields = ("text", "author__phone_number", "author__email", "author__public_id")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at", "deleted_at")
     inlines = (PostCommentInline,)
 
 
@@ -21,3 +22,37 @@ class PostAdmin(admin.ModelAdmin):
 class PostLikeAdmin(admin.ModelAdmin):
     list_display = ("id", "post", "user", "created_at")
     readonly_fields = ("post", "user", "created_at")
+
+
+@admin.register(PostReport)
+class PostReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "post", "reporter", "reason", "status", "created_at", "reviewed_by")
+    list_filter = ("status", "reason", "created_at")
+    search_fields = ("post__text", "reporter__phone_number", "reporter__public_id", "details")
+    readonly_fields = ("post", "reporter", "reason", "details", "status", "created_at", "reviewed_at", "reviewed_by")
+    actions = ("mark_reviewed", "take_action")
+
+    @admin.action(description="Mark selected reports as reviewed")
+    def mark_reviewed(self, request, queryset):
+        reviewed_at = timezone.now()
+        for report in queryset.select_related("post"):
+            report.status = PostReport.REVIEWED
+            report.reviewed_by = request.user
+            report.reviewed_at = reviewed_at
+            report.save(update_fields=("status", "reviewed_by", "reviewed_at"))
+            self.log_change(request, report, "Marked report as reviewed.")
+
+    @admin.action(description="Hide reported posts and mark reports as actioned")
+    def take_action(self, request, queryset):
+        reviewed_at = timezone.now()
+        for report in queryset.select_related("post"):
+            post = report.post
+            if post.deleted_at is None and post.moderation_status != Post.MODERATION_HIDDEN:
+                post.moderation_status = Post.MODERATION_HIDDEN
+                post.save(update_fields=("moderation_status", "updated_at"))
+                self.log_change(request, post, f"Hidden after action on report #{report.pk}.")
+            report.status = PostReport.ACTIONED
+            report.reviewed_by = request.user
+            report.reviewed_at = reviewed_at
+            report.save(update_fields=("status", "reviewed_by", "reviewed_at"))
+            self.log_change(request, report, "Took moderation action and hid the reported post.")

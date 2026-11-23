@@ -597,7 +597,7 @@ button.status-composer__privacy:hover {
 .social-compose__image input { display: none; }
 .social-compose footer select { margin-left: auto; min-width: 0; max-width: 44%; border: 1px solid var(--divider); border-radius: 9px; padding: 8px; color: var(--text); background: var(--panel-bg); }
 .social-compose__file { display: flex; justify-content: space-between; gap: 8px; margin: 7px 0; color: var(--muted); font-size: var(--fs-sm); overflow-wrap: anywhere; }
-.social-compose__file button, .social-post__delete { border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.social-compose__file button, .social-post__delete, .social-post__report-toggle { border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .social-feed__list { display: grid; gap: 14px; }
 .social-post { min-width: 0; overflow-wrap: anywhere; padding: 15px; }
 .social-post__author { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -605,6 +605,12 @@ button.status-composer__privacy:hover {
 .social-post__author strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .social-post__author span { color: var(--muted); font-size: 12px; }
 .social-post__delete { margin-left: auto; padding: 8px; }
+.social-post__report-toggle { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 8px; font: inherit; font-size: var(--fs-sm); }
+.social-post__report-form { display: grid; gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid var(--divider); border-radius: 12px; background: var(--input-bg); }
+.social-post__report-form label { display: grid; gap: 5px; color: var(--muted); font-size: var(--fs-sm); }
+.social-post__report-form select, .social-post__report-form textarea { width: 100%; min-width: 0; border: 1px solid var(--divider); border-radius: 9px; padding: 9px 11px; background: var(--panel-bg); color: var(--text); font: inherit; }
+.social-post__report-form textarea { resize: vertical; }
+.social-post__report-form > div { display: flex; justify-content: flex-end; gap: 8px; }
 .social-post__text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .social-post__image { display: block; width: 100%; max-height: 600px; object-fit: contain; border-radius: 12px; background: var(--input-bg); }
 .social-post__counts { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 10px 2px; }

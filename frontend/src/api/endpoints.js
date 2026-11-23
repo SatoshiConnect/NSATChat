@@ -183,6 +183,7 @@ export const socialApi = {
   createPost: (payload) => api.post("social/posts/", payload).then((r) => r.data),
   toggleLike: (id) => api.post(`social/posts/${id}/`).then((r) => r.data),
   removePost: (id) => api.delete(`social/posts/${id}/`),
+  reportPost: (id, payload) => api.post(`social/posts/${id}/report/`, payload).then((r) => r.data),
   comments: (id) => api.get(`social/posts/${id}/comments/`).then((r) => asList(r.data)),
   addComment: (id, text) => api.post(`social/posts/${id}/comments/`, { text }).then((r) => r.data),
 };
