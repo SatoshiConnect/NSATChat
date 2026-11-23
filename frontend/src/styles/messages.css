@@ -854,6 +854,27 @@ mark.search-hit {
   .msg-row__inner {
     max-width: min(85%, 32rem);
   }
+  /* Keep the normal card width for short content, while allowing a card to
+     shrink only when the containing bubble is genuinely narrower. */
+  .status-reaction {
+    width: 240px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .contact-card {
+    width: 250px;
+    min-width: 0;
+    max-width: 100%;
+    margin: -2px 0 4px;
+  }
+  .quote {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .audio {
+    width: 240px;
+    max-width: 100%;
+  }
   .bubble__text,
   .bubble__sender,
   .bubble__caption,

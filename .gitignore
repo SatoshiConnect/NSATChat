@@ -192,3 +192,5 @@ deploy/.env.prod
 
 # files written by the automated tests
 /test_media/
+/frontend/test-results/
+/frontend/playwright-report/

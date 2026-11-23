@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test:security": "node --test src/api/errorMessages.test.js src/components/calls/audioMedia.test.js src/services/googleContactsErrors.test.js src/utils/visibleViewport.test.js",
+    "test:layout": "playwright test",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

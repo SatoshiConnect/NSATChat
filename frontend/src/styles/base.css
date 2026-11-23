@@ -9,6 +9,8 @@ body,
 #root {
   height: 100%;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
 }
 
@@ -18,7 +20,6 @@ html {
 }
 
 body {
-  min-width: 320px;
   background: var(--app-bg);
   color: var(--text);
   font-family: var(--font), var(--font-emoji);
@@ -55,6 +56,16 @@ button {
 button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  /* Keep editable text controls above Safari iOS's automatic focus-zoom threshold. */
+  .app input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="file"]):not([type="hidden"]),
+  .app textarea,
+  .app select,
+  .app [contenteditable="true"] {
+    font-size: 16px;
+  }
 }
 
 a {
