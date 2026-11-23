@@ -8,7 +8,7 @@ import { initials } from "../../utils/format";
 import { DefaultAvatarIcon } from "./Icons";
 
 /* ---------------------------------------------------------------- Avatar */
-export const Avatar = memo(function Avatar({ src, name, size = 49, group = false, ring, onClick, className = "" }) {
+export const Avatar = memo(function Avatar({ src, name, size = 49, group = false, ring, online = false, onClick, className = "" }) {
   const [failed, setFailed] = useState(false);
   const url = !failed && src ? mediaUrl(src) : "";
   const style = { width: size, height: size, minWidth: size };
@@ -26,9 +26,18 @@ export const Avatar = memo(function Avatar({ src, name, size = 49, group = false
       className={`avatar ${ring ? `avatar--ring avatar--ring-${ring}` : ""} ${className}`}
       style={style}
       onClick={onClick}
-      aria-label={onClick ? `Open ${name || "profile"}` : undefined}
+      aria-label={onClick ? `Open ${name || "profile"}${online ? ", online" : ""}` : undefined}
+      title={online ? `${name || "Contact"} is online` : undefined}
     >
       {content}
+      {online ? (
+        <span
+          className="avatar__presence"
+          role="img"
+          aria-label="Online"
+          style={{ "--presence-size": `${Math.min(18, Math.max(9, size * 0.27))}px`, "--presence-border": `${Math.min(2.5, Math.max(1, size * 0.045))}px` }}
+        />
+      ) : null}
     </Tag>
   );
 });

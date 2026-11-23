@@ -5,6 +5,66 @@ function isEditableTarget(target) {
 }
 
 /**
+ * Preserve the latest-message anchor when the software keyboard resizes the
+ * visible viewport. Readers who have scrolled up keep their current position.
+ */
+export function installViewportBottomAnchor(container, windowRef = window) {
+  if (!container) return () => {};
+  const visualViewport = windowRef.visualViewport;
+  let shouldFollow = false;
+  let firstFrame = 0;
+  let secondFrame = 0;
+
+  const cancelFrames = () => {
+    if (firstFrame) windowRef.cancelAnimationFrame(firstFrame);
+    if (secondFrame) windowRef.cancelAnimationFrame(secondFrame);
+    firstFrame = 0;
+    secondFrame = 0;
+  };
+
+  const isNearBottom = () => container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+  const onUserScrollIntent = () => {
+    if (shouldFollow) {
+      shouldFollow = false;
+      cancelFrames();
+    }
+  };
+
+  const onViewportResize = () => {
+    // Capture before the shell's next frame applies the new height. This also
+    // keeps the last message anchored when the keyboard closes after blur.
+    if (!shouldFollow) shouldFollow = isNearBottom();
+    if (!shouldFollow) return;
+
+    cancelFrames();
+    // The viewport synchronizer updates the app shell on the first frame;
+    // scroll after that reflow so the newest message stays above the composer.
+    firstFrame = windowRef.requestAnimationFrame(() => {
+      firstFrame = 0;
+      secondFrame = windowRef.requestAnimationFrame(() => {
+        secondFrame = 0;
+        if (!shouldFollow || !container.isConnected) return;
+        container.scrollTop = container.scrollHeight;
+        shouldFollow = false;
+      });
+    });
+  };
+
+  container.addEventListener("wheel", onUserScrollIntent, { passive: true });
+  container.addEventListener("touchmove", onUserScrollIntent, { passive: true });
+  windowRef.addEventListener("resize", onViewportResize, { passive: true });
+  visualViewport?.addEventListener("resize", onViewportResize, { passive: true });
+
+  return () => {
+    cancelFrames();
+    container.removeEventListener("wheel", onUserScrollIntent);
+    container.removeEventListener("touchmove", onUserScrollIntent);
+    windowRef.removeEventListener("resize", onViewportResize);
+    visualViewport?.removeEventListener("resize", onViewportResize);
+  };
+}
+
+/**
  * Keep the mobile app shell aligned to the visible viewport while iOS pans or
  * resizes it for the software keyboard. The visual viewport is the single
  * source of dimensions; no keyboard-height estimate is applied to the shell.
@@ -13,18 +73,35 @@ export function startVisibleViewportSync(windowRef = window, documentRef = docum
   const root = documentRef.documentElement;
   const visualViewport = windowRef.visualViewport;
   let frame = 0;
+  let keyboardWasOpen = false;
+  let baselineHeight = visualViewport?.height || windowRef.innerHeight;
 
   const sync = () => {
     frame = 0;
     const scale = visualViewport?.scale || 1;
-    const isPinchZoomed = Math.abs(scale - 1) > 0.01;
-    const height = visualViewport && !isPinchZoomed ? visualViewport.height : (root.clientHeight || windowRef.innerHeight);
-    const keyboardOpen = Boolean(
-      visualViewport &&
-      !isPinchZoomed &&
-      isEditableTarget(documentRef.activeElement) &&
-      visualViewport.height < root.clientHeight,
+    const pinchZoomed = Math.abs(scale - 1) > 0.01;
+    const focused = isEditableTarget(documentRef.activeElement);
+    const height = visualViewport && !pinchZoomed
+      ? visualViewport.height
+      : (root.clientHeight || windowRef.innerHeight);
+    const viewportReduced = Boolean(
+      visualViewport && !pinchZoomed && visualViewport.height < baselineHeight - 1,
     );
+
+    // iOS Safari may report a visual viewport smaller than the layout
+    // viewport after keyboard dismissal. Compare against the visual viewport
+    // size observed while no editable field is focused, not clientHeight.
+    // Pinch zoom is a separate viewport change and must never activate the
+    // keyboard safe-area state.
+    if (!focused) {
+      keyboardWasOpen = false;
+      if (visualViewport && !pinchZoomed) baselineHeight = visualViewport.height;
+    } else if (viewportReduced) {
+      keyboardWasOpen = true;
+    } else if (!viewportReduced) {
+      keyboardWasOpen = false;
+    }
+    const keyboardOpen = focused && keyboardWasOpen && viewportReduced;
     const top = keyboardOpen ? Math.max(0, visualViewport.offsetTop || 0) : 0;
 
     root.style.setProperty("--app-viewport-height", `${Math.round(height)}px`);

@@ -204,6 +204,8 @@ export function reducer(state, action) {
         presence: { ...state.presence, [action.userId]: { is_online: action.is_online, last_seen: action.last_seen } },
       };
     }
+    case "presence/reset":
+      return Object.keys(state.presence).length ? { ...state, presence: {} } : state;
 
     case "status/set":
       return { ...state, statusFeed: action.feed, myStatuses: action.mine, statusLoaded: true };

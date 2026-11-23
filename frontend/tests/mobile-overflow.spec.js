@@ -71,6 +71,14 @@ for (const width of widths) {
       await page.locator(".conversation.is-active").waitFor();
       expect(await page.evaluate(() => matchMedia("(hover: none) and (pointer: coarse)").matches)).toBe(true);
       const checkpoints = { initial: await measure(page) };
+      const captureViewportEvidence = width === 390 && mode === "chat" && testInfo.project.name === "ios-webkit";
+      if (captureViewportEvidence) {
+        const screenshot = await page.screenshot({ path: testInfo.outputPath("ios-webkit-before-keyboard-like-resize.png") });
+        await testInfo.attach("ios-webkit-before-keyboard-like-resize.png", {
+          body: screenshot,
+          contentType: "image/png",
+        });
+      }
       const baselineOverride = await page.addStyleTag({ content: `
         @media (max-width: 900px) {
           .status-reaction { min-width: 240px; width: auto; max-width: 330px; }
@@ -125,13 +133,41 @@ for (const width of widths) {
       if (mode !== "ai") await assertVisibleBounds(page, '.conversation.is-active button[aria-label="Microphone"]', width);
 
       // Resizing the viewport height is keyboard-like only; it is not native iOS keyboard emulation.
+      const messageList = page.locator(".conversation.is-active .messages");
+      await messageList.evaluate((node) => {
+        const inner = node.firstElementChild;
+        for (let index = 0; index < 24; index += 1) {
+          const row = document.createElement("div");
+          row.className = "msg-row msg-row--in";
+          row.innerHTML = '<div class="msg-row__inner"><div class="bubble bubble--in"><span class="bubble__text"></span></div></div>';
+          row.querySelector(".bubble__text").textContent = `older message ${index}`;
+          inner.append(row);
+        }
+        node.scrollTop = node.scrollHeight;
+      });
       await input.focus();
       await page.setViewportSize({ width, height: 480 });
       await page.waitForTimeout(375);
       checkpoints.keyboardLikeResize = await measure(page);
+      if (captureViewportEvidence) {
+        const screenshot = await page.screenshot({ path: testInfo.outputPath("ios-webkit-after-keyboard-like-resize.png") });
+        await testInfo.attach("ios-webkit-after-keyboard-like-resize.png", {
+          body: screenshot,
+          contentType: "image/png",
+        });
+      }
       await assertNoDocumentOverflow(page);
       await assertVisibleBounds(page, ".conversation.is-active .composer", width);
       await assertVisibleBounds(page, ".conversation.is-active .composer__action", width);
+      const bottomGap = await messageList.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight);
+      expect(bottomGap).toBeLessThanOrEqual(1);
+
+      // A user who has scrolled back should keep their reading position while
+      // the visible viewport changes again.
+      await messageList.evaluate((node) => { node.scrollTop = 0; });
+      await page.setViewportSize({ width, height: 430 });
+      await page.waitForTimeout(375);
+      expect(await messageList.evaluate((node) => node.scrollTop)).toBeLessThanOrEqual(1);
 
       await input.evaluate((element) => element.blur());
       await page.waitForTimeout(375);

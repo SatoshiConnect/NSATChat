@@ -12,6 +12,7 @@ import { useApp } from "../layout/AppContext";
 import { askAssistant, loadAssistantStatus, useAssistant } from "./assistantStore";
 import { ForwardDialog } from "../conversation/dialogs";
 import { sendFile } from "../../store/actions";
+import { installViewportBottomAnchor } from "../../utils/visibleViewport";
 
 /** Tiny safe formatter: **bold**, `code`, and "- " bullet lines. */
 function Formatted({ text }) {
@@ -58,6 +59,8 @@ export default function AssistantChat() {
   useEffect(() => {
     loadAssistantStatus();
   }, []);
+
+  useEffect(() => installViewportBottomAnchor(scrollRef.current), []);
 
   useLayoutEffect(() => {
     const node = scrollRef.current;

@@ -29,6 +29,7 @@ export default function ContactInfo({ roomId }) {
   const starredCount = useStarredCount(roomId);
   const contacts = useStore((state) => state.contacts);
   const presence = useStore((state) => (room?.otherUser ? state.presence[room.otherUser.id] : null));
+  const realtimeConnected = useStore((state) => state.connection === "online");
   const blocked = useStore((state) => (room?.otherUser ? state.blocked.includes(Number(room.otherUser.id)) : false));
   const contactMap = useMemo(() => contactsByUser(contacts), [contacts]);
   const [groups, setGroups] = useState([]);
@@ -49,7 +50,7 @@ export default function ContactInfo({ roomId }) {
   if (!room || !user) return null;
   const title = roomTitle(room, contactMap, me);
   const about = user.profile?.about;
-  const online = presence ? presence.is_online : user.profile?.is_online;
+  const online = realtimeConnected && Boolean(presence ? presence.is_online : user.profile?.is_online);
   const lastSeen = presence?.last_seen || user.profile?.last_seen;
   const photo = user.profile?.profile_picture;
 
@@ -63,6 +64,7 @@ export default function ContactInfo({ roomId }) {
             name={title}
             size={200}
             ring={ringFor(statusGroup)}
+            online={!blocked && Boolean(online)}
             onClick={ringFor(statusGroup) ? (event) => openAvatarMenu(event.currentTarget, { userId: user.id, title, photo }) : photo ? () => setViewPhoto(true) : undefined}
           />
           <h2>{title}</h2>

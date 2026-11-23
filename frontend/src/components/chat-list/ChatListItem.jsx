@@ -94,8 +94,11 @@ function ChatListItem({
   // An ongoing group call replaces the preview: "Ongoing voice call · Join".
   const activeCallType = useStore((state) => (room.isGroup ? state.activeCalls?.[room.id]?.call_type || null : null));
   const inThatCall = useStore((state) => Boolean(room.isGroup && state.currentCallId && Number(state.activeCalls?.[room.id]?.id) === Number(state.currentCallId)));
+  const livePresence = useStore((state) => (room.isGroup ? null : state.presence[room.otherUser?.id] || null));
+  const realtimeConnected = useStore((state) => state.connection === "online");
   const unread = room.unread > 0;
   const photo = room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture;
+  const online = realtimeConnected && !room.isGroup && Boolean(livePresence ? livePresence.is_online : room.otherUser?.profile?.is_online);
   const statusGroup = useStatusGroup(room.isGroup ? null : room.otherUser?.id);
 
   const pressTimer = useRef(null);
@@ -134,7 +137,7 @@ function ChatListItem({
           if (!(ringFor(statusGroup) && openUserStatus(room.otherUser?.id))) openProfilePeek(room, title, photo);
         }}
       >
-        <Avatar src={photo} name={title} group={room.isGroup} size={49} ring={ringFor(statusGroup)} />
+        <Avatar src={photo} name={title} group={room.isGroup} size={49} ring={ringFor(statusGroup)} online={online} />
         {room.disappearingSeconds ? (
           <span className="avatar-timer" aria-label="Disappearing messages on" title="Disappearing messages">
             <Timer size={12} strokeWidth={2.4} />

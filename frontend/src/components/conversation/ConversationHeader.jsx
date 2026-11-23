@@ -44,6 +44,7 @@ function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClo
   const contacts = useStore((state) => state.contacts);
   const typing = useStore((state) => state.typing[room.id]);
   const presence = useStore((state) => (room.otherUser ? state.presence[room.otherUser.id] : null));
+  const realtimeConnected = useStore((state) => state.connection === "online");
   const blocked = useStore((state) => (room.otherUser ? state.blocked.includes(Number(room.otherUser.id)) : false));
   const contactMap = useMemo(() => contactsByUser(contacts), [contacts]);
   const isMember = !room.isGroup || room.participants.some((p) => Number(p.user?.id) === Number(me.id));
@@ -65,7 +66,7 @@ function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClo
         .sort((a, b) => (a === "You" ? 1 : b === "You" ? -1 : a.localeCompare(b)));
       subtitle = isMember ? names.join(", ") : "You're no longer a participant";
     } else if (room.otherUser) {
-      const online = presence ? presence.is_online : room.otherUser.profile?.is_online;
+      const online = realtimeConnected && Boolean(presence ? presence.is_online : room.otherUser.profile?.is_online);
       const lastSeen = presence?.last_seen || room.otherUser.profile?.last_seen;
       subtitle = blocked ? "Blocked" : online ? "online" : lastSeen ? lastSeenLabel(lastSeen) : "";
     }
@@ -134,7 +135,14 @@ function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClo
             openUserStatus(room.otherUser?.id); // like the chat list: the ring opens their status
           }}
         >
-          <Avatar src={photo} name={title} group={room.isGroup} size={40} ring={ringFor(statusGroup)} />
+          <Avatar
+            src={photo}
+            name={title}
+            group={room.isGroup}
+            size={40}
+            ring={ringFor(statusGroup)}
+            online={realtimeConnected && !room.isGroup && !blocked && Boolean(presence ? presence.is_online : room.otherUser?.profile?.is_online)}
+          />
           {room.disappearingSeconds ? (
             <span className="avatar-timer avatar-timer--sm" title={`Disappearing messages: ${disappearingLabel(room.disappearingSeconds)}`}>
               <Timer size={10} strokeWidth={2.6} />
