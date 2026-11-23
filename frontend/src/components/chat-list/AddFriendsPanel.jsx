@@ -13,6 +13,16 @@ import { prepareGoogleContacts, requestGoogleContactsAccess, revokeGoogleContact
 import { Avatar, EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
 import { useApp } from "../layout/AppContext";
 
+function googleSyncErrorMessage(error, fallback = "Google Contacts could not be synced. Try again in a moment.") {
+  const status = error?.response?.status;
+  if (status === 404) return "Google Contacts sync is not available on the current server version yet. Please try again after the server is updated.";
+  if (status === 401) return "Your Messenger session expired. Sign in again and retry Google Contacts.";
+  if (status === 403) return "Your account is not allowed to sync Google Contacts. Check the permission notice or contact support.";
+  if (status === 429) return "Too many contact sync requests. Wait a little, then retry.";
+  if (status >= 500) return "The contact sync service is temporarily unavailable. Try again in a moment.";
+  return errorMessage(error, fallback);
+}
+
 function AddFriendRow({ user, action, busy, isSaved = false }) {
   const name = profileName(user) || (user.phone_number ? formatPhone(user.phone_number) : `User ${user.id}`);
   return (
@@ -71,7 +81,7 @@ export default function AddFriendsPanel() {
       .then(([statusResult, configResult]) => {
         if (cancelled) return;
         if (statusResult.status === "fulfilled") setGoogleSync({ ...statusResult.value, status: "ready" });
-        else setGoogleSync({ status: "error", connected: false, matches: [], sync_token: "", error: errorMessage(statusResult.reason, "Contact sync status could not be loaded.") });
+        else setGoogleSync({ status: "error", connected: false, matches: [], sync_token: "", error: googleSyncErrorMessage(statusResult.reason, "Contact sync status could not be loaded.") });
         if (configResult.status === "fulfilled") setGoogleClientId(configResult.value.client_id || "");
       })
       .catch(() => !cancelled && setGoogleSync({ status: "error", connected: false, matches: [], sync_token: "", error: "Contact sync status could not be loaded." }));
@@ -143,7 +153,7 @@ export default function AddFriendsPanel() {
     setSyncing(true);
     setGoogleSyncError("");
     try {
-      if (!googleClientId) throw new Error("Google Contacts is not configured for this service.");
+      if (!googleClientId) throw Object.assign(new Error("Google Contacts is not configured for this service."), { code: "GOOGLE_CONFIG" });
       const accessToken = await requestGoogleContactsAccess(googleClientId, { silent: googleSync.connected });
       if (!googleSync.connected) await contactsApi.googleSync({ consent_accepted: true });
 
@@ -185,7 +195,7 @@ export default function AddFriendsPanel() {
       await loadContacts();
       toast.success(`${state.matches.length} SatoshiCore member${state.matches.length === 1 ? "" : "s"} found in Google Contacts`);
     } catch (error) {
-      const message = errorMessage(error, error.message || "Google Contacts could not be synced.");
+      const message = googleSyncErrorMessage(error, error.message || "Google Contacts could not be synced.");
       setGoogleSyncError(message);
       setGoogleSync((current) => ({ ...current, status: "ready" }));
     }
@@ -206,7 +216,7 @@ export default function AddFriendsPanel() {
       setConsentChecked(false);
       await loadContacts();
       toast.success(revoked ? "Google Contacts disconnected and synced data deleted" : "Synced matches deleted. If needed, revoke Google access from your Google Account permissions.");
-    } catch (error) { toast.error(errorMessage(error, "Google Contacts could not be disconnected.")); }
+    } catch (error) { toast.error(googleSyncErrorMessage(error, "Google Contacts could not be disconnected.")); }
     finally { setSyncing(false); }
   }
 
