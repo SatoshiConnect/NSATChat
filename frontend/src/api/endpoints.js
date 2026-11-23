@@ -178,6 +178,22 @@ export const statusApi = {
   remove: (id) => api.delete(`status/${id}/delete/`),
 };
 
+export const marketplaceApi = {
+  catalog: (params = {}) => api.get("marketplace/items/", { params }).then((r) => asList(r.data)),
+  inventory: () => api.get("marketplace/inventory/").then((r) => asList(r.data)),
+  purchases: () => api.get("marketplace/purchases/").then((r) => asList(r.data)),
+  simulatePurchase: (itemId, idempotencyKey) =>
+    api.post(`marketplace/items/${itemId}/purchase-simulation/`, { idempotency_key: idempotencyKey }).then((r) => r.data),
+  dispute: (purchaseId, reason) => api.post(`marketplace/purchases/${purchaseId}/dispute/`, { reason }).then((r) => r.data),
+  submit: (fields) => api.post("marketplace/items/submit/", form(fields)).then((r) => r.data),
+  creatorDashboard: () => api.get("marketplace/creator/dashboard/").then((r) => r.data),
+  updateCreatorProfile: (fields) => api.patch("marketplace/creator/profile/", fields).then((r) => r.data),
+  creators: () => api.get("marketplace/creators/").then((r) => asList(r.data)),
+  gifts: () => api.get("marketplace/gifts/").then((r) => r.data),
+  report: (itemId, reason, details = "") => api.post(`marketplace/items/${itemId}/report/`, { reason, details }).then((r) => r.data),
+  sendGift: ({ item_id, recipient_id, status_id }) => api.post("marketplace/gifts/", { item_id, recipient_id, status_id }).then((r) => r.data),
+};
+
 export const callApi = {
   start: (room, call_type) => api.post("calls/start/", { room, call_type }).then((r) => r.data),
   accept: (id) => api.post(`calls/${id}/accept/`),

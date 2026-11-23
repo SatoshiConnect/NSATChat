@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "test:security": "node --test src/api/errorMessages.test.js src/components/calls/audioMedia.test.js src/services/googleContactsErrors.test.js src/utils/visibleViewport.test.js",
+    "test:security": "node --test src/api/errorMessages.test.js src/components/calls/audioMedia.test.js src/services/googleContactsErrors.test.js src/utils/visibleViewport.test.js src/features/wallet/marketplaceWalletAdapter.test.js",
     "test:layout": "playwright test",
     "preview": "vite preview"
   },

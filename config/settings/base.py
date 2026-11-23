@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "apps.calls",
     "apps.notifications",
     "apps.wallet_integration.apps.WalletIntegrationConfig",
+    "apps.marketplace.apps.MarketplaceConfig",
 
     "drf_spectacular",
 ]
@@ -201,6 +202,10 @@ REST_FRAMEWORK = {
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),
         # Group invite link preview/join (per user).
         "invite": config("THROTTLE_INVITE", default="30/min"),
+        "marketplace_purchase": config("THROTTLE_MARKETPLACE_PURCHASE", default="20/hour"),
+        "marketplace_gift": config("THROTTLE_MARKETPLACE_GIFT", default="20/hour"),
+        "marketplace_report": config("THROTTLE_MARKETPLACE_REPORT", default="20/hour"),
+        "marketplace_submit": config("THROTTLE_MARKETPLACE_SUBMIT", default="10/hour"),
     },
 }
 

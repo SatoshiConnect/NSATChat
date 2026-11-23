@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Contact, Images, Phone, Settings, Sparkles, WalletCards } from "lucide-react";
+import { Contact, Images, Phone, Settings, ShoppingBag, Sparkles, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { useStore } from "../../store/store";
 import { Avatar } from "../common/ui";
@@ -35,7 +35,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
       {
         id: "settings",
         label: "You",
-        match: ["settings", "profile"],
+        match: ["settings", "profile", "marketplace"],
         dot: update.available,
         dotLabel: "New version available",
         icon: () => <Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={26} />,
@@ -71,6 +71,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
     { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
     { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
     { id: "status", label: "Status", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
+    { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
     ...(WALLET_UI_ENABLED ? [{ id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> }] : []),
     { id: "ai", label: "SatoshiCore AI", icon: () => <span className="rail__ai"><Sparkles size={18} strokeWidth={2} /></span> },

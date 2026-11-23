@@ -39,6 +39,7 @@ const StarredPanel = lazy(() => import("../chat-list/StarredPanel"));
 const CallInfoPanel = lazy(() => import("../calls/CallInfoPanel"));
 const AddFriendsPanel = lazy(() => import("../chat-list/AddFriendsPanel"));
 const WalletPanel = lazy(() => import("../../features/wallet").then((module) => ({ default: module.WalletPanel })));
+const MarketplacePanel = lazy(() => import("../marketplace/MarketplacePanel"));
 const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 const fallback = <div className="panel panel--loading"><Spinner /></div>;
@@ -62,6 +63,7 @@ const SECTION_PANELS = {
   settings: SettingsPanel,
   ai: AssistantPanel,
   aiChat: ChatListPanel, // SatoshiCore AI opened from the chat list
+  marketplace: MarketplacePanel,
 };
 
 const DRAWERS = {
@@ -199,6 +201,7 @@ export default function MainLayout({ onLogout }) {
   );
 
   const showWallet = section === "wallet";
+  const showMarketplace = section === "marketplace";
   const SectionPanel = SECTION_PANELS[section] || ChatListPanel;
   const top = stack[stack.length - 1];
   const OverlayPanel = top ? PANELS[top.name] : null;
@@ -207,6 +210,7 @@ export default function MainLayout({ onLogout }) {
   const showChat = section === "chats" && activeRoomId && activeExists;
   let main;
   if (showWallet) main = <WalletPanel launch={walletLaunch} />;
+  else if (showMarketplace) main = <MarketplacePanel />;
   else if (section === "status") main = <StatusMain />;
   else if (section === "calls") main = <CallsMain />;
   else if (section === "ai" || section === "aiChat") main = <AssistantChat />;
@@ -228,9 +232,9 @@ export default function MainLayout({ onLogout }) {
   return (
     <AppContext.Provider value={app}>
       <CallProvider>
-        <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""} ${showWallet ? "is-wallet-view" : ""}`}>
+        <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""} ${showWallet ? "is-wallet-view" : ""} ${showMarketplace ? "is-marketplace-view" : ""}`}>
           <NavRail section={section === "aiChat" ? "chats" : section} onChange={setSection} onOpenMedia={openMedia} />
-          {!showWallet ? (
+          {!showWallet && !showMarketplace ? (
             <aside className="sidebar">
               <div className="sidebar__stack">
                 <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} /></Suspense>
