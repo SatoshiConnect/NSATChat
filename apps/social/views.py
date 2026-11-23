@@ -7,9 +7,9 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Post, PostComment, PostLike
+from .models import Post, PostComment, PostLike, PostReport
 from .policies import can_view_post, visible_posts_for
-from .serializers import CreateCommentSerializer, PostCommentSerializer, PostSerializer
+from .serializers import CreateCommentSerializer, CreatePostReportSerializer, PostCommentSerializer, PostSerializer
 
 
 class SocialPostPagination(LimitOffsetPagination):
@@ -67,3 +67,28 @@ class PostCommentsAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         comment = PostComment.objects.create(post=post, author=request.user, **serializer.validated_data)
         return Response(PostCommentSerializer(comment, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+
+class PostReportAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_scope = "social_report"
+
+    def post(self, request, pk):
+        post = get_object_or_404(visible_posts_for(request.user), pk=pk)
+        if post.author_id == request.user.id:
+            return Response({"detail": "You cannot report your own post."}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = CreatePostReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        report, created = PostReport.objects.get_or_create(
+            post=post,
+            reporter=request.user,
+            defaults=serializer.validated_data,
+        )
+        if created and post.moderation_status == Post.MODERATION_ACTIVE:
+            Post.objects.filter(pk=post.pk, moderation_status=Post.MODERATION_ACTIVE).update(
+                moderation_status=Post.MODERATION_REVIEW
+            )
+        return Response(
+            {"reported": True, "already_reported": not created, "detail": "Thanks. Your report was sent for review."},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )

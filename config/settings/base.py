@@ -207,6 +207,7 @@ REST_FRAMEWORK = {
         "marketplace_gift": config("THROTTLE_MARKETPLACE_GIFT", default="20/hour"),
         "marketplace_report": config("THROTTLE_MARKETPLACE_REPORT", default="20/hour"),
         "marketplace_submit": config("THROTTLE_MARKETPLACE_SUBMIT", default="10/hour"),
+        "social_report": config("THROTTLE_SOCIAL_REPORT", default="20/hour"),
     },
 }
 

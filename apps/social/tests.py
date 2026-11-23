@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.test import override_settings
 from rest_framework.test import APIClient
 from apps.accounts.models import Contact, User
-from apps.social.models import Post, PostComment, PostLike
+from apps.social.models import Post, PostComment, PostLike, PostReport
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "social-test"}})
@@ -73,3 +73,63 @@ class SocialPostAPITests(TestCase):
         public = Post.objects.create(author=self.author, text="Block test", visibility=Post.EVERYONE)
         BlockedUser.objects.create(blocked_by=self.stranger, blocked_user=self.author)
         self.assertNotIn(public.id, self.ids(self.stranger_client.get("/api/social/posts/")))
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "social-report-test"}})
+class SocialPostModerationTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(phone_number="+66910000201", password="StrongPass123!")
+        self.reporter = User.objects.create_user(phone_number="+66910000202", password="StrongPass123!")
+        self.stranger = User.objects.create_user(phone_number="+66910000203", password="StrongPass123!")
+        self.reporter_client = APIClient()
+        self.reporter_client.force_authenticate(self.reporter)
+        self.stranger_client = APIClient()
+        self.stranger_client.force_authenticate(self.stranger)
+
+    def test_report_is_recorded_once_and_sends_post_to_review(self):
+        post = Post.objects.create(author=self.author, text="Spam?", visibility=Post.EVERYONE)
+        path = f"/api/social/posts/{post.id}/report/"
+        first = self.reporter_client.post(path, {"reason": "SPAM", "details": "Repeated links"}, format="json")
+        again = self.reporter_client.post(path, {"reason": "SCAM", "details": "Different report"}, format="json")
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(again.status_code, 200, again.data)
+        self.assertTrue(again.data["already_reported"])
+        self.assertEqual(PostReport.objects.filter(post=post, reporter=self.reporter).count(), 1)
+        report = PostReport.objects.get(post=post, reporter=self.reporter)
+        self.assertEqual(report.reason, PostReport.REASON_SPAM)
+        post.refresh_from_db()
+        self.assertEqual(post.moderation_status, Post.MODERATION_REVIEW)
+
+    def test_user_cannot_report_own_or_invisible_post(self):
+        public = Post.objects.create(author=self.author, text="Mine", visibility=Post.EVERYONE)
+        own_client = APIClient()
+        own_client.force_authenticate(self.author)
+        self.assertEqual(own_client.post(f"/api/social/posts/{public.id}/report/", {"reason": "OTHER"}, format="json").status_code, 400)
+        private = Post.objects.create(author=self.author, text="Private")
+        self.assertEqual(self.stranger_client.post(f"/api/social/posts/{private.id}/report/", {"reason": "OTHER"}, format="json").status_code, 404)
+
+    def test_hidden_post_disappears_from_all_user_feeds(self):
+        post = Post.objects.create(author=self.author, text="Moderated", visibility=Post.EVERYONE, moderation_status=Post.MODERATION_HIDDEN)
+        response = self.stranger_client.get("/api/social/posts/")
+        self.assertNotIn(post.id, {item["id"] for item in response.data["results"]})
+        self.assertEqual(self.stranger_client.post(f"/api/social/posts/{post.id}/", {}, format="json").status_code, 404)
+
+    def test_admin_action_hides_post_and_marks_reports_actioned(self):
+        from django.contrib.admin.models import LogEntry
+        from django.contrib.admin.sites import site
+        from django.test import RequestFactory
+        from apps.social.admin import PostReportAdmin
+
+        admin_user = User.objects.create_superuser(phone_number="+66910000204", password="StrongPass123!")
+        post = Post.objects.create(author=self.author, text="Actioned", visibility=Post.EVERYONE)
+        report = PostReport.objects.create(post=post, reporter=self.reporter, reason=PostReport.REASON_SCAM)
+        request = RequestFactory().post("/admin/")
+        request.user = admin_user
+        PostReportAdmin(PostReport, site).take_action(request, PostReport.objects.filter(pk=report.pk))
+        report.refresh_from_db()
+        post.refresh_from_db()
+        self.assertEqual(report.status, PostReport.ACTIONED)
+        self.assertEqual(report.reviewed_by_id, admin_user.id)
+        self.assertIsNotNone(report.reviewed_at)
+        self.assertEqual(post.moderation_status, Post.MODERATION_HIDDEN)
+        self.assertGreaterEqual(LogEntry.objects.filter(user=admin_user).count(), 2)

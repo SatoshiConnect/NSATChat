@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from apps.accounts.serializers import UserSerializer
-from .models import Post, PostComment
+from .models import Post, PostComment, PostReport
 
 
 class PostCommentSerializer(serializers.ModelSerializer):
@@ -62,3 +62,12 @@ class CreateCommentSerializer(serializers.Serializer):
         if not value.strip():
             raise serializers.ValidationError("Comment cannot be empty.")
         return value.strip()
+
+
+class CreatePostReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PostReport
+        fields = ("reason", "details")
+
+    def validate_details(self, value):
+        return (value or "").strip()
