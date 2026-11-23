@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import CatalogAPIView, CreatorDashboardAPIView, CreatorDirectoryAPIView, GiftAPIView, InventoryAPIView, PurchaseDisputeAPIView, PurchaseHistoryAPIView, PurchaseSimulationAPIView, ReportItemAPIView, SubmitItemAPIView
+from .views import CatalogAPIView, CreatorDashboardAPIView, CreatorDirectoryAPIView, GiftAPIView, InventoryAPIView, OwnedStickerPacksAPIView, PurchaseDisputeAPIView, PurchaseHistoryAPIView, PurchaseSimulationAPIView, ReportItemAPIView, SubmitItemAPIView
 
 app_name = "marketplace"
 urlpatterns = [
@@ -9,6 +9,7 @@ urlpatterns = [
     path("items/<int:pk>/report/", ReportItemAPIView.as_view(), name="report"),
     path("items/<int:pk>/purchase-simulation/", PurchaseSimulationAPIView.as_view(), name="purchase-simulation"),
     path("inventory/", InventoryAPIView.as_view(), name="inventory"),
+    path("stickers/mine/", OwnedStickerPacksAPIView.as_view(), name="owned-stickers"),
     path("purchases/", PurchaseHistoryAPIView.as_view(), name="purchases"),
     path("gifts/", GiftAPIView.as_view(), name="gifts"),
     path("creator/dashboard/", CreatorDashboardAPIView.as_view(), name="creator-dashboard"),

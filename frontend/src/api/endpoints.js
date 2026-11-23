@@ -181,6 +181,7 @@ export const statusApi = {
 export const marketplaceApi = {
   catalog: (params = {}) => api.get("marketplace/items/", { params }).then((r) => asList(r.data)),
   inventory: () => api.get("marketplace/inventory/").then((r) => asList(r.data)),
+  stickerPacks: () => api.get("marketplace/stickers/mine/").then((r) => asList(r.data)),
   purchases: () => api.get("marketplace/purchases/").then((r) => asList(r.data)),
   simulatePurchase: (itemId, idempotencyKey) =>
     api.post(`marketplace/items/${itemId}/purchase-simulation/`, { idempotency_key: idempotencyKey }).then((r) => r.data),

@@ -47,6 +47,29 @@ class DigitalItem(models.Model):
         return self.title
 
 
+class DigitalItemAsset(models.Model):
+    """User-created content belonging to a moderated digital item."""
+
+    item = models.ForeignKey(DigitalItem, on_delete=models.CASCADE, related_name="assets")
+    image = models.ImageField(upload_to="marketplace/assets/")
+    position = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("position", "id")
+        constraints = [
+            models.UniqueConstraint(fields=("item", "position"), name="marketplace_asset_item_position"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.image and self.image.size > 2 * 1024 * 1024:
+            raise ValidationError({"image": "Each sticker must be 2 MB or smaller."})
+
+    def __str__(self):
+        return f"{self.item.title} asset {self.position + 1}"
+
+
 class SimulatedPurchase(models.Model):
     class State(models.TextChoices):
         PENDING = "pending", "Pending simulation"

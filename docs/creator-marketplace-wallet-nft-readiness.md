@@ -36,5 +36,5 @@ Before NFT readiness can become an implementation, protocol owners must publish/
 - Gifts currently attach to a visible Story/Status; there is no general social-post model in this repository, so post and future video-feed integrations await those modules.
 - Creator notices are stored for the dashboard; they are not yet delivered through Web Push or the real-time chat notification channel.
 - Refund/dispute states for actual payments are intentionally absent because no real payment exists. The audit trail and report review foundation is present.
-- Sticker packs and other digital goods are catalog/inventory records; the existing chat sticker picker remains its static pack source until a reviewed entitlement-to-sticker-packs integration is implemented.
+- Creator sticker packs can now include up to 30 uploaded images (2 MB each). After moderation and a simulated library grant, only the owning account receives the full sticker asset list in the chat sticker picker. The picker still includes the existing built-in/local packs. This remains app inventory, not chain ownership.
 - Preview upload accepts image formats only and limits files to 5 MB at the API serializer. Production storage scanning/CDN policy must also be verified.

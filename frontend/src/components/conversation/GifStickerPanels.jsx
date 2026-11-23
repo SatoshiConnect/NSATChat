@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Clock3, Heart, Plus, Trash2 } from "lucide-react";
 import { errorMessage, mediaUrl } from "../../api/client";
-import { chatApi } from "../../api/endpoints";
+import { chatApi, marketplaceApi } from "../../api/endpoints";
 import { useDebouncedValue } from "../../hooks";
 import { toast } from "../../services/toast";
 import { SearchInput, Spinner } from "../common/ui";
@@ -131,7 +131,20 @@ export function StickerPanel({ onPick }) {
       .recentStickers()
       .then((urls) => !cancelled && setRecent(urls))
       .catch(() => {});
-    loadPacks().then((list) => !cancelled && setPacks(list));
+    Promise.all([loadPacks(), marketplaceApi.stickerPacks().catch(() => [])]).then(([builtIn, owned]) => {
+      if (cancelled) return;
+      const creatorPacks = owned.map((pack) => ({
+        id: `market-${pack.id}`,
+        name: pack.title,
+        icon: pack.preview || pack.stickers[0]?.file || "",
+        stickers: pack.stickers.map((sticker) => ({
+          id: `market-${pack.id}-${sticker.id}`,
+          file: sticker.file,
+          tags: `${pack.title} ${pack.description || ""}`.toLowerCase().trim(),
+        })),
+      })).filter((pack) => pack.stickers.length);
+      setPacks([...builtIn, ...creatorPacks]);
+    });
     return () => {
       cancelled = true;
     };

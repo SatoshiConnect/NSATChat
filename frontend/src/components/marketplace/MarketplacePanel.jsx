@@ -20,6 +20,7 @@ export default function MarketplacePanel() {
   const [giftHistory, setGiftHistory] = useState({ received: [], sent: [] });
   const [busy, setBusy] = useState(true);
   const [acting, setActing] = useState(null);
+  const [submissionKind, setSubmissionKind] = useState("gift");
   const purchaseKeys = useRef(new Map());
   const giftRows = [
     ...(giftHistory.received || []).map((gift) => ({ ...gift, direction: "Received" })),
@@ -90,7 +91,7 @@ export default function MarketplacePanel() {
     const preview = data.get("preview");
     setActing("submit");
     try {
-      await marketplaceApi.submit({ kind: data.get("kind"), title: data.get("title"), description: data.get("description"), proposed_price_nsat: data.get("price"), usage_rights: data.get("rights"), preview: preview?.size ? preview : undefined });
+      await marketplaceApi.submit({ kind: data.get("kind"), title: data.get("title"), description: data.get("description"), proposed_price_nsat: data.get("price"), usage_rights: data.get("rights"), preview: preview?.size ? preview : undefined, assets: submissionKind === "sticker_pack" ? data.getAll("assets").filter((file) => file.size) : undefined });
       formElement.reset();
       toast.success("Submitted for moderation. It will appear after approval.");
       await refresh();
@@ -168,12 +169,13 @@ export default function MarketplacePanel() {
         {tab === "creator" ? <div className="marketplace__creator">
           <form className="marketplace__form" onSubmit={submit}>
             <h2>Submit an item</h2><p>New items go to moderation. Upload a simple image preview; SVG and active content are not accepted.</p>
-            <label>Type<select name="kind" required>{CATEGORIES.filter((value) => value !== "all").map((value) => <option value={value} key={value}>{LABELS[value]}</option>)}</select></label>
+            <label>Type<select name="kind" value={submissionKind} onChange={(event) => setSubmissionKind(event.target.value)} required>{CATEGORIES.filter((value) => value !== "all").map((value) => <option value={value} key={value}>{LABELS[value]}</option>)}</select></label>
             <label>Title<input name="title" maxLength="100" required /></label>
             <label>Description<textarea name="description" maxLength="1000" rows="3" /></label>
             <label>Proposed price (NSAT)<input name="price" type="number" min="0" max="1000000000" defaultValue="0" required /><small>Display only; no token will be charged.</small></label>
             <label>Usage rights<input name="rights" maxLength="500" placeholder="Personal in-app use" /></label>
             <label>Preview image<input name="preview" type="file" accept="image/jpeg,image/png,image/webp,image/gif" /></label>
+            {submissionKind === "sticker_pack" ? <label>Sticker images<input name="assets" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required /><small>Upload 1–30 images, up to 2 MB each. Pack content is reviewed before it appears in chat.</small></label> : null}
             <button type="submit" disabled={acting === "submit"}>{acting === "submit" ? "Submitting…" : "Submit for review"}</button>
           </form>
           <form className="marketplace__form" onSubmit={saveCreatorProfile}>

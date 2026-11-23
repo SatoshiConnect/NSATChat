@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import CreatorNotification, CreatorProfile, DigitalItem, GiftEvent, InventoryItem, ItemReport, MarketplaceAuditEvent, PurchaseDispute, SimulatedPurchase
+from .models import CreatorNotification, CreatorProfile, DigitalItem, DigitalItemAsset, GiftEvent, InventoryItem, ItemReport, MarketplaceAuditEvent, PurchaseDispute, SimulatedPurchase
+
+
+class DigitalItemAssetInline(admin.TabularInline):
+    model = DigitalItemAsset
+    extra = 0
+    readonly_fields = ("created_at",)
 
 
 @admin.register(DigitalItem)
@@ -9,6 +15,7 @@ class DigitalItemAdmin(admin.ModelAdmin):
     list_filter = ("kind", "state")
     search_fields = ("title", "description", "creator__phone_number", "creator__email")
     actions = ("approve_items", "disable_items")
+    inlines = (DigitalItemAssetInline,)
 
     def save_model(self, request, obj, form, change):
         prior_state = None
