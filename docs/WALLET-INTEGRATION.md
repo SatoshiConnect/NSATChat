@@ -1,48 +1,26 @@
-# Messenger and SatoshiCore Wallet
+# NSATChat native wallet
 
-Messenger keeps the full SatoshiCore Wallet web application at
-`https://wallet.satoshicore.org/messenger-embed/` inside its Wallet screen.
-Wallet linking, balance/history, send, receive and wallet management stay in
-the chat view. The embed keeps the Wallet origin and is allowed only from
-`https://chat.satoshicore.org`; transaction keys, unlock state, signing and
-broadcasting remain inside the Wallet origin and its existing wallet engine.
+The Messenger Wallet is a first-party React feature rendered directly inside the NSATChat application. It must not embed or redirect to the separate `wallet.satoshicore.org` product.
 
-## In-chat actions
+## Current implementation boundary
 
-- **Send NSAT** resolves the other participant's verified linked address via
-  the authenticated room-scoped Messenger API and opens the embedded Wallet
-  send screen with that address filled in. The user checks the recipient,
-  amount, network and fee and explicitly signs in Wallet.
-- **Receive NSAT** opens the Wallet receive screen, which shows the currently
-  selected Wallet's public address and copy action.
-- **Request NSAT** sends a regular Messenger message with a Wallet link. If the
-  requester has a verified linked Wallet, the link opens the Wallet send screen
-  addressed to the requester and may prefill an exact whole-number amount. The
-  recipient reviews and approves the transfer in Wallet; sending the request
-  itself never moves funds.
-- **Connect Wallet** creates a five-minute, one-use challenge and loads its
-  approval screen inside the Wallet frame. The unlocked Wallet signs that
-  challenge only after the user taps Approve. Messenger verifies the proof via
-  its authenticated API session and never receives a seed or transaction key.
-  The iframe remains in chat throughout the flow.
+- The UI can read an NSAT public address, exact whole-unit balance, and recent indexed activity through the authenticated `/api/wallet/read/` endpoint.
+- A public address can be saved on the current device for convenience. It is watch-only: this does not prove ownership and cannot sign transactions.
+- Receive shows the public address and a locally generated QR code. A private address or secret key must never be sent to the read API.
+- One-to-one chats can carry a structured NSAT payment request. Selecting it opens the native Wallet section in the same Messenger app.
+- The current server intentionally exposes read-only wallet data. No wallet generation, seed import, private-key storage, transaction construction, signing, or broadcast is implemented in NSATChat yet. The Send screen explains this limitation and submits no transaction.
 
-Payment requests are currently ordinary chat text links, not a transaction
-receipt or a server-verified payment state. The Messenger backend does not sign,
-broadcast, or claim that a request has been paid. Group payment requests are
-not exposed in this iteration.
+## Requirements before enabling on-chain sending
 
-## Security boundary
+1. Implement a new NSATChat-owned, non-custodial keystore. Generate keys with the device CSPRNG; encrypt at rest; keep seed/private-key material out of Messenger APIs, logs, chat messages, analytics, and backups unless the user explicitly chooses an audited encrypted backup.
+2. Build transaction review and signing locally in the browser from a reviewed, version-pinned NSAT transaction SDK/protocol. Verify network identity, recipient, exact whole-unit amount, fee, sequence, and transaction hash before showing a separate confirmation step.
+3. Submit only an already-signed envelope to a narrowly allowlisted relay. Never accept unsigned transaction instructions from the server as approval to spend.
+4. Test key generation/import/recovery, wrong passwords, lock/idle cleanup, signature verification, transaction simulation, insufficient balance, replay/sequence handling, and Mainnet-safe failure behavior before enabling sends.
+5. Keep payment requests descriptive and user-confirmed. Opening a request must not send funds automatically.
 
-The Messenger API retains the verified public address and timestamp for a
-Wallet link. It never receives a seed phrase, password, private key, or signed
-transaction. The Wallet iframe is served from the Wallet's own origin, and its
-Messenger embed route has a frame-ancestors allowlist for the Chat domain only.
-Untrusted query values are treated as display-only prefill; no transfer is
-automatically submitted or signed. Direct navigation and the Wallet's existing
-account, backup, activity, and settings screens remain available on the Wallet
-domain.
+## Current trust boundaries
 
-The iframe integration does not provide cross-domain single sign-on. A user
-may need to unlock or authenticate Wallet in its own frame. Browser privacy
-settings can limit embedded storage, so the embedded experience must be verified
-on each supported browser before it is described as fully available there.
+- The read API verifies the exact NSAT Mainnet identity before returning balances.
+- Activity is public chain data; unavailable history is reported separately from the live balance.
+- A payment request contains a public destination address authored by the chat sender. Treat it as a request that the payer must review, not as verified identity or payment authorization.
+- The linked-wallet challenge API is legacy and is not used by the native Wallet UI. Remove its routes/models only in a separate data-safe migration after confirming no active production records or clients depend on them.

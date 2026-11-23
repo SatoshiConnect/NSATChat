@@ -7,7 +7,7 @@ import { callUser } from "../calls/callUser";
 import { useMediaQuery } from "../../hooks";
 import { toast } from "../../services/toast";
 import { applyMessagePatch, openChatWith, reactTo, retryMessage, sendFile, sendText, toggleStar, togglePinMessage, votePoll } from "../../store/actions";
-import { walletApi } from "../../features/wallet/api";
+import { createWalletRequestMessage } from "../../features/wallet/paymentRequest";
 import { getState, useStore } from "../../store/store";
 import { attachmentKind, contactsByUser, displayUserName, groupAbilities, isSavedContact, messageKind, profileName, roomTitle, canOpenViewOnceHere } from "../../utils/messages";
 import { askBlock } from "../chat-list/roomMenu";
@@ -108,21 +108,17 @@ export default function Conversation({ roomId }) {
   const sendWalletRequest = useCallback(async (amount) => {
     setWalletRequestOpen(false);
     try {
-      const linked = await walletApi.linkState();
-      if (!linked?.connected || !/^G[A-Z2-7]{55}$/.test(linked.address || "")) {
-        toast.error("Connect and verify your SatoshiCore Wallet before requesting NSAT.");
+      const address = window.localStorage.getItem("satoshicore:messenger-wallet-address:v1") || "";
+      if (!/^G[A-Z2-7]{55}$/.test(address)) {
+        toast.error("Add your public NSAT address in the Wallet tab before requesting NSAT.");
+        app.openWallet({ view: "receive" });
         return;
       }
-      const target = new URL("/messenger-embed/", "https://wallet.satoshicore.org");
-      target.searchParams.set("view", "send");
-      target.searchParams.set("to", linked.address);
-      if (amount) target.searchParams.set("amount", amount);
-      const amountLabel = amount ? `${amount} NSAT` : "NSAT";
-      await sendText(roomId, `Payment request · ${amountLabel}\nOpen SatoshiCore Wallet to review: ${target.href}`, null, { linkPreview: false });
+      await sendText(roomId, createWalletRequestMessage({ address, amount }), null, { linkPreview: false });
     } catch {
       toast.error("Could not create a payment request. Try again.");
     }
-  }, [roomId]);
+  }, [roomId, app]);
 
   const messagesFor = useCallback(() => getState().messages[roomId]?.items || [], [roomId]);
 
@@ -308,6 +304,10 @@ export default function Conversation({ roomId }) {
         }
         case "contact":
           handleContactCard(message, payload);
+          break;
+        case "walletRequest":
+          if (!room?.isGroup) app.openWallet({ view: "send", roomId, to: payload.address, amount: payload.amount });
+          else toast.error("NSAT payment requests are only supported in one-to-one chats.");
           break;
         case "vote":
           if (!isMember) toast.error("You can't vote in a group you left.");
