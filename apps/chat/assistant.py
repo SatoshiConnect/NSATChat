@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 # Gemini's native API. Google's new "AQ." auth keys only work here, not on
 # its OpenAI-compatible endpoint.
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 
 # Chat-completions endpoints (OpenAI-compatible for Groq / OpenAI / custom).
 TEXT_MODEL = "gemini-3.5-flash-lite"
@@ -152,29 +151,23 @@ def call_model(messages, config, timeout=60, image=None, *, system_prompt=None, 
 
 
 def call_image_model(prompt, config, timeout=90):
-    """Generate one 1K image using Gemini's documented Interactions API."""
-    request = urllib.request.Request(
-        GEMINI_INTERACTIONS_URL,
-        data=json.dumps({
-            "model": config["image_model"],
-            "input": prompt,
-            "response_format": {"type": "image", "mime_type": "image/png", "image_size": "1K"},
-        }).encode("utf-8"),
-        method="POST",
-        headers={
-            "content-type": "application/json",
-            "x-goog-api-key": config["key"],
-            "Api-Revision": "2026-05-20",
+    """Generate one 1K image through the model's supported generateContent API."""
+    payload = _post_json(
+        GEMINI_URL.format(model=config["image_model"]),
+        {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "responseModalities": ["IMAGE"],
+                "imageConfig": {"imageSize": "1K"},
+            },
         },
+        {"x-goog-api-key": config["key"]},
+        timeout,
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 (fixed Google API URL)
-        payload = json.loads(response.read().decode("utf-8"))
-    image = payload.get("output_image") or {}
-    if not image.get("data"):
-        for item in payload.get("output", []):
-            if isinstance(item, dict) and item.get("type") == "image":
-                image = item
-                break
+    candidates = payload.get("candidates") or []
+    parts = [part for candidate in candidates for part in (candidate.get("content") or {}).get("parts", [])]
+    image = next((part.get("inlineData") or part.get("inline_data") or {} for part in parts
+                  if (part.get("inlineData") or part.get("inline_data") or {}).get("data")), {})
     data = image.get("data")
     if not data:
         raise ValueError("The image model returned no image.")
@@ -182,14 +175,15 @@ def call_image_model(prompt, config, timeout=90):
         decoded = base64.b64decode(data, validate=True)
     except (binascii.Error, ValueError) as error:
         raise ValueError("The image model returned invalid image data.") from error
-    mime = image.get("mime_type") or "image/png"
+    mime = image.get("mimeType") or image.get("mime_type") or "image/png"
     if mime not in IMAGE_TYPES or len(decoded) > 8_000_000:
         raise ValueError("The generated image format or size is not supported.")
-    usage = payload.get("usage") or payload.get("usage_metadata") or {}
+    usage = payload.get("usageMetadata") or {}
     return {
         "image": {"mime_type": mime, "data": data},
-        "input_tokens": int(usage.get("input_tokens", usage.get("prompt_token_count", 0)) or 0),
-        "output_tokens": int(usage.get("output_tokens", usage.get("candidates_token_count", 0)) or 0),
+        "input_tokens": int(usage.get("promptTokenCount", 0) or 0),
+        "output_tokens": int(usage.get("candidatesTokenCount", 0) or 0)
+        + int(usage.get("thoughtsTokenCount", 0) or 0),
     }
 
 
@@ -370,8 +364,12 @@ class AssistantAPIView(APIView):
             logger.warning("SatoshiCore AI request failed: task=%s status=%s", task, error.code)
             cache.delete(inflight_key)
             AssistantUsage.objects.filter(pk=usage.pk).update(status="ERROR", finished_at=timezone.now())
-            if error.code in (400, 401, 403):
-                message = "Google Gemini rejected the server key. Check SATOSHICORE_AI_API_KEY."
+            if error.code == 401:
+                message = "Google Gemini did not accept the server API key. Check whether it is active and copied correctly."
+            elif error.code == 403:
+                message = "Google Gemini denied this request. Check project access and billing for the selected model."
+            elif error.code == 400:
+                message = "Google Gemini rejected the request format. Try a shorter prompt or contact support."
             elif error.code == 429:
                 message = "Google Gemini's rate or billing limit was reached. Try later or check Google AI Studio."
             elif error.code == 404:

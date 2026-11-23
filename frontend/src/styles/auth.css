@@ -49,6 +49,44 @@
   margin: 0 0 26px;
   color: var(--text-secondary);
 }
+.signup-contacts {
+  margin: 22px 0 18px;
+  padding: 16px;
+  border: 1px solid var(--divider);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel-bg) 72%, transparent);
+}
+.signup-contacts h2 {
+  margin: 0 0 6px;
+  color: var(--text-strong);
+  font-size: 16px;
+  font-weight: 600;
+}
+.signup-contacts > p {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.signup-contacts__consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 0;
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+}
+.signup-contacts__consent input { flex: none; margin-top: 3px; accent-color: var(--accent); }
+.signup-contacts__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.signup-contacts__actions .btn { min-height: 40px; }
+.signup-contacts__unsupported,
+.signup-contacts__status {
+  display: block;
+  margin: 10px 0 0 !important;
+  color: var(--text-muted) !important;
+  font-size: var(--fs-xs, 12px) !important;
+  line-height: 1.45;
+}
 .field__password {
   display: flex;
   align-items: center;
