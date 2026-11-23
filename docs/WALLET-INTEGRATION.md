@@ -3,6 +3,16 @@
 The Wallet section is a read-only view of a user-entered public NSAT address.
 On desktop it is in the navigation rail. On mobile open **You → Wallet**.
 
+## Moving between apps
+
+- From Messenger, open **Wallet** to view a public NSAT address, balance and
+  indexed activity, or use **Open SatoshiCore Wallet** for wallet management.
+- From SatoshiCore Wallet, use **Messenger** in the site navigation to open
+  `https://chat.satoshicore.org/` in a separate tab. The wallet stays open.
+- Both entry points use the same official SatoshiCore domains. They do not
+  share browser sessions or imply that a wallet address belongs to the signed
+  in Messenger account.
+
 ## Data flow
 
 1. The browser submits an address to the authenticated Messenger API at
@@ -28,6 +38,8 @@ integer strings to avoid floating-point loss.
 - A wallet-origin connection protocol and cryptographic proof that binds the
   Messenger identity to a wallet address are not implemented yet. The current
   public-address lookup is not an account link.
+- Cross-domain single sign-on is not implemented. Each application continues
+  to authenticate independently.
 - Balance and history are shown only after the user enters an address; the
   Messenger identity is not used as proof of wallet ownership.
 - Receive QR, wallet selection, send/approve/sign, transaction status cards in
