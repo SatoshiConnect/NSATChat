@@ -20,11 +20,19 @@
       .fixture-screen .composer__input { border: 0; }
       .fixture-screen .assistant-chat { display: flex; }
       .fixture-screen .ai-privacy-note { min-width: 0; overflow-wrap: anywhere; }
+      .mobile-input-audit { display: none; }
     </style>
   </head>
   <body>
     <main id="root">
       <div class="app is-mobile-main">
+        <div class="mobile-input-audit" aria-hidden="true">
+          <input class="search-input" aria-label="Search audit" />
+          <input class="wallet-native-audit" aria-label="Wallet audit" />
+          <textarea class="field-audit" aria-label="Settings audit"></textarea>
+          <select aria-label="Call output audit"><option>Default</option></select>
+          <div contenteditable="true" class="composer__input" aria-label="Editable audit"></div>
+        </div>
         <aside class="sidebar" aria-hidden="true"></aside>
         <nav class="rail" aria-label="Primary navigation"></nav>
         <div class="main">
@@ -49,15 +57,31 @@
         </div>
       </div>
     </main>
-    <script>
+    <script type="module">
+      import { installViewportDiagnostics } from "/src/utils/viewportDiagnostics.js";
+      import { startVisibleViewportSync } from "/src/utils/visibleViewport.js";
+      startVisibleViewportSync();
+      installViewportDiagnostics();
       const mode = new URLSearchParams(location.search).get("mode") || "chat";
-      document.querySelector(`[data-screen="${mode}"]`).classList.add("is-active");
+      const screen = document.querySelector(`[data-screen="${mode === "ai" ? "ai" : "chat"}"]`);
+      screen.classList.add("is-active");
+      screen.dataset.mode = mode;
       const chatInput = document.getElementById("chat-input");
       chatInput?.addEventListener("input", () => {
         const typed = Boolean(chatInput.value.trim());
         document.querySelector('[aria-label="Microphone"]').hidden = typed;
         document.querySelector('[aria-label="Send"]').hidden = !typed;
       });
+      document.querySelector('[aria-label="Send"]')?.addEventListener("click", () => {
+        const row = document.createElement("div");
+        row.className = "msg-row msg-row--out";
+        row.innerHTML = '<div class="msg-row__inner"><div class="bubble bubble--out"><span class="bubble__text"></span></div></div>';
+        row.querySelector(".bubble__text").textContent = chatInput.value;
+        document.querySelector(".conversation.is-active .messages__inner").append(row);
+        chatInput.value = "";
+        chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      document.querySelector(".assistant-composer")?.addEventListener("submit", (event) => event.preventDefault());
     </script>
   </body>
 </html>

@@ -6,6 +6,7 @@ import "./styles/index.css";
 import { initTheme } from "./services/theme";
 import { registerServiceWorker } from "./services/pwa";
 import { startVisibleViewportSync } from "./utils/visibleViewport";
+import { installViewportDiagnostics } from "./utils/viewportDiagnostics";
 
 initTheme();
 registerServiceWorker();
@@ -13,6 +14,7 @@ registerServiceWorker();
 // iOS Safari can both resize and pan the visual viewport when its keyboard opens.
 // Keep one viewport synchronizer for the app shell and composer safe area.
 startVisibleViewportSync();
+if (import.meta.env.DEV) installViewportDiagnostics();
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
