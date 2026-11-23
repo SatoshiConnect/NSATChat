@@ -20,7 +20,7 @@ function makeTarget() {
 
 function makeEnvironment() {
   const windowRef = makeTarget();
-  const visualViewport = Object.assign(makeTarget(), { height: 800, offsetTop: 0 });
+  const visualViewport = Object.assign(makeTarget(), { height: 800, offsetTop: 0, scale: 1 });
   const styles = new Map();
   const root = { clientHeight: 800, style: { setProperty: (key, value) => styles.set(key, value) } };
   const documentRef = Object.assign(makeTarget(), { documentElement: root, activeElement: null });
@@ -41,6 +41,19 @@ function makeEnvironment() {
   };
   return { windowRef, visualViewport, documentRef, styles };
 }
+
+test("pinch zoom on a focused input is not treated as an open keyboard", () => {
+  const { windowRef, visualViewport, documentRef, styles } = makeEnvironment();
+  documentRef.activeElement = { matches: (selector) => selector.includes("textarea") };
+  visualViewport.height = 520;
+  visualViewport.scale = 1.5;
+  const stop = startVisibleViewportSync(windowRef, documentRef);
+
+  assert.equal(styles.get("--app-viewport-height"), "800px");
+  assert.equal(styles.get("--app-viewport-top"), "0px");
+  assert.equal(styles.get("--composer-safe-area-bottom"), "env(safe-area-inset-bottom, 0px)");
+  stop();
+});
 
 test("tracks the visual viewport and pans the mobile shell only while an editable field has focus", () => {
   const { windowRef, visualViewport, documentRef, styles } = makeEnvironment();

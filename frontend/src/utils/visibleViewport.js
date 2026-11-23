@@ -16,9 +16,12 @@ export function startVisibleViewportSync(windowRef = window, documentRef = docum
 
   const sync = () => {
     frame = 0;
-    const height = visualViewport?.height || windowRef.innerHeight;
+    const scale = visualViewport?.scale || 1;
+    const isPinchZoomed = Math.abs(scale - 1) > 0.01;
+    const height = visualViewport && !isPinchZoomed ? visualViewport.height : (root.clientHeight || windowRef.innerHeight);
     const keyboardOpen = Boolean(
       visualViewport &&
+      !isPinchZoomed &&
       isEditableTarget(documentRef.activeElement) &&
       visualViewport.height < root.clientHeight,
     );
