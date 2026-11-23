@@ -186,6 +186,8 @@ export const socialApi = {
   reportPost: (id, payload) => api.post(`social/posts/${id}/report/`, payload).then((r) => r.data),
   comments: (id) => api.get(`social/posts/${id}/comments/`).then((r) => asList(r.data)),
   addComment: (id, text) => api.post(`social/posts/${id}/comments/`, { text }).then((r) => r.data),
+  editComment: (postId, commentId, text) => api.patch(`social/posts/${postId}/comments/${commentId}/`, { text }).then((r) => r.data),
+  removeComment: (postId, commentId) => api.delete(`social/posts/${postId}/comments/${commentId}/`),
 };
 
 export const marketplaceApi = {

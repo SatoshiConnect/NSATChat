@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Flag, Image as ImageIcon, MessageCircle, Send, ThumbsUp, Trash2 } from "lucide-react";
+import { Flag, Image as ImageIcon, MessageCircle, Pencil, Send, ThumbsUp, Trash2, X } from "lucide-react";
 import { socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
 import { useStore } from "../../store/store";
@@ -7,6 +7,58 @@ import { toast } from "../../services/toast";
 import { Avatar, EmptyState, Spinner } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
 import { detailTime } from "../../utils/format";
+
+function PostCommentItem({ comment, postId, me, onChange }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.text);
+  const [busy, setBusy] = useState(false);
+  const authorName = comment.author?.profile?.display_name || "Member";
+  const ownComment = Number(comment.author?.id) === Number(me?.id);
+
+  const save = async (event) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    try {
+      await socialApi.editComment(postId, comment.id, text);
+      setEditing(false);
+      await onChange();
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't edit comment."));
+    } finally { setBusy(false); }
+  };
+
+  const remove = async () => {
+    if (busy || !window.confirm("Delete this comment?")) return;
+    setBusy(true);
+    try {
+      await socialApi.removeComment(postId, comment.id);
+      await onChange();
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't delete comment."));
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="social-post__comment">
+      <PresenceAvatar user={comment.author} src={comment.author?.profile?.profile_picture} name={authorName} size={28} />
+      <div className="social-post__comment-main">
+        {editing ? <form className="social-post__comment-edit" onSubmit={save}>
+          <textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={1000} rows={2} aria-label="Edit comment" autoFocus />
+          <div>
+            <button type="button" className="social-post__comment-icon" aria-label="Cancel editing" onClick={() => { setDraft(comment.text); setEditing(false); }} disabled={busy}><X size={16} /></button>
+            <button type="submit" className="social-post__comment-save" disabled={busy || !draft.trim()}>{busy ? <Spinner size={14} /> : "Save"}</button>
+          </div>
+        </form> : <p><strong>{authorName}</strong> {comment.text}</p>}
+        {ownComment && !editing ? <div className="social-post__comment-actions">
+          <button type="button" className="social-post__comment-icon" aria-label="Edit your comment" onClick={() => setEditing(true)} disabled={busy}><Pencil size={14} /></button>
+          <button type="button" className="social-post__comment-icon" aria-label="Delete your comment" onClick={remove} disabled={busy}>{busy ? <Spinner size={14} /> : <Trash2 size={14} />}</button>
+        </div> : null}
+      </div>
+    </div>
+  );
+}
 
 function PostCard({ post, me, onChange }) {
   const [comment, setComment] = useState("");
@@ -59,7 +111,7 @@ function PostCard({ post, me, onChange }) {
         <textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} maxLength={1000} rows={2} placeholder="Add details (optional)" />
         <div><button type="button" className="btn btn--ghost" onClick={() => setReportOpen(false)} disabled={reportBusy}>Cancel</button><button type="submit" className="btn btn--primary" disabled={reportBusy}>{reportBusy ? <Spinner size={16} /> : "Send report"}</button></div>
       </form> : null}
-      {comments.slice(-3).map((item) => <div className="social-post__comment" key={item.id}><PresenceAvatar user={item.author} src={item.author?.profile?.profile_picture} name={item.author?.profile?.display_name} size={28} /><p><strong>{item.author?.profile?.display_name || "Member"}</strong> {item.text}</p></div>)}
+      {comments.slice(-3).map((item) => <PostCommentItem key={item.id} comment={item} postId={post.id} me={me} onChange={onChange} />)}
       <form className="social-post__comment-form" onSubmit={submitComment}><input value={comment} onChange={(event) => setComment(event.target.value)} maxLength={1000} placeholder="Write a comment…" aria-label="Write a comment" /><button type="submit" disabled={!comment.trim() || busy} aria-label="Post comment">{busy ? <Spinner size={16} /> : <Send size={17} />}</button></form>
     </article>
   );

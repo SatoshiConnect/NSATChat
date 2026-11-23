@@ -69,6 +69,34 @@ class PostCommentsAPIView(APIView):
         return Response(PostCommentSerializer(comment, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
+class PostCommentDetailAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def owned_comment(self, request, post_pk, comment_pk):
+        get_object_or_404(visible_posts_for(request.user), pk=post_pk)
+        return get_object_or_404(
+            PostComment.objects.select_related("author", "author__profile"),
+            pk=comment_pk,
+            post_id=post_pk,
+            author=request.user,
+            deleted_at__isnull=True,
+        )
+
+    def patch(self, request, post_pk, comment_pk):
+        comment = self.owned_comment(request, post_pk, comment_pk)
+        serializer = CreateCommentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment.text = serializer.validated_data["text"]
+        comment.save(update_fields=("text",))
+        return Response(PostCommentSerializer(comment, context={"request": request}).data)
+
+    def delete(self, request, post_pk, comment_pk):
+        comment = self.owned_comment(request, post_pk, comment_pk)
+        comment.deleted_at = timezone.now()
+        comment.save(update_fields=("deleted_at",))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class PostReportAPIView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
     throttle_scope = "social_report"
