@@ -11,7 +11,7 @@ Captured on the clean `feature/seamless-nsat-wallet` starting point before archi
 
 ## After refactor
 
-- Backend Django suite: 401 discovered; 399 passed, 1 failed, 1 skipped. The same pre-existing `AssistantTests.test_rejected_key_message` is the only failure; no new failing test was introduced. The added static architecture tests passed.
+- Backend Django suite: 401 discovered; 400 passed, 0 failed, 1 skipped. The baseline failure was an outdated test expectation for the wording of the safe Gemini key error; the test now asserts the current wording without changing runtime behavior.
 - Frontend security tests: 10/10 passed.
 - ESLint: passed.
 - Vite production build: passed; Wallet remains lazy-loaded into a separate `wallet-*.js` chunk. The existing >500 kB advisory remains.

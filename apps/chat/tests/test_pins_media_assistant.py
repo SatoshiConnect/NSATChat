@@ -194,7 +194,7 @@ class AssistantTests(TestCase):
         with mock.patch("apps.chat.assistant.urllib.request.urlopen", fake):
             response = self.post_ai({"messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(response.status_code, 502)
-        self.assertIn("rejected", response.data["detail"])
+        self.assertIn("did not accept", response.data["detail"])
 
     @override_settings(SATOSHICORE_AI_API_KEY="gsk_x", SATOSHICORE_AI_PROVIDER="groq")
     def test_status_reports_the_provider(self):
