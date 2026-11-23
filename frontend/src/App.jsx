@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { onSessionExpired, tokens } from "./api/client";
 import { authApi } from "./api/endpoints";
+import { walletApi } from "./features/wallet/api";
 import { Spinner, ToastHost } from "./components/common/ui";
 import UpdatePrompt from "./components/common/UpdatePrompt";
 import DialogHost from "./components/common/DialogHost";
@@ -13,6 +14,7 @@ import SignupPage from "./pages/SignupPage";
 import { navigate, usePathname } from "./router";
 import { realtime } from "./services/realtime";
 import { forgetBackgroundPushOnLogout, syncBackgroundPush } from "./services/push";
+import { toast } from "./services/toast";
 import { bootstrap } from "./store/actions";
 import { dispatch, useStore } from "./store/store";
 
@@ -81,6 +83,32 @@ export default function App() {
   }, [startSession, signOutLocally]);
 
   useEffect(() => onSessionExpired(signOutLocally), [signOutLocally]);
+
+  // Wallet returns a short-lived, public Ed25519 proof in the URL. Consume it
+  // immediately, remove it from browser history, and let the authenticated API
+  // bind only the verified address to this Messenger account.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const token = params.get("walletLink") || "";
+    const address = params.get("address") || "";
+    const signature = params.get("signature") || "";
+    if (!token) return;
+    params.delete("walletLink");
+    params.delete("address");
+    params.delete("signature");
+    const fragment = params.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${fragment ? `#${fragment}` : ""}`);
+    walletApi.confirmLink({ token, address, signature })
+      .then(() => {
+        toast.success("Wallet connected. Your signing key stayed in Wallet.");
+        window.dispatchEvent(new Event("satoshicore:wallet-link-changed"));
+      })
+      .catch((error) => {
+        toast.error(error?.response?.data?.code === "wallet_link_expired"
+          ? "The wallet link expired. Start the connection again."
+          : "Wallet connection could not be verified. Nothing was linked.");
+      });
+  }, []);
 
   // Account deleted (this tab or another one): back to the login page.
   useEffect(() => {

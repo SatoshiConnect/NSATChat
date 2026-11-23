@@ -1,7 +1,9 @@
-# Messenger Wallet Integration — Read Only Phase
+# Messenger and Wallet Integration
 
-The Wallet section is a read-only view of a user-entered public NSAT address.
-On desktop it is in the navigation rail. On mobile open **You → Wallet**.
+Messenger keeps chat and Wallet as separate products. The Wallet section in
+Messenger can read public NSAT account data; signing and transfers stay in
+`wallet.satoshicore.org`. On desktop it is in the navigation rail. On mobile
+open **You → Wallet**.
 
 ## Moving between apps
 
@@ -33,17 +35,37 @@ sign, broadcast, or otherwise submit a transaction. An absent account is
 reported as not found; it is never rendered as a zero balance. Amounts stay as
 integer strings to avoid floating-point loss.
 
+## Wallet ownership link
+
+The Wallet section can start an authenticated, five-minute one-time challenge.
+The user is sent to `wallet.satoshicore.org`, selects a locally saved wallet,
+and explicitly unlocks it to sign the exact `chat.satoshicore.org` challenge.
+The signature is returned in the URL fragment (not sent to HTTP access logs),
+then immediately removed from browser history and verified by the Messenger
+server against the public NSAT address. The server stores only the verified
+public address and timestamp; it never receives or stores a seed, password, or
+private key. Disconnect removes the link. This link proves address control at
+the time of signing; it does not grant spending permission.
+
+In a one-to-one chat, **Pay with NSAT** resolves the other participant's
+verified wallet address through an authenticated room-scoped endpoint, then
+opens the Wallet's existing send screen with that recipient filled in. The
+sender chooses the amount and reviews the live fee/network in Wallet before
+unlocking and signing. Messenger never receives key material and does not
+construct or broadcast a transaction.
+
 ## Remaining integration work
 
-- A wallet-origin connection protocol and cryptographic proof that binds the
-  Messenger identity to a wallet address are not implemented yet. The current
-  public-address lookup is not an account link.
+- Payment requests, automatic transaction receipts inside the chat, and group
+  payments are not implemented yet. A send started from a private chat is
+  completed and verified on the Wallet screen.
 - Cross-domain single sign-on is not implemented. Each application continues
   to authenticate independently.
-- Balance and history are shown only after the user enters an address; the
-  Messenger identity is not used as proof of wallet ownership.
-- Receive QR, wallet selection, send/approve/sign, transaction status cards in
-  chat, backup/recovery, and SSO are not enabled in Messenger.
+- The read-only balance panel still accepts a watch address separately. If no
+  watch address is saved, it uses the linked address as its initial read target.
+- Receive QR and transaction status cards in chat are not implemented.
+- Wallet selection, send/approve/sign, backup/recovery, and SSO remain in the
+  Wallet application rather than Messenger.
 - Transaction signing and broadcasting remain on `wallet.satoshicore.org`.
   Do not add those operations to Messenger until the cross-origin protocol has
   a security review and the owner separately authorizes real transaction

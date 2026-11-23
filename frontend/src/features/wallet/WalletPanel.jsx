@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, ExternalLink, Eye, RefreshCw, WalletCards } from "lucide-react";
 import { walletApi } from "./api";
 import { PanelHeader } from "../../components/common/ui";
@@ -45,6 +45,51 @@ export default function WalletPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [linkedWallet, setLinkedWallet] = useState(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+
+  const refreshLink = useCallback(async () => {
+    try { setLinkedWallet(await walletApi.linkState()); }
+    catch { setLinkedWallet(null); }
+  }, []);
+
+  useEffect(() => {
+    void refreshLink();
+    window.addEventListener("satoshicore:wallet-link-changed", refreshLink);
+    return () => window.removeEventListener("satoshicore:wallet-link-changed", refreshLink);
+  }, [refreshLink]);
+
+  const connectWallet = async () => {
+    setLinkBusy(true);
+    setError("");
+    try {
+      const result = await walletApi.startLink();
+      const target = new URL(result.wallet_url);
+      if (target.origin !== "https://wallet.satoshicore.org"
+        || target.pathname !== "/connect/messenger/") {
+        throw new Error("The Wallet connection address is invalid.");
+      }
+      window.location.assign(target.href);
+    } catch (requestError) {
+      setError(requestError?.response?.data?.code === "wallet_link_unavailable"
+        ? "Wallet linking is not available on this server version yet."
+        : "Could not start the secure Wallet connection. Try again.");
+      setLinkBusy(false);
+    }
+  };
+
+  const disconnectWallet = async () => {
+    if (!window.confirm("Disconnect this wallet from your Messenger account?")) return;
+    setLinkBusy(true);
+    try {
+      await walletApi.disconnect();
+      setLinkedWallet({ connected: false, address: "" });
+    } catch {
+      setError("Could not disconnect the wallet. Try again.");
+    } finally {
+      setLinkBusy(false);
+    }
+  };
 
   const load = useCallback(async (candidate) => {
     const normalized = String(candidate || "").trim().toUpperCase();
@@ -66,6 +111,12 @@ export default function WalletPanel() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (linkedWallet?.connected && linkedWallet.address && !address) {
+      void load(linkedWallet.address);
+    }
+  }, [linkedWallet, address, load]);
 
   const clear = () => {
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* optional device preference */ }
@@ -99,6 +150,24 @@ export default function WalletPanel() {
             <span className="wallet-hero__tag"><Eye size={14} /> View only · NSAT Mainnet</span>
           </div>
         </div>
+
+        <section className="wallet-link-card" aria-label="Connected NSAT wallet">
+          <div>
+            <strong>{linkedWallet?.connected ? "Wallet connected" : "Connect your NSAT Wallet"}</strong>
+            <p>{linkedWallet?.connected
+              ? `Verified wallet · ${shortAddress(linkedWallet.address)}`
+              : "Prove wallet ownership by signing a one-time message in Wallet. Your seed and private key stay on your device."}</p>
+          </div>
+          {linkedWallet?.connected ? (
+            <button type="button" className="wallet-text-button wallet-text-button--danger" onClick={disconnectWallet} disabled={linkBusy}>
+              Disconnect
+            </button>
+          ) : (
+            <button type="button" className="btn btn--primary" onClick={connectWallet} disabled={linkBusy}>
+              {linkBusy ? "Opening Wallet…" : "Connect Wallet"}
+            </button>
+          )}
+        </section>
 
         <div className="wallet-address-form">
           <label htmlFor="wallet-watch-address">Public wallet address</label>

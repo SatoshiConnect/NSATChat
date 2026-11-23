@@ -27,6 +27,23 @@
   line-height: 1.25;
 }
 
+.wallet-link-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--divider);
+  border-radius: 16px;
+  background: var(--panel-bg);
+}
+
+.wallet-link-card > div { min-width: 0; }
+.wallet-link-card strong { display: block; color: var(--text-strong); }
+.wallet-link-card p { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.wallet-link-card .btn { flex: 0 0 auto; }
+
 .wallet-hero__tag {
   display: inline-flex;
   align-items: center;

@@ -7,6 +7,7 @@ import {
   Bell,
   BellOff,
   CheckSquare,
+  Coins,
   Eraser,
   Heart,
   HeartOff,
@@ -34,6 +35,8 @@ import { openUserStatus } from "../status/profileOverlay";
 import { requestJoinCall } from "../calls/groupCall";
 import { askBlock, askClearChat, askDeleteChat, askExitGroup, askMute } from "../chat-list/roomMenu";
 import { typingLabel } from "../chat-list/useChatList";
+import { walletApi } from "../../features/wallet/api";
+import { toast } from "../../services/toast";
 
 function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClose, onCall, onStarred, compact }) {
   useTicker(60000);
@@ -72,6 +75,23 @@ function ConversationHeader({ room, title, onOpenInfo, onSearch, onSelect, onClo
 
   const menu = [
     { label: room.isGroup ? "Group info" : "Contact info", icon: Info, onClick: onOpenInfo },
+    !room.isGroup ? {
+      label: "Send NSAT",
+      icon: Coins,
+      onClick: async () => {
+        try {
+          const recipient = await walletApi.chatRecipient(room.id);
+          const walletUrl = new URL("https://wallet.satoshicore.org/");
+          walletUrl.searchParams.set("view", "send");
+          walletUrl.searchParams.set("to", recipient.address);
+          window.location.assign(walletUrl.href);
+        } catch (error) {
+          toast.error(error?.response?.data?.code === "recipient_wallet_not_connected"
+            ? "This contact has not connected an NSAT Wallet yet."
+            : "Could not load this contact’s verified wallet. Try again.");
+        }
+      },
+    } : null,
     { label: "Search", icon: Search, onClick: onSearch },
     { label: "Select messages", icon: CheckSquare, onClick: onSelect },
     { label: "Starred messages", icon: Star, onClick: onStarred },
