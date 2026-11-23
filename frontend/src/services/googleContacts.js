@@ -1,3 +1,5 @@
+import { googleContactsOAuthMessage } from "./googleContactsErrors";
+
 const CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly";
 const PEOPLE_URL = "https://people.googleapis.com/v1/people/me/connections";
 
@@ -50,9 +52,10 @@ export async function requestGoogleContactsAccess(clientId, { silent = false } =
     const config = {
       client_id: clientId,
       scope: CONTACTS_SCOPE,
+      include_granted_scopes: true,
       callback: (response) => {
         if (response.error || !response.access_token) {
-          reject(googleError("GOOGLE_OAUTH", response.error_description || "Google Contacts permission was not granted."));
+          reject(googleError("GOOGLE_OAUTH", googleContactsOAuthMessage(response.error)));
           return;
         }
         if (oauth.hasGrantedAllScopes && !oauth.hasGrantedAllScopes(response, CONTACTS_SCOPE)) {
