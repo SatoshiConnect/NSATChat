@@ -215,7 +215,10 @@ class Realtime {
     this.inbox = new ManagedSocket({
       path: "/ws/chat/inbox/",
       onMessage: (data) => this.handleInbox(data),
-      onStatus: (status) => dispatch({ type: "connection", status }),
+      onStatus: (status) => {
+        dispatch({ type: "connection", status });
+        if (status !== "online") dispatch({ type: "presence/reset" });
+      },
       onOpen: ({ reconnected }) => {
         if (reconnected) this.resync();
       },

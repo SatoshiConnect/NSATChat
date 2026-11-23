@@ -73,7 +73,7 @@ def broadcast_presence_refresh(user):
         return
 
     from apps.chat.models import Participant
-    from .models import Profile
+    from .models import Contact, Profile
 
     profile = Profile.objects.filter(user=user).only("is_online", "last_seen").first()
     if profile is None:
@@ -90,5 +90,7 @@ def broadcast_presence_refresh(user):
     peer_ids = set(
         Participant.objects.filter(room_id__in=room_ids).exclude(user=user).values_list("user_id", flat=True)
     )
+    # Saved contacts without a chat still show this user's online state.
+    peer_ids.update(Contact.objects.filter(contact_user=user).values_list("owner_id", flat=True))
     for peer_id in peer_ids:
         async_to_sync(channel_layer.group_send)(f"chat_inbox_{peer_id}", {**payload, "type": "inbox.presence"})

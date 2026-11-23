@@ -19,6 +19,18 @@
   color: var(--avatar-initials);
   letter-spacing: 0.02em;
 }
+.avatar__presence {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  z-index: 2;
+  width: var(--presence-size, 13px);
+  height: var(--presence-size, 13px);
+  border: var(--presence-border, 2px) solid var(--panel-bg);
+  border-radius: 50%;
+  background: #18bd62;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
 .avatar--ring {
   overflow: visible;
   padding: 3px;

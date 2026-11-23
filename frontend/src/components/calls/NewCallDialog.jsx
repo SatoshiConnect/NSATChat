@@ -6,6 +6,7 @@ import { useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { looksLikePhone, phoneDigits } from "../../utils/phone";
 import { Avatar, EmptyState, IconButton, Modal, SearchInput, Spinner } from "../common/ui";
+import PresenceAvatar from "../common/PresenceAvatar";
 import { useCalls } from "./callContext";
 import { callUser } from "./callUser";
 
@@ -66,7 +67,7 @@ export default function NewCallDialog({ onClose }) {
         {groups.length && list.length ? <div className="section-label section-label--plain">Contacts</div> : null}
         {list.map((contact) => (
           <div key={contact.id} className="row row--static">
-            <Avatar src={contact.contact_user?.profile?.profile_picture} name={contact.name} size={44} />
+            <PresenceAvatar user={contact.contact_user} src={contact.contact_user?.profile?.profile_picture} name={contact.name} size={44} />
             <span className="row__body">
               <span className="row__title">{contact.name}</span>
               <span className="row__subtitle">{contact.contact_user?.profile?.about}</span>

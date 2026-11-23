@@ -9,15 +9,16 @@ import { toast } from "../../services/toast";
 import { formatPhone, phoneDigits } from "../../utils/phone";
 import { contactLookupType } from "../../utils/contactLookup";
 import { profileName } from "../../utils/messages";
-import { Avatar, EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
+import { EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
 import { groupByLetter } from "../../utils/rules";
 import { useApp } from "../layout/AppContext";
+import PresenceAvatar from "../common/PresenceAvatar";
 
 function ContactRow({ contact, onClick, trailing, subtitle }) {
   const user = contact.contact_user;
   return (
     <button type="button" className="row" onClick={onClick}>
-      <Avatar src={user?.profile?.profile_picture} name={contact.name} />
+      <PresenceAvatar user={user} src={user?.profile?.profile_picture} name={contact.name} />
       <span className="row__body">
         <span className="row__title">{contact.name || formatPhone(user?.phone_number)}</span>
         <span className="row__subtitle">{subtitle ?? (user?.profile?.about || formatPhone(user?.phone_number))}</span>
@@ -113,7 +114,7 @@ export default function NewChatPanel() {
             <div className="section-label">{lookup.data.saved_contact ? "Contact" : "Not in your contacts"}</div>
             <div className="list-pad">
               <button type="button" className="row" onClick={() => open(lookup.data.user)} disabled={opening === lookup.data.user.id}>
-                <Avatar src={lookup.data.user.profile?.profile_picture} name={profileName(lookup.data.user)} />
+                <PresenceAvatar user={lookup.data.user} src={lookup.data.user.profile?.profile_picture} name={profileName(lookup.data.user)} />
                 <span className="row__body">
                   <span className="row__title">{lookup.data.saved_contact?.name || profileName(lookup.data.user) || formatPhone(lookup.data.user.phone_number) || `User ${lookup.data.user.id}`}</span>
                   <span className="row__subtitle">{lookup.data.user.public_id ? `@${lookup.data.user.public_id}` : lookup.data.user.phone_number ? formatPhone(lookup.data.user.phone_number) : "SatoshiCore user"}</span>

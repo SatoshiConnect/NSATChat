@@ -10,8 +10,9 @@ import { formatPhone, looksLikePhone } from "../../utils/phone";
 import { profileName } from "../../utils/messages";
 import { normalizePublicIdQuery } from "../../utils/contactLookup";
 import { prepareGoogleContacts, requestGoogleContactsAccess, revokeGoogleContacts, syncGooglePeople } from "../../services/googleContacts";
-import { Avatar, EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
+import { EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
 import { useApp } from "../layout/AppContext";
+import PresenceAvatar from "../common/PresenceAvatar";
 
 function googleSyncErrorMessage(error, fallback = "Google Contacts could not be synced. Try again in a moment.") {
   const status = error?.response?.status;
@@ -27,7 +28,7 @@ function AddFriendRow({ user, action, busy, isSaved = false }) {
   const name = profileName(user) || (user.phone_number ? formatPhone(user.phone_number) : `User ${user.id}`);
   return (
     <div className="row add-friend-row">
-      <Avatar src={user.profile?.profile_picture} name={name} />
+      <PresenceAvatar user={user} src={user.profile?.profile_picture} name={name} />
       <span className="row__body">
         <span className="row__title">{name}</span>
         <span className="row__subtitle">{user.public_id ? `@${user.public_id}` : user.phone_number ? formatPhone(user.phone_number) : user.profile?.about}</span>

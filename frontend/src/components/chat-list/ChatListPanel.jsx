@@ -8,7 +8,7 @@ import { useStore } from "../../store/store";
 import { listTime } from "../../utils/format";
 import { contactsByUser, displayUserName, roomTitle } from "../../utils/messages";
 import { formatPhone, phoneDigits } from "../../utils/phone";
-import { Avatar, EmptyState, IconButton, MenuButton, PanelHeader, SearchInput, Spinner } from "../common/ui";
+import { EmptyState, IconButton, MenuButton, PanelHeader, SearchInput, Spinner } from "../common/ui";
 import { NewChatIcon } from "../common/Icons";
 import { confirmAction } from "../common/dialogs";
 import { useApp } from "../layout/AppContext";
@@ -18,6 +18,7 @@ import { assistantRowIndex } from "./assistantRow";
 import { useAssistant } from "../assistant/assistantStore";
 import { useChatList } from "./useChatList";
 import { askDeleteChat } from "./roomMenu";
+import PresenceAvatar from "../common/PresenceAvatar";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -280,7 +281,7 @@ export default function ChatListPanel() {
                     setQuery("");
                   }}
                 >
-                  <Avatar src={contact.contact_user?.profile?.profile_picture} name={contact.name} />
+                  <PresenceAvatar user={contact.contact_user} src={contact.contact_user?.profile?.profile_picture} name={contact.name} />
                   <span className="row__body">
                     <span className="row__title">{highlight(contact.name, debounced)}</span>
                     <span className="row__subtitle">{formatPhone(contact.contact_user?.phone_number)}</span>

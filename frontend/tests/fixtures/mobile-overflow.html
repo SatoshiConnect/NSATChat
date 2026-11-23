@@ -59,9 +59,10 @@
     </main>
     <script type="module">
       import { installViewportDiagnostics } from "/src/utils/viewportDiagnostics.js";
-      import { startVisibleViewportSync } from "/src/utils/visibleViewport.js";
+      import { installViewportBottomAnchor, startVisibleViewportSync } from "/src/utils/visibleViewport.js";
       startVisibleViewportSync();
       installViewportDiagnostics();
+      document.querySelectorAll(".messages").forEach((container) => installViewportBottomAnchor(container));
       const mode = new URLSearchParams(location.search).get("mode") || "chat";
       const screen = document.querySelector(`[data-screen="${mode === "ai" ? "ai" : "chat"}"]`);
       screen.classList.add("is-active");

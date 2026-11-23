@@ -5,6 +5,7 @@ import { useStore } from "../../store/store";
 import { dayLabel, duration as formatDuration, listTime } from "../../utils/format";
 import { contactsByUser, displayUserName, roomTitle } from "../../utils/messages";
 import { Avatar, EmptyState, IconButton, PanelHeader, SearchInput } from "../common/ui";
+import PresenceAvatar from "../common/PresenceAvatar";
 import { useApp } from "../layout/AppContext";
 import { useCalls } from "./callContext";
 import NewCallDialog from "./NewCallDialog";
@@ -78,7 +79,7 @@ export default function CallsPanel() {
                 const title = roomTitle(room, contactMap, me);
                 return (
                   <div key={room.id} className="row row--static">
-                    <Avatar src={room.otherUser?.profile?.profile_picture} name={title} />
+                    <PresenceAvatar user={room.otherUser} src={room.otherUser?.profile?.profile_picture} name={title} />
                     <span className="row__body"><span className="row__title">{title}</span></span>
                     <IconButton icon={Video} label={`Video call ${title}`} onClick={() => startCall(room, "video")} />
                     <IconButton icon={Phone} label={`Voice call ${title}`} onClick={() => startCall(room, "audio")} />
@@ -108,7 +109,11 @@ export default function CallsPanel() {
                 onClick={() => showInfo(call, room, peer)}
                 onKeyDown={(event) => event.key === "Enter" && showInfo(call, room, peer)}
               >
-                <Avatar src={room?.isGroup ? room.groupPhoto : peer?.profile?.profile_picture} name={name} group={room?.isGroup} />
+                {room?.isGroup ? (
+                  <Avatar src={room.groupPhoto} name={name} group />
+                ) : (
+                  <PresenceAvatar user={peer} src={peer?.profile?.profile_picture} name={name} />
+                )}
                 <span className="row__body">
                   <span className={`row__title ${missed ? "is-missed" : ""}`}>{name}</span>
                   <span className={`row__subtitle call-row__sub ${missed ? "is-missed" : ""}`}>

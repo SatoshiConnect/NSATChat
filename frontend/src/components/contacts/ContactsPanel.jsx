@@ -8,10 +8,11 @@ import { useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { formatPhone, phoneDigits } from "../../utils/phone";
 import { profileName } from "../../utils/messages";
-import { Avatar, EmptyState, IconButton, PanelHeader, SearchInput } from "../common/ui";
+import { EmptyState, IconButton, PanelHeader, SearchInput } from "../common/ui";
 import { ContactForm } from "../chat-list/NewContactPanel";
 import { groupByLetter } from "../../utils/rules";
 import { useApp } from "../layout/AppContext";
+import PresenceAvatar from "../common/PresenceAvatar";
 
 /** Saved contacts: search, open chat, add, edit (re-link) and delete. */
 export default function ContactsPanel() {
@@ -84,7 +85,7 @@ export default function ContactsPanel() {
             <div className="list-pad">
               {items.map((contact) => (
                 <div key={contact.id} className="row contact-row" role="button" tabIndex={0} onClick={() => open(contact)} onKeyDown={(event) => event.key === "Enter" && open(contact)}>
-                  <Avatar src={contact.contact_user?.profile?.profile_picture} name={contact.name} />
+                  <PresenceAvatar user={contact.contact_user} src={contact.contact_user?.profile?.profile_picture} name={contact.name} />
                   <span className="row__body">
                     <span className="row__title">{contact.name}</span>
                     <span className="row__subtitle">{contact.contact_user?.profile?.about || formatPhone(contact.contact_user?.phone_number)}</span>

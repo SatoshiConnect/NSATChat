@@ -13,6 +13,7 @@ import { formatPhone } from "../../utils/phone";
 import { Avatar, Menu, Modal, PanelHeader, SearchInput, Spinner, Toggle } from "../common/ui";
 import { confirmAction } from "../common/dialogs";
 import { useApp } from "../layout/AppContext";
+import PresenceAvatar from "../common/PresenceAvatar";
 import { askClearChat, askDeleteChat, askExitGroup, askMute } from "../chat-list/roomMenu";
 import { MemberPicker } from "../chat-list/NewGroupPanel";
 import { InfoRow, MediaSummary } from "./shared";
@@ -257,7 +258,7 @@ export default function GroupInfo({ roomId }) {
                 className="row member-row"
                 onClick={(event) => (!isMe ? setMemberMenu({ anchor: event.currentTarget, participant }) : null)}
               >
-                <Avatar src={user?.profile?.profile_picture} name={name} size={40} />
+                <PresenceAvatar user={user} src={user?.profile?.profile_picture} name={name} size={40} />
                 <span className="row__body">
                   <span className="row__title">
                     {name}

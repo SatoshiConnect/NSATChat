@@ -8,6 +8,7 @@ import { dayLabel, sameDay } from "../../utils/format";
 import { displayUserName, groupEventText, isGroupEvent, isSystemMessage, senderColor, systemText } from "../../utils/messages";
 import { Spinner } from "../common/ui";
 import MessageBubble from "../messages/MessageBubble";
+import { installViewportBottomAnchor } from "../../utils/visibleViewport";
 
 const GROUP_GAP_MS = 7 * 60 * 1000;
 const EMPTY = { items: [], loaded: false, loading: true, hasMore: false };
@@ -33,6 +34,7 @@ export default function MessageList({ room, me, contactMap, selectMode, selected
   // While a "go to message" jump settles (images loading, older pages
   // arriving) keep that message in view instead of snapping to the bottom.
   const jumpTargetRef = useRef(null); // { id, until }
+  useEffect(() => installViewportBottomAnchor(scrollRef.current), []);
   const centerOn = useCallback((messageId) => {
     const container = scrollRef.current;
     const node = container?.querySelector(`[data-message-id="${messageId}"]`);

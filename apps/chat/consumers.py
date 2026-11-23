@@ -1669,13 +1669,18 @@ class ChatInboxConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_contact_user_ids(self):
+        from apps.accounts.models import Contact
+
         room_ids = Participant.objects.filter(user_id=self.user.id).values_list("room_id", flat=True)
-        return list(
+        room_user_ids = set(
             Participant.objects.filter(room_id__in=room_ids)
             .exclude(user_id=self.user.id)
             .values_list("user_id", flat=True)
-            .distinct()
         )
+        saved_by_user_ids = set(
+            Contact.objects.filter(contact_user_id=self.user.id).values_list("owner_id", flat=True)
+        )
+        return list(room_user_ids | saved_by_user_ids)
 
     @database_sync_to_async
     def get_participating_room_ids(self):

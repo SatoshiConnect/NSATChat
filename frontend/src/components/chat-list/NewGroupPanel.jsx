@@ -8,9 +8,10 @@ import { toast } from "../../services/toast";
 import { normalizeFiles } from "../../utils/files";
 import { normalizeRoom } from "../../utils/messages";
 import { formatPhone, phoneDigits } from "../../utils/phone";
-import { Avatar, Checkbox, EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
+import { Checkbox, EmptyState, PanelHeader, SearchInput, Spinner } from "../common/ui";
 import { useApp } from "../layout/AppContext";
 import { groupByLetter } from "../../utils/rules";
+import PresenceAvatar from "../common/PresenceAvatar";
 
 /** Contact picker with removable chips (shared by New group & Add members). */
 export function MemberPicker({ selected, onChange, exclude = [] }) {
@@ -41,7 +42,7 @@ export function MemberPicker({ selected, onChange, exclude = [] }) {
         <div className="member-chips">
           {selectedContacts.map((contact) => (
             <span key={contact.id} className="member-chip">
-              <Avatar src={contact.contact_user?.profile?.profile_picture} name={contact.name} size={26} />
+              <PresenceAvatar user={contact.contact_user} src={contact.contact_user?.profile?.profile_picture} name={contact.name} size={26} />
               <span>{contact.name}</span>
               <button type="button" aria-label={`Remove ${contact.name}`} onClick={() => toggle(Number(contact.contact_user.id))}>
                 <X size={14} />
@@ -62,7 +63,7 @@ export function MemberPicker({ selected, onChange, exclude = [] }) {
                   const checked = selected.includes(userId);
                   return (
                     <button key={contact.id} type="button" className="row" onClick={() => toggle(userId)}>
-                      <Avatar src={contact.contact_user?.profile?.profile_picture} name={contact.name} />
+                      <PresenceAvatar user={contact.contact_user} src={contact.contact_user?.profile?.profile_picture} name={contact.name} />
                       <span className="row__body">
                         <span className="row__title">{contact.name}</span>
                         <span className="row__subtitle">{contact.contact_user?.profile?.about || formatPhone(contact.contact_user?.phone_number)}</span>
