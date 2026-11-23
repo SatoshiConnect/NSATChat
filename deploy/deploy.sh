@@ -22,19 +22,32 @@ set -euo pipefail
 {
 cd "$(dirname "$0")/.."
 BRANCH="${DEPLOY_BRANCH:-main}"
+PROJECT="${COMPOSE_PROJECT_NAME:-nsat-mhtalk-prod}"
 ENV_FILE=".env.prod"
 [ -f "$ENV_FILE" ] || { echo "Missing $ENV_FILE (see docs/DEPLOY_ORACLE.md)"; exit 1; }
 
 env_value() { grep -E "^$1=" "$ENV_FILE" | tail -n1 | cut -d= -f2- | tr -d '"' || true; }
 DOMAIN="$(env_value DOMAIN)"
 TURN_SECRET="$(env_value TURN_SECRET)"
+log() { echo "[deploy $(date +%H:%M:%S)] $*"; }
 
-COMPOSE=(docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE")
+COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.prod.yml --env-file "$ENV_FILE")
+TARGET_SERVICES=()
+# Preserve the host-proxy deployment mode when the currently running stack was
+# started with docker-compose.host-proxy.yml. In that mode the host owns HTTPS;
+# only the backend and scheduler should be updated by this project.
+EXISTING_WEB="$("${COMPOSE[@]}" ps -q web)"
+if [ -n "$EXISTING_WEB" ]; then
+  EXISTING_COMPOSE_FILES="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "$EXISTING_WEB" 2>/dev/null || true)"
+  if [[ "$EXISTING_COMPOSE_FILES" == *docker-compose.host-proxy.yml* ]]; then
+    COMPOSE+=( -f docker-compose.host-proxy.yml )
+    TARGET_SERVICES=(web scheduler)
+    log "Detected host-proxy stack; keeping the host HTTPS proxy in place."
+  fi
+fi
 if [ -n "$TURN_SECRET" ] && [ "$TURN_SECRET" != "change-me-long-random-string" ]; then
   COMPOSE+=(--profile turn)
 fi
-
-log() { echo "[deploy $(date +%H:%M:%S)] $*"; }
 
 # Images we build ourselves (web, scheduler, caddy); databases are pinned images.
 own_images() { "${COMPOSE[@]}" config --images | grep -vE '^(postgres|redis|coturn)' | sort -u; }
@@ -72,9 +85,9 @@ CURRENT="$(git rev-parse HEAD)"
 log "New version: ${CURRENT:0:7}"
 
 log "Building..."
-"${COMPOSE[@]}" build
+"${COMPOSE[@]}" build "${TARGET_SERVICES[@]}"
 log "Starting..."
-"${COMPOSE[@]}" up -d --remove-orphans
+"${COMPOSE[@]}" up -d --remove-orphans "${TARGET_SERVICES[@]}"
 
 if healthy; then
   log "Healthy. Deployed ${CURRENT:0:7}."
@@ -90,7 +103,7 @@ for image in $(own_images); do
     docker tag "${image%%:*}:rollback" "$image"
   fi
 done
-"${COMPOSE[@]}" up -d --no-build --remove-orphans
+"${COMPOSE[@]}" up -d --no-build --remove-orphans "${TARGET_SERVICES[@]}"
 if healthy; then
   log "Rolled back to ${PREVIOUS:0:7}; the site is up."
 else
