@@ -85,7 +85,7 @@ self.addEventListener("fetch", (event) => {
 
 async function handleChatImage(request) {
   const cache = await caches.open(MEDIA_CACHE);
-  const cached = await cache.match(request);
+  let cached = await cache.match(request);
   if (cached) {
     const age = Date.now() - Number(cached.headers.get("x-satoshicore-cached-at") || 0);
     if (age <= MEDIA_CACHE_MAX_AGE) {
@@ -95,6 +95,8 @@ async function handleChatImage(request) {
       await cache.put(request, new Response(cached.clone().body, { status: cached.status, statusText: cached.statusText, headers }));
       return cached;
     }
+    await cache.delete(request);
+    cached = null;
   }
   try {
     const response = await fetch(request);

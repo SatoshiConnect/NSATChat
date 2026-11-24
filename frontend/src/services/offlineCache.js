@@ -135,7 +135,8 @@ export async function writeOfflineVideoPoster(userId, src, blob) {
     media.put(entry);
     const all = media.index("userId").getAll(IDBKeyRange.only(Number(userId)));
     all.onsuccess = () => {
-      const recent = all.result.sort((a, b) => b.savedAt - a.savedAt).slice(0, 50);
+      const posters = all.result.filter((row) => row.kind === "poster").sort((a, b) => b.savedAt - a.savedAt);
+      const recent = posters.slice(0, 50);
       const keysToKeep = new Set(recent.map((row) => row.key));
       all.result.forEach((row) => { if (!keysToKeep.has(row.key)) media.delete(row.key); });
     };
@@ -195,6 +196,11 @@ export function makeOfflineSnapshot(state) {
   const now = Date.now();
   const rooms = Object.values(state.rooms)
     .filter((room) => room && !room._pinnedOpen)
+    .map((room) => ({
+      ...room,
+      // A room summary duplicates the latest message, so sanitize it too.
+      lastMessage: usableMessage(room.lastMessage, now) ? room.lastMessage : null,
+    }))
     .sort((a, b) => new Date(b.lastMessage?.created_at || b.updated_at || 0) - new Date(a.lastMessage?.created_at || a.updated_at || 0))
     .slice(0, 40);
   const roomIds = new Set(rooms.map((room) => String(room.id)));
