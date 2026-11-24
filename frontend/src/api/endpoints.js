@@ -201,7 +201,7 @@ export const socialApi = {
   answerFollowRequest: (id, action) => api.post("social/follow-requests/", { id, action }).then((r) => r.data),
   followers: (userId, params = {}) => api.get(`social/users/${userId}/followers/`, { params }).then((r) => r.data),
   following: (userId, params = {}) => api.get(`social/users/${userId}/following/`, { params }).then((r) => r.data),
-  createPost: (payload) => api.post("social/posts/", payload).then((r) => r.data),
+  createPost: (payload, onUploadProgress) => api.post("social/posts/", payload, { onUploadProgress }).then((r) => r.data),
   toggleLike: (id, reaction = "LIKE") => api.post(`social/posts/${id}/`, { reaction }).then((r) => r.data),
   removePost: (id) => api.delete(`social/posts/${id}/`),
   sharePost: (id, room_id) => api.post(`social/posts/${id}/share/`, { room_id }).then((r) => r.data),

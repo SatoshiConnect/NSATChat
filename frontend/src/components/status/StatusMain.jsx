@@ -8,6 +8,26 @@ import { Avatar, EmptyState, Spinner } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
 import { detailTime } from "../../utils/format";
 import { contactsByUser, roomTitle } from "../../utils/messages";
+import { optimizeStatusImage } from "../../utils/statusImageOptimization";
+
+const SOCIAL_IMAGE_LIMIT = 8 * 1024 * 1024;
+const SOCIAL_VIDEO_LIMIT = 50 * 1024 * 1024;
+const SOCIAL_IMAGE_TOTAL_LIMIT = 32 * 1024 * 1024;
+const SOCIAL_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
+const SOCIAL_VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm"]);
+
+function validatePostFiles(files) {
+  if (!files.length) return "";
+  const videos = files.filter((file) => SOCIAL_VIDEO_EXTENSIONS.has(file.name.split(".").pop().toLowerCase()));
+  const images = files.filter((file) => SOCIAL_IMAGE_EXTENSIONS.has(file.name.split(".").pop().toLowerCase()));
+  if (videos.length + images.length !== files.length) return "Choose JPEG, PNG, WebP, GIF, MP4, MOV, M4V, or WebM files.";
+  if (videos.length && (videos.length !== 1 || images.length)) return "Choose either one video or up to 8 images.";
+  if (images.length > 8) return "Choose up to 8 images.";
+  if (images.some((file) => file.size > SOCIAL_IMAGE_LIMIT)) return "Each image must be 8 MB or smaller.";
+  if (images.reduce((sum, file) => sum + file.size, 0) > SOCIAL_IMAGE_TOTAL_LIMIT) return "Selected images must total 32 MB or less.";
+  if (videos.some((file) => file.size > SOCIAL_VIDEO_LIMIT)) return "Video must be 50 MB or smaller.";
+  return "";
+}
 
 const POST_REACTIONS = [{ key: "LIKE", emoji: "👍", label: "Like" }, { key: "LOVE", emoji: "❤️", label: "Love" }, { key: "HAHA", emoji: "😂", label: "Haha" }, { key: "WOW", emoji: "😮", label: "Wow" }, { key: "SAD", emoji: "😢", label: "Sad" }, { key: "CARE", emoji: "🤗", label: "Care" }];
 
@@ -156,6 +176,9 @@ export default function StatusMain() {
   const [text, setText] = useState("");
   const [visibility, setVisibility] = useState("CONTACTS");
   const [uploads, setUploads] = useState([]);
+  const [optimizePhotos, setOptimizePhotos] = useState(true);
+  const [preparingPhotos, setPreparingPhotos] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
@@ -196,18 +219,40 @@ export default function StatusMain() {
   const publish = async (event) => {
     event.preventDefault();
     if ((!text.trim() && !uploads.length) || busy) return;
-    if (uploads.length > 9) { toast.error("Choose up to 8 images or one video."); return; }
+    const fileError = validatePostFiles(uploads);
+    if (fileError) { toast.error(fileError); return; }
     setBusy(true);
+    setPreparingPhotos(false);
+    setUploadProgress(0);
     try {
       const form = new FormData();
       form.append("text", text.trim());
       form.append("visibility", visibility);
-      uploads.forEach((file) => form.append("uploads", file));
-      await socialApi.createPost(form);
-      setText(""); setUploads([]); event.currentTarget.reset();
-      await load();
+      const preparedUploads = [];
+      if (optimizePhotos && uploads.some((file) => SOCIAL_IMAGE_EXTENSIONS.has(file.name.split(".").pop().toLowerCase()))) {
+        setPreparingPhotos(true);
+      }
+      for (const file of uploads) {
+        const isImage = SOCIAL_IMAGE_EXTENSIONS.has(file.name.split(".").pop().toLowerCase());
+        preparedUploads.push(optimizePhotos && isImage ? await optimizeStatusImage(file) : file);
+      }
+      setPreparingPhotos(false);
+      const imageBytes = preparedUploads.filter((file) => SOCIAL_IMAGE_EXTENSIONS.has(file.name.split(".").pop().toLowerCase())).reduce((sum, file) => sum + file.size, 0);
+      if (imageBytes > SOCIAL_IMAGE_TOTAL_LIMIT) throw new Error("Optimized images still exceed the 32 MB combined limit. Remove an image or keep fewer photos.");
+      preparedUploads.forEach((file) => form.append("uploads", file));
+      const created = await socialApi.createPost(form, (event) => {
+        if (event.total) setUploadProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      });
+      // The file input is cleared on selection. Do not use event.currentTarget
+      // after the async request: React may have cleared it by this point.
+      setText(""); setUploads([]);
+      if (scope === "all" && !hashtagFilter) {
+        setPosts((current) => [created, ...current.filter((post) => post.id !== created.id)]);
+      }
+      toast.success("Post published.");
+      void load();
     } catch (cause) { toast.error(errorMessage(cause, "Couldn't publish post.")); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setPreparingPhotos(false); }
   };
 
   const answerFollow = async (request, action) => {
@@ -238,9 +283,10 @@ export default function StatusMain() {
       <nav className="social-feed__tabs" aria-label="Post feed"><button type="button" className={scope === "all" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("all"); }}>All posts</button><button type="button" className={scope === "following" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("following"); }}>Following</button><button type="button" className={scope === "saved" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("saved"); }}>Saved</button>{hashtagFilter ? <button type="button" className="is-active" onClick={() => setHashtagFilter("")}>#{hashtagFilter} <X size={14} /></button> : null}</nav>
       {followRequests.length ? <section className="social-follow-requests" aria-label="Follow requests"><h3><UserPlus size={17} /> Follow requests <span>{followRequests.length}</span></h3>{followRequests.map((request) => <div key={request.id} className="social-follow-requests__row"><PresenceAvatar user={request.user} src={request.user?.profile?.profile_picture} name={request.user?.profile?.display_name || request.user?.public_id || "Member"} size={36} /><span>{request.user?.profile?.display_name || request.user?.public_id || "Member"}</span><button type="button" aria-label="Accept follow request" disabled={requestsBusy} onClick={() => answerFollow(request, "accept")}><Check size={17} /></button><button type="button" aria-label="Decline follow request" disabled={requestsBusy} onClick={() => answerFollow(request, "decline")}><X size={17} /></button></div>)}</section> : null}
       <form className="social-compose" onSubmit={publish}>
-        <div className="social-compose__row"><Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={40} /><textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} rows={3} placeholder="What's on your mind?" aria-label="Post text" /></div>
-        {uploads.length ? <div className="social-compose__files">{uploads.map((file, index) => <div className="social-compose__file" key={`${file.name}-${file.lastModified}-${index}`}>{file.name}<button type="button" onClick={() => setUploads((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}>×</button></div>)}</div> : null}
-        <footer><label className="social-compose__image"><ImageIcon size={18} /> Photo or video<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" multiple onChange={(event) => { setUploads(Array.from(event.target.files || [])); }} /></label><select value={visibility} onChange={(event) => setVisibility(event.target.value)} aria-label="Post audience"><option value="CONTACTS">My contacts</option><option value="FOLLOWERS">Followers</option><option value="EVERYONE">Public</option></select><button className="btn btn--primary" type="submit" disabled={busy || (!text.trim() && !uploads.length)}>{busy ? <Spinner size={16} /> : "Post"}</button></footer>
+        <div className="social-compose__row"><Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={40} /><textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} rows={3} placeholder="What's on your mind?" aria-label="Post text" disabled={busy} /></div>
+        {uploads.length ? <div className="social-compose__files">{uploads.map((file, index) => <div className="social-compose__file" key={`${file.name}-${file.lastModified}-${index}`}>{file.name}<button type="button" onClick={() => setUploads((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`} disabled={busy}>×</button></div>)}</div> : null}
+        <footer><label className="social-compose__image"><ImageIcon size={18} /> Photo or video<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" multiple disabled={busy} onChange={(event) => { const selected = Array.from(event.target.files || []); event.target.value = ""; if (!selected.length) return; const next = [...uploads, ...selected]; const fileError = validatePostFiles(next); if (fileError) toast.error(fileError); else setUploads(next); }} /></label>{uploads.some((file) => SOCIAL_IMAGE_EXTENSIONS.has(file.name.split(".").pop().toLowerCase())) ? <label className="social-compose__optimize"><input type="checkbox" checked={optimizePhotos} onChange={(event) => setOptimizePhotos(event.target.checked)} disabled={busy} /> Optimize large photos</label> : null}<select value={visibility} onChange={(event) => setVisibility(event.target.value)} aria-label="Post audience" disabled={busy}><option value="CONTACTS">My contacts</option><option value="FOLLOWERS">Followers</option><option value="EVERYONE">Public</option></select><button className="btn btn--primary" type="submit" disabled={busy || (!text.trim() && !uploads.length)}>{busy ? <Spinner size={16} /> : "Post"}</button></footer>
+        {busy ? <div className="social-compose__progress" role="status" aria-live="polite">{preparingPhotos ? "Preparing photos…" : `Uploading… ${uploadProgress}%`}<progress max="100" value={preparingPhotos ? undefined : uploadProgress} /></div> : null}
       </form>
       {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length ? <><div className="social-feed__list">{posts.map((post) => <PostCard key={post.id} post={post} me={me} onChange={load} onHashtag={(tag) => { setScope("all"); setHashtagFilter(tag); setLoading(true); }} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : <EmptyState text={hashtagFilter ? `No posts found for #${hashtagFilter}.` : scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
       {sharingPostId ? <div className="social-share-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !shareBusy) setSharingPostId(null); }}><section className="social-share-dialog" role="dialog" aria-modal="true" aria-labelledby="social-share-title"><header><h3 id="social-share-title">Share to chat</h3><button type="button" aria-label="Close share dialog" disabled={shareBusy} onClick={() => setSharingPostId(null)}><X size={18} /></button></header><div>{Object.values(rooms).filter((room) => !room.isArchived).map((room) => <button key={room.id} type="button" className="social-share-dialog__room" disabled={shareBusy} onClick={() => shareToRoom(room.id)}><Avatar src={room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture} name={roomTitle(room, contactMap, me)} group={room.isGroup} size={38} /><span>{roomTitle(room, contactMap, me)}</span>{shareBusy ? <Spinner size={15} /> : <Send size={15} />}</button>)}</div>{!Object.values(rooms).some((room) => !room.isArchived) ? <EmptyState text="No chats available." /> : null}<p>The post is shared only if everyone in the chat can view it.</p></section></div> : null}

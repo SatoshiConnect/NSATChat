@@ -812,6 +812,10 @@ button.status-composer__privacy:hover {
 .social-post__media--1 { grid-template-columns: minmax(0, 1fr); }
 .social-post__media--1 .social-post__image { height: auto; max-height: 600px; }
 .social-compose__files { display: grid; gap: 2px; }
+.social-compose__optimize { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+.social-compose__optimize input { accent-color: var(--accent); }
+.social-compose__progress { display: grid; grid-template-columns: 1fr; gap: 6px; padding-top: 10px; color: var(--muted); font-size: var(--fs-sm); }
+.social-compose__progress progress { width: 100%; height: 6px; accent-color: var(--accent); }
 .social-share-overlay { position: fixed; inset: 0; z-index: var(--z-modal, 60); display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 45%); }
 .social-share-dialog { display: flex; flex-direction: column; width: min(100%, 440px); max-height: min(80dvh, 620px); overflow: hidden; border: 1px solid var(--divider); border-radius: 18px; background: var(--panel-bg); box-shadow: 0 16px 48px rgb(0 0 0 / 24%); }
 .social-share-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--divider); }
