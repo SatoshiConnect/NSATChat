@@ -10,6 +10,7 @@ import { normalizeFiles, validateFiles } from "../../utils/files";
 import { statusApi } from "../../api/endpoints";
 import { useMediaQuery } from "../../hooks";
 import StatusComposer from "./StatusComposer";
+import StatusMain from "./StatusMain";
 import StatusViewer from "./StatusViewer";
 import { getStatusPrivacy, setStatusPrivacy } from "./statusPrefs";
 import StatusPrivacyEditor from "./StatusPrivacyEditor";
@@ -44,6 +45,7 @@ export default function StatusPanel() {
   const contacts = useStore((state) => state.contacts);
   const contactMap = useMemo(() => contactsByUser(contacts), [contacts]);
   const [view, setView] = useState("list");
+  const [mobileView, setMobileView] = useState("posts");
   const [viewer, setViewer] = useState(null); // { groups, start }
   const [composer, setComposer] = useState(null); // { mode, file }
   const [addAnchor, setAddAnchor] = useState(null);
@@ -81,6 +83,9 @@ export default function StatusPanel() {
           toast.error("That status is no longer available.");
           return;
         }
+        // A push/URL deep link wins over the merged "Posts" tab: the viewer
+        // only renders inside the Stories view, so show that first.
+        setMobileView("stories");
         setViewer({ groups, start: index, startStatusId: Number(detail.status_id) });
       } catch (error) {
         openingStatusId.current = null;
@@ -114,18 +119,26 @@ export default function StatusPanel() {
     { label: "Text", icon: Pencil, onClick: () => setComposer({ mode: "text" }) },
   ];
 
+  const showStatusActions = !compact || mobileView === "stories";
+
   return (
     <section className="panel status-panel">
       <PanelHeader
         title={compact ? "Updates" : "Stories"}
-        actions={
+        actions={showStatusActions ? (
           <>
             <IconButton icon={Plus} label="Add status" onClick={(event) => setAddAnchor(event.currentTarget)} />
             <MenuButton icon={MoreVertical} label="Menu" items={[{ label: "Status privacy", icon: Lock, onClick: () => setView("privacy") }]} />
           </>
-        }
+        ) : null}
       />
-      <div className="panel__scroll">
+      {compact ? (
+        <nav className="status-mobile-tabs" aria-label="Updates">
+          <button type="button" className={mobileView === "stories" ? "is-active" : ""} aria-pressed={mobileView === "stories"} onClick={() => setMobileView("stories")}>Stories</button>
+          <button type="button" className={mobileView === "posts" ? "is-active" : ""} aria-pressed={mobileView === "posts"} onClick={() => setMobileView("posts")}>Posts</button>
+        </nav>
+      ) : null}
+      {compact && mobileView === "posts" ? <div className="status-mobile-posts"><StatusMain /></div> : <><div className="panel__scroll">
         <div className="list-pad">
           <div className="row status-row">
             <button type="button" className="status-row__avatar" onClick={() => (myGroup ? openGroup([myGroup], 0) : fileRef.current?.click())} aria-label="My status">
@@ -202,6 +215,7 @@ export default function StatusPanel() {
       {addAnchor ? <Menu anchor={addAnchor} items={addItems} onClose={() => setAddAnchor(null)} /> : null}
       {composer ? <StatusComposer mode={composer.mode} initialFile={composer.file} initialFiles={composer.files} onClose={() => setComposer(null)} /> : null}
       {viewer ? <StatusViewer groups={viewer.groups} startGroup={viewer.start} startStatusId={viewer.startStatusId} onClose={() => { openingStatusId.current = null; setViewer(null); }} /> : null}
+      </>}
     </section>
   );
 }
