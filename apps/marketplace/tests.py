@@ -1,18 +1,40 @@
+import os
+import tempfile
+import threading
 import uuid
-from io import BytesIO
+from io import BytesIO, StringIO
+from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
-from django.test import RequestFactory
+from django.db import connection
+from django.test import RequestFactory, TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from apps.accounts.models import User
 from .admin import DigitalItemAdmin
-from .models import CreatorProfile, DigitalItem, DigitalItemAsset, GiftEvent, InventoryItem, MarketplaceAuditEvent, SimulatedPurchase
+from apps.wallet_integration.models import WalletLink
+from apps.wallet_integration.tests.test_read import SIGNED_PAYMENT_VECTOR, VALID_DESTINATION, VALID_SOURCE
+from apps.wallet_integration.views import _encode_wallet_address
+from . import services
+from .models import (
+    CreatorNotification,
+    CreatorProfile,
+    CreatorSale,
+    DigitalItem,
+    DigitalItemAsset,
+    GiftEvent,
+    InventoryItem,
+    MarketplaceAuditEvent,
+    MarketplaceEntitlement,
+    MarketplaceOrder,
+    OrderPayment,
+    SimulatedPurchase,
+)
 
 
 def png_upload(name="sticker.png"):
@@ -23,6 +45,10 @@ def png_upload(name="sticker.png"):
     return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
 
 
+SIMULATION_ON = override_settings(MARKETPLACE_ALLOW_SIMULATED_PURCHASES=True)
+
+
+@SIMULATION_ON
 class MarketplaceAPITests(APITestCase):
     def setUp(self):
         self.buyer = User.objects.create_user(phone_number="+66839935531", password="StrongPassword123")
@@ -160,3 +186,709 @@ class MarketplaceAPITests(APITestCase):
         item.refresh_from_db()
         self.assertEqual(item.state, DigitalItem.State.APPROVED)
         self.assertTrue(MarketplaceAuditEvent.objects.filter(item=item, action="item.approved").exists())
+
+
+def _new_address():
+    import os
+
+    return _encode_wallet_address(os.urandom(32))
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}},
+    MARKETPLACE_LIVE_PAYMENTS=True,
+    MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
+    MARKETPLACE_PLATFORM_FEE_BPS=0,
+    MARKETPLACE_TREASURY_ADDRESS="",
+)
+class OrderSettlementTests(APITestCase):
+    """The paid path: priced in NSAT, verified per tranche, fulfilled on confirmation."""
+
+    def setUp(self):
+        self.buyer = User.objects.create_user(phone_number="+66839935541", password="StrongPassword123")
+        self.creator = User.objects.create_user(phone_number="+66839935542", password="StrongPassword123")
+        WalletLink.objects.create(user=self.buyer, address=VALID_SOURCE)
+        WalletLink.objects.create(user=self.creator, address=VALID_DESTINATION)
+        self.item = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.STICKER_PACK,
+            title="Paid pack",
+            proposed_price_nsat=123_456_789,
+            state=DigitalItem.State.APPROVED,
+        )
+        DigitalItemAsset.objects.create(item=self.item, image=png_upload(), position=0)
+        self.client.force_authenticate(self.buyer)
+
+    def _create_order(self, key=None):
+        return self.client.post(
+            reverse("marketplace:order-create", args=(self.item.pk,)),
+            {"idempotency_key": key or str(uuid.uuid4())},
+            format="json",
+        )
+
+    def test_order_prices_creator_share_without_platform_fee(self):
+        response = self._create_order()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["total_due_nsat"], 123_456_789)
+        self.assertEqual(response.data["platform_fee_nsat"], 0)
+        self.assertEqual(len(response.data["payments"]), 1)
+        payment = response.data["payments"][0]
+        self.assertEqual(payment["role"], "creator")
+        self.assertEqual(payment["payee_address"], VALID_DESTINATION)
+        self.assertEqual(payment["amount_nsat"], 123_456_789)
+        self.assertEqual(response.data["state"], "awaiting_payment")
+
+    def test_order_is_idempotent_per_key_and_rejects_a_second_open_order(self):
+        key = str(uuid.uuid4())
+        first = self._create_order(key)
+        replay = self._create_order(key)
+        self.assertEqual(first.data["id"], replay.data["id"])
+        other = self._create_order()
+        self.assertEqual(other.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(other.data["code"], "order_already_open")
+
+    def test_order_requires_linked_wallets_and_a_creator(self):
+        WalletLink.objects.filter(user=self.buyer).delete()
+        self.assertEqual(self._create_order().data["code"], "wallet_not_linked")
+        WalletLink.objects.create(user=self.buyer, address=VALID_SOURCE)
+        WalletLink.objects.filter(user=self.creator).delete()
+        self.assertEqual(self._create_order().data["code"], "creator_wallet_unavailable")
+        WalletLink.objects.create(user=self.creator, address=VALID_DESTINATION)
+        self.item.creator = None
+        self.item.save(update_fields=["creator"])
+        self.assertEqual(self._create_order().status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_creator_cannot_buy_their_own_listing(self):
+        self.client.force_authenticate(self.creator)
+        self.assertEqual(self._create_order().data["code"], "cannot_buy_own_item")
+
+    def test_platform_fee_needs_a_treasury_or_the_sale_is_refused(self):
+        with override_settings(MARKETPLACE_PLATFORM_FEE_BPS=500):
+            response = self._create_order()
+            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+            self.assertEqual(response.data["code"], "marketplace_misconfigured")
+        treasury = _new_address()
+        with override_settings(MARKETPLACE_PLATFORM_FEE_BPS=500, MARKETPLACE_TREASURY_ADDRESS=treasury):
+            response = self._create_order()
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            self.assertEqual(response.data["platform_fee_nsat"], 6_172_839)
+            self.assertEqual(response.data["creator_proceeds_nsat"], 117_283_950)
+            roles = {payment["role"]: payment for payment in response.data["payments"]}
+            self.assertEqual(roles["platform"]["payee_address"], treasury)
+            self.assertEqual(
+                roles["creator"]["amount_nsat"] + roles["platform"]["amount_nsat"],
+                response.data["unit_amount_nsat"],
+            )
+
+    def test_split_is_integer_exact(self):
+        self.assertEqual(services.split_amounts(1000, 250), (25, 975))
+        self.assertEqual(services.split_amounts(1, 5000), (0, 1))
+        self.assertEqual(services.split_amounts(2**63 - 1, 0), (0, 2**63 - 1))
+        with self.assertRaises(services.MarketplaceError):
+            services.split_amounts(2**63 - 1, 10000)
+        with self.assertRaises(services.MarketplaceError):
+            services.split_amounts(0, 0)
+
+    def test_signed_envelope_is_recorded_with_its_on_chain_hash(self):
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        with patch("apps.marketplace.services.submit_signed_envelope") as submit:
+            submit.return_value = "PENDING"
+            wrong_amount = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(wrong_amount.status_code, status.HTTP_200_OK)
+        self.assertEqual(wrong_amount.data["payments"][0]["state"], "pending")
+        self.assertEqual(
+            wrong_amount.data["payments"][0]["tx_hash"],
+            "ed416812815ee2993c26ca65ca7e14f8d81f0b0e36ad7aec8b0c32ca0e11b6d7",
+        )
+        replay = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(replay.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(replay.data["code"], "payment_already_submitted")
+
+    def test_mismatched_envelope_is_refused_before_the_gateway(self):
+        mismatched = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.BADGE,
+            title="Different price",
+            proposed_price_nsat=5,
+            state=DigitalItem.State.APPROVED,
+        )
+        order = self.client.post(
+            reverse("marketplace:order-create", args=(mismatched.pk,)),
+            {"idempotency_key": str(uuid.uuid4())},
+            format="json",
+        ).data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        with patch("apps.marketplace.services.submit_signed_envelope") as submit:
+            response = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["code"], "envelope_amount_mismatch")
+        submit.assert_not_called()
+
+        WalletLink.objects.filter(user=self.buyer).update(address=_new_address())
+        resp = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(resp.data["code"], "envelope_source_mismatch")
+
+    def test_confirmed_payment_grants_entitlement_and_sale_once(self):
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": 9001}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            response = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["state"], "paid")
+        self.assertEqual(MarketplaceEntitlement.objects.filter(owner=self.buyer, item=self.item).count(), 1)
+        self.assertEqual(CreatorSale.objects.filter(creator=self.creator).count(), 1)
+        self.assertEqual(CreatorSale.objects.get().creator_proceeds_nsat, 123_456_789)
+        self.assertTrue(MarketplaceAuditEvent.objects.filter(action="order.paid").exists())
+        self.assertTrue(
+            self.creator.creator_notifications.filter(event_type="sale").exists()
+            if hasattr(self.creator, "creator_notifications")
+            else True
+        )
+
+        detail = reverse("marketplace:order-detail", args=(order["id"],))
+        self.assertEqual(self.client.get(detail).data["state"], "paid")
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"):
+            again = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(again.status_code, status.HTTP_200_OK)
+        self.assertEqual(MarketplaceEntitlement.objects.filter(owner=self.buyer).count(), 1)
+        self.assertEqual(CreatorSale.objects.count(), 1)
+
+    def test_pending_confirmation_keeps_the_order_open_without_granting_access(self):
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        pending = {"status": "pending", "success": None, "result_code": "", "ledger": None}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=pending):
+            response = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(response.data["state"], "partially_paid")
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+        self.assertEqual(self.client.get(reverse("marketplace:owned-stickers")).data, [])
+
+    def test_failed_confirmation_closes_the_order(self):
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        failed = {"status": "failed", "success": False, "result_code": "tx_failed", "ledger": None}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=failed):
+            response = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(response.data["state"], "failed")
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+
+    def test_an_owned_item_cannot_be_paid_for_twice(self):
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": 7}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        response = self._create_order()
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "already_owned")
+        row = next(entry for entry in self.client.get(reverse("marketplace:catalog")).data if entry["id"] == self.item.pk)
+        self.assertEqual(row["purchase_mode"], "owned")
+
+    def _pay(self, order, ledger=21):
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": ledger}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            return self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+
+    def test_paid_access_survives_listing_disable_until_revoked(self):
+        order = self._create_order().data
+        self.assertEqual(self._pay(order).data["state"], "paid")
+        DigitalItem.objects.filter(pk=self.item.pk).update(state=DigitalItem.State.DISABLED)
+
+        # The buyer keeps what they paid for, and the listing stops new sales.
+        library = self.client.get(reverse("marketplace:owned-stickers"))
+        self.assertEqual([row["id"] for row in library.data], [self.item.pk])
+        self.assertEqual(len(self.client.get(reverse("marketplace:entitlements")).data), 1)
+
+        newcomer = User.objects.create_user(phone_number="+66839935561", password="StrongPassword123")
+        WalletLink.objects.create(user=newcomer, address=_new_address())
+        self.client.force_authenticate(newcomer)
+        self.assertEqual(self._create_order().status_code, status.HTTP_404_NOT_FOUND)
+
+        self.client.force_authenticate(self.buyer)
+        entitlement = MarketplaceEntitlement.objects.get()
+        services.revoke_entitlement(entitlement, reason="Copyright claim upheld")
+        self.assertEqual(self.client.get(reverse("marketplace:owned-stickers")).data, [])
+        self.assertEqual(self.client.get(reverse("marketplace:entitlements")).data, [])
+        entitlement.refresh_from_db()
+        self.assertIsNotNone(entitlement.revoked_at)
+        self.assertEqual(entitlement.revoked_reason, "Copyright claim upheld")
+        self.assertTrue(MarketplaceAuditEvent.objects.filter(action="entitlement.revoked").exists())
+        self.assertTrue(
+            CreatorNotification.objects.filter(recipient=self.buyer, event_type="entitlement_revoked").exists()
+        )
+
+    def test_mistaken_revocation_can_be_restored_with_audit(self):
+        order = self._create_order().data
+        self._pay(order, ledger=23)
+        entitlement = MarketplaceEntitlement.objects.get()
+        services.revoke_entitlement(entitlement, reason="Wrong takedown")
+        self.assertEqual(self.client.get(reverse("marketplace:owned-stickers")).data, [])
+
+        services.restore_entitlement(entitlement, reason="Appeal accepted")
+        entitlement.refresh_from_db()
+        self.assertIsNone(entitlement.revoked_at)
+        self.assertEqual(entitlement.revoked_reason, "")
+        self.assertIsNone(entitlement.revoked_by)
+        self.assertEqual(len(self.client.get(reverse("marketplace:owned-stickers")).data), 1)
+        self.assertEqual(len(self.client.get(reverse("marketplace:entitlements")).data), 1)
+        self.assertTrue(MarketplaceAuditEvent.objects.filter(action="entitlement.restored").exists())
+        self.assertTrue(
+            CreatorNotification.objects.filter(recipient=self.buyer, event_type="entitlement_restored").exists()
+        )
+        # Restoring an active grant is a no-op and must not duplicate audit rows.
+        services.restore_entitlement(entitlement)
+        self.assertEqual(MarketplaceAuditEvent.objects.filter(action="entitlement.restored").count(), 1)
+
+    def test_reusing_a_signed_transfer_on_another_order_returns_409(self):
+        second_item = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.STICKER_PACK,
+            title="Second pack",
+            proposed_price_nsat=123_456_789,
+            state=DigitalItem.State.APPROVED,
+        )
+        first_order = self._create_order().data
+        second_order = self.client.post(
+            reverse("marketplace:order-create", args=(second_item.pk,)),
+            {"idempotency_key": str(uuid.uuid4())},
+            format="json",
+        ).data
+        verdict = {"status": "pending", "success": None, "result_code": "", "ledger": None}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            first = self.client.post(
+                reverse("marketplace:order-payment", args=(first_order["id"], "creator")),
+                {"envelope_xdr": SIGNED_PAYMENT_VECTOR},
+                format="json",
+            )
+            reused = self.client.post(
+                reverse("marketplace:order-payment", args=(second_order["id"], "creator")),
+                {"envelope_xdr": SIGNED_PAYMENT_VECTOR},
+                format="json",
+            )
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(reused.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(reused.data["code"], "payment_already_used")
+        self.assertEqual(OrderPayment.objects.filter(tx_hash="ed416812815ee2993c26ca65ca7e14f8d81f0b0e36ad7aec8b0c32ca0e11b6d7").count(), 1)
+        self.assertEqual(MarketplaceOrder.objects.get(pk=second_order["id"]).state, "awaiting_payment")
+
+    def test_racing_unique_violation_is_reported_as_409(self):
+        """Simulate the loser of an in-flight race: the row exists but the pre-check missed it."""
+        second_item = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.STICKER_PACK,
+            title="Racing pack",
+            proposed_price_nsat=123_456_789,
+            state=DigitalItem.State.APPROVED,
+        )
+        first_order = self._create_order().data
+        second_order = self.client.post(
+            reverse("marketplace:order-create", args=(second_item.pk,)),
+            {"idempotency_key": str(uuid.uuid4())},
+            format="json",
+        ).data
+        # The winner already committed this signature on the first order.
+        OrderPayment.objects.filter(order_id=first_order["id"], role="creator").update(
+            tx_hash="ed416812815ee2993c26ca65ca7e14f8d81f0b0e36ad7aec8b0c32ca0e11b6d7",
+            submitted_at=1,
+        )
+        with patch("apps.marketplace.services._hash_used_by_another_order", return_value=False), \
+                patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value={"status": "pending", "success": None, "result_code": "", "ledger": None}):
+            response = self.client.post(
+                reverse("marketplace:order-payment", args=(second_order["id"], "creator")),
+                {"envelope_xdr": SIGNED_PAYMENT_VECTOR},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "payment_already_used")
+
+    def _subscribe_buyer_inbox(self):
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        layer = get_channel_layer()
+        channel = async_to_sync(layer.new_channel)()
+        async_to_sync(layer.group_add)(f"chat_inbox_{self.buyer.pk}", channel)
+        return layer, channel
+
+    @staticmethod
+    def _channel_is_empty(layer, channel):
+        import asyncio
+
+        from asgiref.sync import async_to_sync
+
+        async def silent():
+            try:
+                await asyncio.wait_for(layer.receive(channel), timeout=0.2)
+                return False
+            except asyncio.TimeoutError:
+                return True
+
+        return async_to_sync(silent)()
+
+    def test_buyer_gets_a_realtime_unlock_event_only_once(self):
+        from asgiref.sync import async_to_sync
+
+        layer, channel = self._subscribe_buyer_inbox()
+        order = self._create_order().data
+        self._pay(order, ledger=51)
+        event = async_to_sync(layer.receive)(channel)
+        self.assertEqual(event["type"], "inbox.marketplace_paid")
+        self.assertEqual(event["order_id"], order["id"])
+        self.assertEqual(event["item_id"], self.item.pk)
+        self.assertEqual(event["item_title"], "Paid pack")
+
+        # Polling an already-paid order must not re-announce the unlock.
+        self.client.get(reverse("marketplace:order-detail", args=(order["id"],)))
+        self.assertTrue(self._channel_is_empty(layer, channel))
+
+    def test_inbox_consumer_forwards_the_unlock_event(self):
+        import json as jsonlib
+
+        from asgiref.sync import async_to_sync
+
+        from apps.chat.consumers import ChatInboxConsumer
+
+        consumer = ChatInboxConsumer()
+        sent = []
+
+        async def fake_send(text_data=None, close=False):
+            sent.append(text_data)
+
+        consumer.send = fake_send
+        async_to_sync(consumer.inbox_marketplace_paid)({
+            "type": "inbox.marketplace_paid",
+            "order_id": "order-1",
+            "item_id": 9,
+            "item_title": "Paid pack",
+        })
+        payload = jsonlib.loads(sent[0])
+        self.assertEqual(payload, {
+            "type": "marketplace.order_paid",
+            "order_id": "order-1",
+            "item_id": 9,
+            "item_title": "Paid pack",
+        })
+
+    def _entitlement_admin_request(self, user):
+        from django.contrib.messages.storage.cookie import CookieStorage
+
+        request = RequestFactory().post("/admin/marketplace/marketplaceentitlement/")
+        request.user = user
+        setattr(request, "_messages", CookieStorage(request))
+        return request
+
+    def test_admin_revoke_action_removes_access_audits_and_notifies(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from .admin import MarketplaceEntitlementAdmin
+
+        order = self._create_order().data
+        self._pay(order, ledger=31)
+        admin_user = User.objects.create_user(phone_number="+66839935581", password="StrongPassword123")
+        request = self._entitlement_admin_request(admin_user)
+        model_admin = MarketplaceEntitlementAdmin(MarketplaceEntitlement, AdminSite())
+
+        model_admin.revoke_entitlements(request, MarketplaceEntitlement.objects.all())
+
+        entitlement = MarketplaceEntitlement.objects.get()
+        self.assertIsNotNone(entitlement.revoked_at)
+        self.assertEqual(entitlement.revoked_reason, "Revoked by moderator")
+        self.assertEqual(entitlement.revoked_by, admin_user)
+        self.assertEqual(self.client.get(reverse("marketplace:owned-stickers")).data, [])
+        self.assertTrue(
+            MarketplaceAuditEvent.objects.filter(
+                action="entitlement.revoked", metadata__reason="Revoked by moderator"
+            ).exists()
+        )
+        self.assertTrue(
+            CreatorNotification.objects.filter(recipient=self.buyer, event_type="entitlement_revoked").exists()
+        )
+        self.assertEqual(len(list(request._messages)), 1)
+
+        # Re-running the action must not re-revoke or duplicate audit rows.
+        model_admin.revoke_entitlements(request, MarketplaceEntitlement.objects.all())
+        self.assertEqual(MarketplaceAuditEvent.objects.filter(action="entitlement.revoked").count(), 1)
+        self.assertEqual(len(list(request._messages)), 2)
+
+    def test_admin_restore_action_returns_access_after_a_mistake(self):
+        from django.contrib.admin.sites import AdminSite
+
+        from .admin import MarketplaceEntitlementAdmin
+
+        order = self._create_order().data
+        self._pay(order, ledger=32)
+        admin_user = User.objects.create_user(phone_number="+66839935582", password="StrongPassword123")
+        model_admin = MarketplaceEntitlementAdmin(MarketplaceEntitlement, AdminSite())
+        services.revoke_entitlement(MarketplaceEntitlement.objects.get(), actor=admin_user, reason="Wrong takedown")
+        self.assertEqual(self.client.get(reverse("marketplace:owned-stickers")).data, [])
+
+        request = self._entitlement_admin_request(admin_user)
+        model_admin.restore_entitlements(request, MarketplaceEntitlement.objects.all())
+
+        entitlement = MarketplaceEntitlement.objects.get()
+        self.assertIsNone(entitlement.revoked_at)
+        self.assertEqual(entitlement.revoked_reason, "")
+        self.assertIsNone(entitlement.revoked_by)
+        self.assertEqual(len(self.client.get(reverse("marketplace:owned-stickers")).data), 1)
+        audit = MarketplaceAuditEvent.objects.get(action="entitlement.restored")
+        self.assertEqual(audit.actor, admin_user)
+        self.assertEqual(audit.metadata["previous_reason"], "Wrong takedown")
+        self.assertTrue(
+            CreatorNotification.objects.filter(recipient=self.buyer, event_type="entitlement_restored").exists()
+        )
+        self.assertEqual(len(list(request._messages)), 1)
+
+        # Nothing is revoked any more, so a second run changes nothing.
+        model_admin.restore_entitlements(request, MarketplaceEntitlement.objects.all())
+        self.assertEqual(MarketplaceAuditEvent.objects.filter(action="entitlement.restored").count(), 1)
+
+    def test_creator_sale_survives_buyer_account_deletion(self):
+        order = self._create_order().data
+        self._pay(order, ledger=22)
+        sale = CreatorSale.objects.get()
+        reference = sale.order_reference
+        proceeds = sale.creator_proceeds_nsat
+        self.assertEqual(str(reference), order["id"])
+        self.assertEqual(len(sale.buyer_reference), 32)
+
+        self.buyer.delete()
+
+        sale = CreatorSale.objects.get()
+        self.assertIsNone(sale.order)
+        self.assertEqual(sale.order_reference, reference)
+        self.assertEqual(sale.creator_proceeds_nsat, proceeds)
+        self.assertFalse(MarketplaceOrder.objects.exists())
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+
+        self.client.force_authenticate(self.creator)
+        dashboard = self.client.get(reverse("marketplace:creator-dashboard")).data
+        self.assertEqual(dashboard["sales_totals"]["count"], 1)
+        self.assertEqual(dashboard["sales_totals"]["creator_proceeds_nsat"], proceeds)
+        self.assertEqual(dashboard["sales"][0]["item"], "Paid pack")
+
+    def test_entitlement_unlocks_the_sticker_pack_once_paid(self):
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": 5}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        library = self.client.get(reverse("marketplace:owned-stickers"))
+        self.assertEqual(len(library.data), 1)
+        self.assertEqual(library.data[0]["id"], self.item.pk)
+        entitlements = self.client.get(reverse("marketplace:entitlements"))
+        self.assertEqual(len(entitlements.data), 1)
+        self.assertEqual(entitlements.data[0]["item"]["id"], self.item.pk)
+
+    def test_creator_dashboard_reports_confirmed_sales(self):
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": 11}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.client.force_authenticate(self.creator)
+        dashboard = self.client.get(reverse("marketplace:creator-dashboard")).data
+        self.assertEqual(dashboard["sales_totals"]["count"], 1)
+        self.assertEqual(dashboard["sales_totals"]["creator_proceeds_nsat"], 123_456_789)
+        self.assertEqual(dashboard["sales"][0]["item"], "Paid pack")
+
+    def test_reconciliation_command_fulfils_a_payment_after_the_buyer_leaves(self):
+        from django.core.management import call_command
+
+        order = self._create_order().data
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        pending = {"status": "pending", "success": None, "result_code": "", "ledger": None}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=pending):
+            self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+        confirmed = {"status": "confirmed", "success": True, "result_code": "", "ledger": 12}
+        with patch("apps.marketplace.services.confirmation_for_hash", return_value=confirmed):
+            call_command("settle_marketplace_orders", stdout=StringIO())
+        self.assertEqual(MarketplaceOrder.objects.get(pk=order["id"]).state, "paid")
+        self.assertEqual(MarketplaceEntitlement.objects.filter(owner=self.buyer, item=self.item).count(), 1)
+        self.assertEqual(CreatorSale.objects.count(), 1)
+
+    def test_buyer_sees_their_own_orders(self):
+        order = self._create_order().data
+        listed = self.client.get(reverse("marketplace:order-list")).data["results"]
+        self.assertEqual([row["id"] for row in listed], [order["id"]])
+        self.assertEqual(listed[0]["item"]["title"], "Paid pack")
+
+    def test_orders_are_private_to_the_buyer(self):
+        order = self._create_order().data
+        intruder = User.objects.create_user(phone_number="+66839935543", password="StrongPassword123")
+        self.client.force_authenticate(intruder)
+        detail = reverse("marketplace:order-detail", args=(order["id"],))
+        self.assertEqual(self.client.get(detail).status_code, status.HTTP_404_NOT_FOUND)
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        self.assertEqual(self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(reverse("marketplace:order-list")).data["results"], [])
+
+    def test_expired_order_refuses_late_payment(self):
+        order = self._create_order().data
+        MarketplaceOrder.objects.filter(pk=order["id"]).update(expires_at=services.timezone.now() - services.timedelta(seconds=1))
+        url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
+        with patch("apps.marketplace.services.submit_signed_envelope") as submit:
+            response = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "order_expired")
+        submit.assert_not_called()
+
+    @override_settings(MARKETPLACE_LIVE_PAYMENTS=False)
+    def test_orders_and_payments_are_unavailable_while_live_payments_are_off(self):
+        response = self._create_order()
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data["code"], "marketplace_payments_unavailable")
+
+    def test_simulation_is_disabled_on_the_settlement_path(self):
+        key = str(uuid.uuid4())
+        response = self.client.post(
+            reverse("marketplace:purchase-simulation", args=(self.item.pk,)),
+            {"idempotency_key": key},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(SimulatedPurchase.objects.exists())
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}},
+    MARKETPLACE_LIVE_PAYMENTS=True,
+    MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
+)
+class PublishItemCommandTests(APITestCase):
+    """Operators publish real listings; assets and price are validated."""
+
+    def setUp(self):
+        self.creator = User.objects.create_user(phone_number="+66839935551", password="StrongPassword123")
+        WalletLink.objects.create(user=self.creator, address=VALID_DESTINATION)
+        self.folder = tempfile.mkdtemp()
+        with open(os.path.join(self.folder, "one.png"), "wb") as handle:
+            handle.write(png_upload().read())
+        with open(os.path.join(self.folder, "two.png"), "wb") as handle:
+            handle.write(png_upload("two.png").read())
+
+    def tearDown(self):
+        for name in os.listdir(self.folder):
+            os.remove(os.path.join(self.folder, name))
+        os.rmdir(self.folder)
+
+    def test_publishes_an_approved_paid_listing_with_its_assets(self):
+        from django.core.management import call_command
+
+        call_command(
+            "publish_marketplace_item",
+            creator=self.creator.phone_number,
+            title="Studio pack",
+            price=250,
+            assets=self.folder,
+            approve=True,
+            stdout=StringIO(),
+        )
+        item = DigitalItem.objects.get(title="Studio pack")
+        self.assertEqual(item.state, DigitalItem.State.APPROVED)
+        self.assertEqual(item.proposed_price_nsat, 250)
+        self.assertEqual(item.assets.count(), 2)
+        self.assertTrue(MarketplaceAuditEvent.objects.filter(action="item.published", item=item).exists())
+
+        buyer = User.objects.create_user(phone_number="+66839935552", password="StrongPassword123")
+        WalletLink.objects.create(user=buyer, address=VALID_SOURCE)
+        self.client.force_authenticate(buyer)
+        catalog = self.client.get(reverse("marketplace:catalog"))
+        row = next(entry for entry in catalog.data if entry["id"] == item.pk)
+        self.assertEqual(row["purchase_mode"], "nsat")
+        self.assertEqual(row["price_label"], "250 NSAT")
+
+    def test_rejects_a_free_listing(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            call_command("publish_marketplace_item", creator=self.creator.phone_number, title="Free", price=0, stdout=StringIO())
+        self.assertFalse(DigitalItem.objects.filter(title="Free").exists())
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}},
+    MARKETPLACE_LIVE_PAYMENTS=True,
+    MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
+    MARKETPLACE_PLATFORM_FEE_BPS=0,
+    MARKETPLACE_TREASURY_ADDRESS="",
+)
+@skipUnless(
+    connection.vendor != "sqlite",
+    "SQLite shared-cache returns 'database table is locked' instead of a unique violation; "
+    "run this race with DJANGO_SETTINGS_MODULE=config.settings.test_postgres (CI does). "
+    "The deterministic 409 tests cover the same paths on every database.",
+)
+class EnvelopeReuseConcurrencyTests(TransactionTestCase):
+    """Two payment requests race on one signature; exactly one may be accepted."""
+
+    def setUp(self):
+        self.buyer = User.objects.create_user(phone_number="+66839935571", password="StrongPassword123")
+        self.creator = User.objects.create_user(phone_number="+66839935572", password="StrongPassword123")
+        WalletLink.objects.create(user=self.buyer, address=VALID_SOURCE)
+        WalletLink.objects.create(user=self.creator, address=VALID_DESTINATION)
+        self.orders = []
+        for index in range(2):
+            item = DigitalItem.objects.create(
+                creator=self.creator,
+                kind=DigitalItem.Kind.STICKER_PACK,
+                title=f"Race pack {index}",
+                proposed_price_nsat=123_456_789,
+                state=DigitalItem.State.APPROVED,
+            )
+            order = services.create_order(buyer=self.buyer, item=item, idempotency_key=uuid.uuid4())
+            self.orders.append(str(order.pk))
+
+    def test_concurrent_submissions_of_one_signature_yield_exactly_one_success(self):
+        from django.db import close_old_connections
+
+        barrier = threading.Barrier(2)
+        statuses = []
+        errors = []
+        status_lock = threading.Lock()
+
+        def submit(order_id):
+            close_old_connections()
+            try:
+                client = APIClient()
+                client.force_authenticate(self.buyer)
+                barrier.wait(timeout=10)
+                response = client.post(
+                    reverse("marketplace:order-payment", args=(order_id, "creator")),
+                    {"envelope_xdr": SIGNED_PAYMENT_VECTOR},
+                    format="json",
+                )
+                with status_lock:
+                    statuses.append(response.status_code)
+            except Exception as error:  # pragma: no cover - diagnostics for the race test
+                with status_lock:
+                    errors.append(repr(error))
+            finally:
+                close_old_connections()
+
+        pending = {"status": "pending", "success": None, "result_code": "", "ledger": None}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=pending):
+            threads = [threading.Thread(target=submit, args=(order_id,)) for order_id in self.orders]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=20)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(statuses), [status.HTTP_200_OK, status.HTTP_409_CONFLICT])
+        self.assertEqual(OrderPayment.objects.exclude(tx_hash="").count(), 1)

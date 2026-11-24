@@ -163,3 +163,13 @@
   .wallet-native__activity-row { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; }
   .wallet-native__success { display: none; }
 }
+
+/* Marketplace checkout reuses the wallet shell; keep its own compact rows. */
+.wallet-checkout { display: grid; gap: 14px; width: min(100%, 540px); margin: 24px auto 40px; }
+.wallet-checkout__card { display: grid; gap: 11px; padding: 18px; border: 1px solid var(--divider); border-radius: 16px; background: var(--panel-raised); }
+.wallet-checkout__row { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; color: var(--text-secondary); font-size: 13px; }
+.wallet-checkout__row strong { color: var(--text-strong); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+.wallet-checkout__hint { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.wallet-checkout__hint svg { flex: none; margin-top: 1px; color: var(--accent); }
+.wallet-checkout .wallet-native__key-form h2 { font-size: 16px; }
+.wallet-checkout__disclosure { margin: 0; padding: 11px 13px; border: 1px solid var(--divider-strong); border-radius: 10px; background: var(--panel-bg); color: var(--text-secondary); font-size: 12px; line-height: 1.55; }

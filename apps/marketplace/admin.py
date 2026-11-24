@@ -1,6 +1,21 @@
 from django.contrib import admin
 
-from .models import CreatorNotification, CreatorProfile, DigitalItem, DigitalItemAsset, GiftEvent, InventoryItem, ItemReport, MarketplaceAuditEvent, PurchaseDispute, SimulatedPurchase
+from .models import (
+    CreatorNotification,
+    CreatorProfile,
+    CreatorSale,
+    DigitalItem,
+    DigitalItemAsset,
+    GiftEvent,
+    InventoryItem,
+    ItemReport,
+    MarketplaceAuditEvent,
+    MarketplaceEntitlement,
+    MarketplaceOrder,
+    OrderPayment,
+    PurchaseDispute,
+    SimulatedPurchase,
+)
 
 
 class DigitalItemAssetInline(admin.TabularInline):
@@ -142,3 +157,76 @@ class GiftEventAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class OrderPaymentInline(admin.TabularInline):
+    model = OrderPayment
+    extra = 0
+    readonly_fields = ("role", "payee_address", "amount_nsat", "state", "tx_hash", "submitted_at", "confirmed_at", "ledger")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(MarketplaceOrder)
+class MarketplaceOrderAdmin(admin.ModelAdmin):
+    """Read-only: settlement rows must only ever come from a confirmed payment."""
+
+    list_display = ("item", "buyer", "unit_amount_nsat", "platform_fee_nsat", "state", "created_at", "paid_at")
+    list_filter = ("state", "network")
+    search_fields = ("item__title", "buyer__phone_number", "buyer__email")
+    inlines = (OrderPaymentInline,)
+    readonly_fields = tuple(field.name for field in MarketplaceOrder._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(CreatorSale)
+class CreatorSaleAdmin(admin.ModelAdmin):
+    list_display = ("item", "creator", "gross_nsat", "platform_fee_nsat", "creator_proceeds_nsat", "tx_hash", "order_reference", "created_at")
+    search_fields = ("item__title", "creator__phone_number", "tx_hash", "order_reference")
+    readonly_fields = tuple(field.name for field in CreatorSale._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(MarketplaceEntitlement)
+class MarketplaceEntitlementAdmin(admin.ModelAdmin):
+    list_display = ("item", "owner", "order", "acquired_at", "revoked_at")
+    list_filter = ("revoked_at",)
+    search_fields = ("item__title", "owner__phone_number")
+    readonly_fields = ("owner", "item", "order", "acquired_at", "revoked_at", "revoked_reason", "revoked_by")
+    actions = ("revoke_entitlements", "restore_entitlements")
+
+    def has_add_permission(self, request):
+        return False
+
+    def revoke_entitlements(self, request, queryset):
+        from . import services
+
+        count = 0
+        for entitlement in queryset.filter(revoked_at__isnull=True):
+            services.revoke_entitlement(entitlement, actor=request.user, reason="Revoked by moderator")
+            count += 1
+        self.message_user(request, f"{count} entitlement(s) revoked. Buyers were notified and the reason was audited.")
+
+    revoke_entitlements.short_description = "Revoke selected entitlements (audited)"
+
+    def restore_entitlements(self, request, queryset):
+        from . import services
+
+        count = 0
+        for entitlement in queryset.exclude(revoked_at__isnull=True):
+            services.restore_entitlement(entitlement, actor=request.user, reason="Restored by moderator")
+            count += 1
+        self.message_user(request, f"{count} entitlement(s) restored. The restore was audited and the buyer notified.")
+
+    restore_entitlements.short_description = "Restore selected entitlements (audited)"

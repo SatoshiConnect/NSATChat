@@ -3,18 +3,29 @@ import { Gift, Library, Search, Sparkles, Store, Upload } from "lucide-react";
 import { errorMessage } from "../../api/client";
 import { marketplaceApi } from "../../api/endpoints";
 import { toast } from "../../services/toast";
+import { useApp } from "../layout/AppContext";
 import { EmptyState, PanelHeader, Spinner } from "../common/ui";
 
 const CATEGORIES = ["all", "gift", "sticker_pack", "profile_frame", "badge", "theme", "avatar", "pixel_world"];
+const PURCHASE_ERRORS = {
+  wallet_not_linked: "Connect your NSAT wallet in the Wallet tab before buying.",
+  creator_wallet_unavailable: "This creator has not connected an NSAT wallet yet.",
+  already_owned: "You already own this item.",
+  order_already_open: "You already have an open order for this item. Continue it from My library.",
+  cannot_buy_own_item: "This is your own listing.",
+  marketplace_payments_unavailable: "Marketplace payments are paused right now.",
+};
 const LABELS = { all: "Explore", gift: "Gifts", sticker_pack: "Stickers", profile_frame: "Frames", badge: "Badges", theme: "Themes", avatar: "Avatar", pixel_world: "Pixel World" };
 
 export default function MarketplacePanel() {
+  const app = useApp();
   const [tab, setTab] = useState("catalog");
   const [kind, setKind] = useState("all");
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState([]);
   const [library, setLibrary] = useState([]);
   const [purchases, setPurchases] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [dashboard, setDashboard] = useState(null);
   const [creators, setCreators] = useState([]);
   const [giftHistory, setGiftHistory] = useState({ received: [], sent: [] });
@@ -29,13 +40,19 @@ export default function MarketplacePanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [catalog, inventory, history] = await Promise.all([
+      const [catalog, inventory, history, entitlements, orderHistory] = await Promise.all([
         marketplaceApi.catalog({ ...(kind !== "all" ? { kind } : {}), ...(query.trim() ? { q: query.trim() } : {}) }),
         marketplaceApi.inventory(),
         marketplaceApi.purchases(),
+        marketplaceApi.entitlements(),
+        marketplaceApi.orders(),
       ]);
       setRows(catalog);
-      setLibrary(inventory);
+      setOrders(orderHistory);
+      setLibrary([
+        ...entitlements.map((entry) => ({ id: `entitlement-${entry.id}`, item: entry.item, acquired_at: entry.acquired_at, on_chain: true })),
+        ...inventory,
+      ]);
       setPurchases(history);
       if (tab === "creator") setDashboard(await marketplaceApi.creatorDashboard());
       if (tab === "creator") setGiftHistory(await marketplaceApi.gifts());
@@ -53,14 +70,20 @@ export default function MarketplacePanel() {
       marketplaceApi.catalog({ ...(kind !== "all" ? { kind } : {}), ...(query.trim() ? { q: query.trim() } : {}) }),
       marketplaceApi.inventory(),
       marketplaceApi.purchases(),
-    ]).then(async ([catalog, inventory, history]) => {
+      marketplaceApi.entitlements(),
+      marketplaceApi.orders(),
+    ]).then(async ([catalog, inventory, history, entitlements, orderHistory]) => {
       const creatorData = tab === "creator" ? await marketplaceApi.creatorDashboard() : null;
       const creatorRows = tab === "creators" ? await marketplaceApi.creators() : null;
       const gifts = tab === "creator" ? await marketplaceApi.gifts() : null;
       if (!active) return;
       setRows(catalog);
-      setLibrary(inventory);
+      setLibrary([
+        ...entitlements.map((entry) => ({ id: `entitlement-${entry.id}`, item: entry.item, acquired_at: entry.acquired_at, on_chain: true })),
+        ...inventory,
+      ]);
       setPurchases(history);
+      setOrders(orderHistory);
       if (creatorData) setDashboard(creatorData);
       if (creatorRows) setCreators(creatorRows);
       if (gifts) setGiftHistory(gifts);
@@ -72,6 +95,14 @@ export default function MarketplacePanel() {
     return () => { active = false; };
   }, [kind, query, tab]);
 
+  useEffect(() => {
+    // A confirmed payment may arrive while checkout is closed; the inbox
+    // socket nudges this screen so the library unlocks without a reload.
+    const unlock = () => { void refresh(); };
+    window.addEventListener("mhtalk:marketplace-order-paid", unlock);
+    return () => window.removeEventListener("mhtalk:marketplace-order-paid", unlock);
+  }, [refresh]);
+
   const simulate = async (item) => {
     setActing(item.id);
     try {
@@ -82,6 +113,24 @@ export default function MarketplacePanel() {
       await refresh();
     } catch (error) { toast.error(errorMessage(error)); }
     finally { setActing(null); }
+  };
+
+  const purchase = async (item) => {
+    if (item.purchase_mode === "simulation") return simulate(item);
+    if (item.purchase_mode !== "nsat") return undefined;
+    setActing(item.id);
+    try {
+      if (!purchaseKeys.current.has(item.id)) purchaseKeys.current.set(item.id, crypto.randomUUID());
+      const order = await marketplaceApi.createOrder(item.id, purchaseKeys.current.get(item.id));
+      purchaseKeys.current.delete(item.id);
+      app.openWallet({ orderId: order.id });
+    } catch (error) {
+      const code = error?.response?.data?.code;
+      toast.error(PURCHASE_ERRORS[code] || errorMessage(error));
+    } finally {
+      setActing(null);
+    }
+    return undefined;
   };
 
   const submit = async (event) => {
@@ -138,7 +187,7 @@ export default function MarketplacePanel() {
           <span className="marketplace__eyebrow"><Sparkles size={15} /> SATOSHICORE CREATORS</span>
           <h1>Discover digital items</h1>
           <p>Gifts, stickers and creator collections for your SatoshiCore profile.</p>
-          <div className="marketplace__notice">Simulation only · Proposed NSAT prices · No real payment or on-chain transfer</div>
+          <div className="marketplace__notice">Prices in NSAT · Items unlock only after an on-chain payment is confirmed</div>
         </div>
 
         <div className="marketplace__tabs" role="tablist" aria-label="Marketplace sections">
@@ -154,7 +203,7 @@ export default function MarketplacePanel() {
           {busy ? <div className="marketplace__loading"><Spinner /></div> : rows.length ? <div className="marketplace__grid">{rows.map((item) => (
             <article className="market-item" key={item.id}>
               {item.preview ? <img src={item.preview} alt="" className="market-item__preview" /> : <div className={`market-item__preview market-item__placeholder kind-${item.kind}`}>{item.kind === "gift" ? <Gift /> : <Sparkles />}</div>}
-              <div className="market-item__body"><span className="market-item__kind">{LABELS[item.kind] || item.kind}</span><h2>{item.title}</h2><p>{item.description}</p><small>By {item.creator_name}</small><div className="market-item__foot"><strong>{item.price_label}</strong><button type="button" disabled={acting === item.id} onClick={() => simulate(item)}>{acting === item.id ? "Working…" : "Try simulation"}</button></div><details className="market-item__report"><summary>Report item</summary><form onSubmit={(event) => reportItem(event, item)}><select name="reason" defaultValue="copyright"><option value="copyright">Copyright</option><option value="unsafe">Unsafe</option><option value="spam">Spam</option><option value="other">Other</option></select><input name="details" maxLength="1000" placeholder="Details (optional)" /><button type="submit">Send report</button></form></details></div>
+              <div className="market-item__body"><span className="market-item__kind">{LABELS[item.kind] || item.kind}</span><h2>{item.title}</h2><p>{item.description}</p><small>By {item.creator_name}</small><div className="market-item__foot"><strong>{item.price_label}</strong><button type="button" disabled={acting === item.id || item.purchase_mode === "closed" || item.purchase_mode === "owned"} onClick={() => purchase(item)}>{acting === item.id ? "Working…" : item.purchase_mode === "nsat" ? "Buy with NSAT" : item.purchase_mode === "simulation" ? "Try simulation" : item.purchase_mode === "owned" ? "In library" : "Not for sale"}</button></div><details className="market-item__report"><summary>Report item</summary><form onSubmit={(event) => reportItem(event, item)}><select name="reason" defaultValue="copyright"><option value="copyright">Copyright</option><option value="unsafe">Unsafe</option><option value="spam">Spam</option><option value="other">Other</option></select><input name="details" maxLength="1000" placeholder="Details (optional)" /><button type="submit">Send report</button></form></details></div>
             </article>
           ))}</div> : <EmptyState icon={Store} text="No approved items yet" />}
         </> : null}
@@ -162,7 +211,8 @@ export default function MarketplacePanel() {
         {tab === "creators" ? (busy ? <div className="marketplace__loading"><Spinner /></div> : creators.length ? <div className="marketplace__creator-directory">{creators.map((creator) => <article key={creator.user_id}><span className="marketplace__creator-avatar">{creator.display_name.slice(0, 1).toUpperCase()}</span><div><h2>{creator.display_name}</h2><p>{creator.bio}</p><div className="marketplace__creator-items">{creator.approved_items.map((item) => <span key={item.id}>{item.title}</span>)}</div></div></article>)}</div> : <EmptyState icon={Sparkles} text="Creator collections will appear here after items are approved." />) : null}
 
         {tab === "library" ? <>
-          {busy ? <div className="marketplace__loading"><Spinner /></div> : library.length ? <div className="marketplace__grid">{library.map(({ id, item, acquired_at }) => <article className="market-item market-item--library" key={id}><div className="market-item__preview market-item__placeholder"><Library /></div><div className="market-item__body"><span className="market-item__kind">{LABELS[item.kind] || item.kind}</span><h2>{item.title}</h2><p>{item.usage_rights || "Personal in-app use."}</p><small>Added {new Date(acquired_at).toLocaleDateString()}</small><strong className="market-item__owned">Owned · simulated</strong></div></article>)}</div> : <EmptyState icon={Library} text="Your library is empty. Try a simulation from the catalog." />}
+          {busy ? <div className="marketplace__loading"><Spinner /></div> : library.length ? <div className="marketplace__grid">{library.map(({ id, item, acquired_at, on_chain }) => <article className="market-item market-item--library" key={id}><div className="market-item__preview market-item__placeholder"><Library /></div><div className="market-item__body"><span className="market-item__kind">{LABELS[item.kind] || item.kind}</span><h2>{item.title}</h2><p>{item.usage_rights || "Personal in-app use."}</p><small>Added {new Date(acquired_at).toLocaleDateString()}</small><strong className="market-item__owned">{on_chain ? "Owned · on-chain" : "Owned · simulated"}</strong></div></article>)}</div> : <EmptyState icon={Library} text="Your library is empty. Buy an item from the catalog to unlock it." />}
+          <section className="marketplace__purchase-history"><h2>NSAT orders</h2>{orders.length ? orders.map((order) => <div className="marketplace__submission" key={order.id}><div><strong>{order.item.title}</strong><span className="marketplace__history-meta">{Number(order.total_due_nsat).toLocaleString()} NSAT · {order.state.replace("_", " ")} · {new Date(order.created_at).toLocaleDateString()}</span></div>{order.state === "awaiting_payment" || order.state === "partially_paid" ? <button type="button" onClick={() => app.openWallet({ orderId: order.id })}>Continue payment</button> : null}</div>) : <p>No NSAT orders yet. Paid items appear here and in your library.</p>}</section>
           <section className="marketplace__purchase-history"><h2>Purchase history · simulations</h2>{purchases.length ? purchases.map((purchase) => <div className="marketplace__submission" key={purchase.id}><div><strong>{purchase.item.title}</strong><span className="marketplace__history-meta">{purchase.amount_nsat.toLocaleString()} proposed NSAT · {purchase.state} · no chain transfer</span></div>{purchase.dispute_state ? <span>Issue: {purchase.dispute_state}</span> : <details className="marketplace__dispute"><summary>Report an issue</summary><form onSubmit={(event) => submitDispute(event, purchase)}><input name="reason" minLength="5" maxLength="500" required placeholder="Describe the issue" /><button type="submit">Submit simulated dispute</button></form></details>}</div>) : <p>No simulated purchases yet.</p>}</section>
         </> : null}
 
@@ -172,7 +222,7 @@ export default function MarketplacePanel() {
             <label>Type<select name="kind" value={submissionKind} onChange={(event) => setSubmissionKind(event.target.value)} required>{CATEGORIES.filter((value) => value !== "all").map((value) => <option value={value} key={value}>{LABELS[value]}</option>)}</select></label>
             <label>Title<input name="title" maxLength="100" required /></label>
             <label>Description<textarea name="description" maxLength="1000" rows="3" /></label>
-            <label>Proposed price (NSAT)<input name="price" type="number" min="0" max="1000000000" defaultValue="0" required /><small>Display only; no token will be charged.</small></label>
+            <label>Proposed price (NSAT)<input name="price" type="number" min="0" max="1000000000" defaultValue="0" required /><small>Charged in NSAT from your wallet when a buyer checks out.</small></label>
             <label>Usage rights<input name="rights" maxLength="500" placeholder="Personal in-app use" /></label>
             <label>Preview image<input name="preview" type="file" accept="image/jpeg,image/png,image/webp,image/gif" /></label>
             {submissionKind === "sticker_pack" ? <label>Sticker images<input name="assets" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required /><small>Upload 1–30 images, up to 2 MB each. Pack content is reviewed before it appears in chat.</small></label> : null}
@@ -185,6 +235,7 @@ export default function MarketplacePanel() {
             <button type="submit">Save profile</button>
           </form>
           <section className="marketplace__activity"><h2>Your submissions</h2>{dashboard?.items?.length ? dashboard.items.map((item) => <div className="marketplace__submission" key={item.id}><strong>{item.title}</strong><span>{item.kind} · {item.state || "Pending review"}</span></div>) : <p>Your submitted items and simulated creator gift activity will appear here.</p>}<h3>Creator gift activity</h3>{dashboard?.gift_activity?.length ? dashboard.gift_activity.map((gift) => <div className="marketplace__submission" key={gift.id}><strong>{gift.item.title}</strong><span>Simulation · {new Date(gift.created_at).toLocaleString()}</span></div>) : <p>No gift activity yet.</p>}</section>
+          <section className="marketplace__activity"><h2>NSAT sales</h2><div className="marketplace__sales-totals"><strong>{dashboard?.sales_totals?.count || 0} sale(s)</strong><span>{Number(dashboard?.sales_totals?.creator_proceeds_nsat || 0).toLocaleString()} NSAT received · {Number(dashboard?.sales_totals?.gross_nsat || 0).toLocaleString()} NSAT gross</span></div>{dashboard?.sales?.length ? dashboard.sales.map((sale) => <div className="marketplace__submission" key={sale.id}><strong>{sale.item}</strong><span>{Number(sale.creator_proceeds_nsat).toLocaleString()} NSAT · {new Date(sale.created_at).toLocaleString()}</span></div>) : <p>No sales yet. Connect an NSAT wallet so buyers can pay you directly.</p>}</section>
           <section className="marketplace__activity"><h2>Notifications</h2>{dashboard?.notifications?.length ? dashboard.notifications.map((notice) => <div className="marketplace__submission" key={notice.id}><strong>{notice.message}</strong><span>{new Date(notice.created_at).toLocaleString()}</span></div>) : <p>No creator notifications yet.</p>}</section>
           <section className="marketplace__activity"><h2>Gift history · simulations</h2>{giftRows.length ? giftRows.map((gift) => <div className="marketplace__submission" key={`${gift.direction}-${gift.id}`}><strong>{gift.direction}: {gift.item.title}</strong><span>{new Date(gift.created_at).toLocaleString()}</span></div>) : <p>No gifts recorded yet.</p>}</section>
         </div> : null}

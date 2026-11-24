@@ -174,3 +174,150 @@ class PurchaseDispute(models.Model):
     simulation_only = models.BooleanField(default=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class MarketplaceOrder(models.Model):
+    """A priced purchase that settles in NSAT through signed wallets.
+
+    Each order snapshots its split and payees so a later settings change cannot
+    re-price an order the buyer is already paying. Settlement only completes
+    after the indexer confirms every required payment.
+    """
+
+    class State(models.TextChoices):
+        AWAITING_PAYMENT = "awaiting_payment", "Awaiting payment"
+        PARTIALLY_PAID = "partially_paid", "Partially paid"
+        PAID = "paid", "Paid"
+        EXPIRED = "expired", "Expired"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="marketplace_orders")
+    item = models.ForeignKey(DigitalItem, on_delete=models.PROTECT, related_name="orders")
+    idempotency_key = models.UUIDField()
+    unit_amount_nsat = models.PositiveBigIntegerField()
+    platform_fee_bps = models.PositiveSmallIntegerField(default=0)
+    platform_fee_nsat = models.PositiveBigIntegerField(default=0)
+    creator_proceeds_nsat = models.PositiveBigIntegerField()
+    network = models.CharField(max_length=64)
+    treasury_address = models.CharField(max_length=56, blank=True, default="")
+    state = models.CharField(max_length=20, choices=State.choices, default=State.AWAITING_PAYMENT, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    expires_at = models.DateTimeField()
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "marketplace_orders"
+        ordering = ("-created_at",)
+        constraints = [
+            models.UniqueConstraint(fields=("buyer", "idempotency_key"), name="marketplace_order_idempotency"),
+        ]
+        indexes = [models.Index(fields=("state", "expires_at"), name="mkt_order_state_exp")]
+
+    @property
+    def total_due_nsat(self):
+        return self.creator_proceeds_nsat + self.platform_fee_nsat
+
+    def __str__(self):
+        return f"{self.item_id} order {self.id}"
+
+
+class OrderPayment(models.Model):
+    """One required transfer of an order: the creator share or the platform fee."""
+
+    class Role(models.TextChoices):
+        CREATOR = "creator", "Creator share"
+        PLATFORM = "platform", "Platform fee"
+
+    class State(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CONFIRMED = "confirmed", "Confirmed"
+        FAILED = "failed", "Failed"
+
+    order = models.ForeignKey(MarketplaceOrder, on_delete=models.CASCADE, related_name="payments")
+    role = models.CharField(max_length=16, choices=Role.choices)
+    payee_address = models.CharField(max_length=56)
+    amount_nsat = models.PositiveBigIntegerField()
+    tx_hash = models.CharField(max_length=64, blank=True, default="")
+    submitted_at = models.BigIntegerField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    ledger = models.BigIntegerField(null=True, blank=True)
+    state = models.CharField(max_length=12, choices=State.choices, default=State.PENDING, db_index=True)
+
+    class Meta:
+        db_table = "marketplace_order_payments"
+        ordering = ("role",)
+        constraints = [
+            models.UniqueConstraint(fields=("order", "role"), name="marketplace_order_payment_role"),
+            models.UniqueConstraint(
+                fields=("tx_hash",),
+                condition=~models.Q(tx_hash=""),
+                name="marketplace_order_payment_tx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.order_id} {self.role}"
+
+
+class MarketplaceEntitlement(models.Model):
+    """Ownership granted only after a confirmed order.
+
+    A paid entitlement is independent of the listing's sale state: disabling an
+    item stops new sales but must not take away what a buyer already paid for.
+    Access ends only through an explicit, audited revocation.
+    """
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="marketplace_entitlements")
+    item = models.ForeignKey(DigitalItem, on_delete=models.PROTECT, related_name="entitlements")
+    order = models.OneToOneField(MarketplaceOrder, on_delete=models.CASCADE, related_name="entitlement")
+    acquired_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    revoked_reason = models.CharField(max_length=300, blank=True, default="")
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marketplace_entitlement_revocations",
+    )
+
+    class Meta:
+        db_table = "marketplace_entitlements"
+        ordering = ("-acquired_at",)
+        constraints = [
+            models.UniqueConstraint(fields=("owner", "item"), name="marketplace_entitlement_unique"),
+        ]
+
+    def __str__(self):
+        return f"{self.owner_id} owns {self.item_id}"
+
+
+class CreatorSale(models.Model):
+    """Settlement record creators see when reconciling payouts.
+
+    It must outlive the buyer's account: financial history cannot disappear
+    because a customer deleted their profile. The order link therefore goes
+    null on deletion while the immutable references and amounts stay.
+    """
+
+    order = models.OneToOneField(
+        MarketplaceOrder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="creator_sale",
+    )
+    order_reference = models.UUIDField(null=True, blank=True, db_index=True)
+    buyer_reference = models.CharField(max_length=64, blank=True, default="")
+    creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="marketplace_sales")
+    item = models.ForeignKey(DigitalItem, on_delete=models.PROTECT, related_name="creator_sales")
+    gross_nsat = models.PositiveBigIntegerField()
+    platform_fee_nsat = models.PositiveBigIntegerField(default=0)
+    creator_proceeds_nsat = models.PositiveBigIntegerField()
+    tx_hash = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "marketplace_creator_sales"
+        ordering = ("-created_at",)

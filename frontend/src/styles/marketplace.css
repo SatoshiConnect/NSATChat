@@ -70,10 +70,16 @@
 .status-gift-animation span { color: rgba(255,255,255,.75); font-size: 11px; }
 @keyframes status-gift-pop { 0% { opacity: 0; scale: .75; } 18%, 78% { opacity: 1; scale: 1; } 100% { opacity: 0; scale: .96; } }
 @media (max-width: 900px) {
-  .is-marketplace-view .main { grid-column: 1 / -1; }
-  .marketplace__scroll { padding: 14px 12px calc(24px + env(safe-area-inset-bottom)); }
+  .is-marketplace-view .main { display: flex; flex: 1 1 auto; width: 100%; min-height: 0; grid-column: 1 / -1; }
+  .marketplace__scroll { flex: 1 1 auto; height: auto; min-height: 0; padding: 14px 12px calc(24px + env(safe-area-inset-bottom)); }
   .marketplace__hero { padding: 19px 17px; }
   .marketplace__creator { grid-template-columns: minmax(0, 1fr); }
   .market-item__preview { height: 130px; }
   .marketplace__form input, .marketplace__form select, .marketplace__form textarea, .marketplace__search input { font-size: 16px; }
 }
+
+.marketplace__sales-totals { display: grid; gap: 4px; margin-bottom: 10px; padding: 12px 14px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-raised); }
+.marketplace__sales-totals strong { color: var(--text-strong); font-size: 15px; }
+.marketplace__sales-totals span { color: var(--text-muted); font-size: 12px; }
+.marketplace__purchase-history button { padding: 8px 12px; border: 1px solid var(--divider-strong); border-radius: 10px; background: transparent; color: var(--text-strong); font: inherit; font-size: 12px; cursor: pointer; }
+.marketplace__purchase-history button:hover { background: var(--hover-bg); }

@@ -220,6 +220,13 @@ export const marketplaceApi = {
   inventory: () => api.get("marketplace/inventory/").then((r) => asList(r.data)),
   stickerPacks: () => api.get("marketplace/stickers/mine/").then((r) => asList(r.data)),
   purchases: () => api.get("marketplace/purchases/").then((r) => asList(r.data)),
+  entitlements: () => api.get("marketplace/entitlements/").then((r) => asList(r.data)),
+  createOrder: (itemId, idempotencyKey) =>
+    api.post(`marketplace/items/${itemId}/orders/`, { idempotency_key: idempotencyKey }).then((r) => r.data),
+  orders: () => api.get("marketplace/orders/").then((r) => asList(r.data)),
+  order: (orderId) => api.get(`marketplace/orders/${orderId}/`).then((r) => r.data),
+  payOrder: (orderId, role, envelopeXdr) =>
+    api.post(`marketplace/orders/${orderId}/payments/${role}/`, { envelope_xdr: envelopeXdr }, { timeout: 30_000 }).then((r) => r.data),
   simulatePurchase: (itemId, idempotencyKey) =>
     api.post(`marketplace/items/${itemId}/purchase-simulation/`, { idempotency_key: idempotencyKey }).then((r) => r.data),
   dispute: (purchaseId, reason) => api.post(`marketplace/purchases/${purchaseId}/dispute/`, { reason }).then((r) => r.data),

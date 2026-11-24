@@ -1,16 +1,44 @@
 from rest_framework import serializers
 
-from .models import CreatorProfile, DigitalItem, DigitalItemAsset, GiftEvent, InventoryItem, ItemReport, SimulatedPurchase
+from . import services
+from .models import (
+    CreatorProfile,
+    DigitalItem,
+    DigitalItemAsset,
+    GiftEvent,
+    InventoryItem,
+    ItemReport,
+    MarketplaceEntitlement,
+    SimulatedPurchase,
+)
 
 
 class DigitalItemSerializer(serializers.ModelSerializer):
     creator_name = serializers.SerializerMethodField()
     price_label = serializers.SerializerMethodField()
     sticker_count = serializers.SerializerMethodField()
+    purchase_mode = serializers.SerializerMethodField()
 
     class Meta:
         model = DigitalItem
-        fields = ("id", "kind", "title", "description", "preview", "proposed_price_nsat", "price_label", "usage_rights", "creator_name", "state", "created_at", "sticker_count")
+        fields = ("id", "kind", "title", "description", "preview", "proposed_price_nsat", "price_label", "usage_rights", "creator_name", "state", "created_at", "sticker_count", "purchase_mode")
+
+    def get_purchase_mode(self, obj):
+        """nsat: payable now. simulation: demo only. closed: not for sale."""
+        if obj.pk in self.context.get("owned_ids", ()):  # paid or granted already
+            return "owned"
+        if not obj.creator_id or not obj.proposed_price_nsat:
+            return "closed"
+        try:
+            mode = services.purchase_mode()
+            services.platform_fee_bps()
+        except services.MarketplaceError:
+            return "closed"
+        link = getattr(obj.creator, "nsat_wallet_link", None)
+        if mode == "nsat" and not (link and link.address):
+            # A listing whose creator has not connected a wallet cannot settle.
+            return "closed"
+        return mode
 
     def get_creator_name(self, obj):
         if not obj.creator_id:
@@ -27,7 +55,7 @@ class DigitalItemSerializer(serializers.ModelSerializer):
             return "SatoshiCore creator"
 
     def get_price_label(self, obj):
-        return "Free" if not obj.proposed_price_nsat else f"{obj.proposed_price_nsat:,} NSAT proposed"
+        return "Free" if not obj.proposed_price_nsat else f"{obj.proposed_price_nsat:,} NSAT"
 
     def get_sticker_count(self, obj):
         return obj.assets.count() if obj.kind == DigitalItem.Kind.STICKER_PACK else 0
@@ -155,3 +183,12 @@ class SimulatedPurchaseSerializer(serializers.ModelSerializer):
             return obj.dispute.state
         except AttributeError:
             return ""
+
+
+class EntitlementSerializer(serializers.ModelSerializer):
+    item = DigitalItemSerializer(read_only=True)
+    order_id = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = MarketplaceEntitlement
+        fields = ("id", "item", "order_id", "acquired_at", "revoked_at")

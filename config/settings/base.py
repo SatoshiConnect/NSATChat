@@ -208,6 +208,9 @@ REST_FRAMEWORK = {
         # Group invite link preview/join (per user).
         "invite": config("THROTTLE_INVITE", default="30/min"),
         "marketplace_purchase": config("THROTTLE_MARKETPLACE_PURCHASE", default="20/hour"),
+        # Checkout polls an order while the network confirms; reads must be cheap
+        # but not block a single purchase attempt.
+        "marketplace_order": config("THROTTLE_MARKETPLACE_ORDER", default="600/hour"),
         "marketplace_gift": config("THROTTLE_MARKETPLACE_GIFT", default="20/hour"),
         "marketplace_report": config("THROTTLE_MARKETPLACE_REPORT", default="20/hour"),
         "marketplace_submit": config("THROTTLE_MARKETPLACE_SUBMIT", default="10/hour"),
@@ -397,6 +400,23 @@ MHTALK_MAX_PINNED_MESSAGES = 3
 
 # Largest photo / video / document a chat message may carry (Caddy allows 110 MB).
 CHAT_MAX_UPLOAD_MB = config("CHAT_MAX_UPLOAD_MB", default=100, cast=int)
+
+# Marketplace settlement in NSAT. Fail-closed: taking real money must be an
+# explicit operator decision, so this stays off in code and is enabled only
+# through the deployment environment (MARKETPLACE_LIVE_PAYMENTS=true). While it
+# is off, orders are refused and the UI reports the item as not for sale.
+MARKETPLACE_LIVE_PAYMENTS = config("MARKETPLACE_LIVE_PAYMENTS", default=False, cast=bool)
+# Whole basis points (1/100 of one percent) of each sale kept by the platform.
+# Product decision: 0, so the creator receives the full listing price and no
+# treasury address is required. Raising it requires MARKETPLACE_TREASURY_ADDRESS.
+MARKETPLACE_PLATFORM_FEE_BPS = config("MARKETPLACE_PLATFORM_FEE_BPS", default=0, cast=int)
+# Public NSAT address that receives the platform fee; required when the fee is
+# above 0. Never a recovery key or secret.
+MARKETPLACE_TREASURY_ADDRESS = config("MARKETPLACE_TREASURY_ADDRESS", default="")
+MARKETPLACE_ORDER_TTL_SECONDS = config("MARKETPLACE_ORDER_TTL_SECONDS", default=900, cast=int)
+# The legacy no-payment purchase demo. Off by default so a deployment cannot
+# hand out paid inventory without a confirmed payment.
+MARKETPLACE_ALLOW_SIMULATED_PURCHASES = config("MARKETPLACE_ALLOW_SIMULATED_PURCHASES", default=False, cast=bool)
 
 # SatoshiCore AI (assistant chat). Leave the key empty to turn it off.
 # Providers: gemini (free key, default), groq (free key), openai, anthropic.
