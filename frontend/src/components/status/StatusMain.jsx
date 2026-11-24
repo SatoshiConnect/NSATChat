@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, Check, Flag, Image as ImageIcon, MessageCircle, Pencil, Send, Share2, Trash2, UserPlus, X } from "lucide-react";
 import { socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
@@ -191,6 +191,8 @@ export default function StatusMain() {
   const [requestsBusy, setRequestsBusy] = useState(false);
   const [sharingPostId, setSharingPostId] = useState(null);
   const [shareBusy, setShareBusy] = useState(false);
+  const feedListRef = useRef(null);
+  const scrollToNewestRef = useRef(false);
   const load = useCallback(async (options = {}) => {
     if (options.sharePostId) { setSharingPostId(options.sharePostId); return; }
     try { const page = await socialApi.posts({ limit: 20, offset: 0, ...(scope !== "all" ? { scope } : {}), ...(hashtagFilter ? { hashtag: hashtagFilter } : {}) }); setPosts(page.results || []); setHasMore(Boolean(page.next)); setError(""); }
@@ -204,6 +206,15 @@ export default function StatusMain() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [scope, hashtagFilter]);
+  useEffect(() => {
+    if (!scrollToNewestRef.current || !posts.length) return;
+    scrollToNewestRef.current = false;
+    const list = feedListRef.current;
+    const scroller = list?.closest(".status-mobile-posts, .panel__scroll");
+    if (!list || !scroller) return;
+    const top = list.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, [posts]);
   useEffect(() => {
     let active = true;
     socialApi.followRequests().then((items) => { if (active) setFollowRequests(items); }).catch(() => {});
@@ -248,6 +259,7 @@ export default function StatusMain() {
       // after the async request: React may have cleared it by this point.
       setText(""); setUploads([]);
       if (scope === "all" && !hashtagFilter) {
+        scrollToNewestRef.current = true;
         setPosts((current) => [created, ...current.filter((post) => post.id !== created.id)]);
       }
       toast.success("Post published.");
@@ -289,7 +301,7 @@ export default function StatusMain() {
         <footer><label className="social-compose__image"><ImageIcon size={18} /> Photo or video<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" multiple disabled={busy} onChange={(event) => { const selected = Array.from(event.target.files || []); event.target.value = ""; if (!selected.length) return; const next = [...uploads, ...selected]; const fileError = validatePostFiles(next); if (fileError) toast.error(fileError); else setUploads(next); }} /></label>{uploads.some((file) => SOCIAL_IMAGE_EXTENSIONS.has(file.name.split(".").pop().toLowerCase())) ? <label className="social-compose__optimize"><input type="checkbox" checked={optimizePhotos} onChange={(event) => setOptimizePhotos(event.target.checked)} disabled={busy} /> Optimize large photos</label> : null}<select value={visibility} onChange={(event) => setVisibility(event.target.value)} aria-label="Post audience" disabled={busy}><option value="CONTACTS">My contacts</option><option value="FOLLOWERS">Followers</option><option value="EVERYONE">Public</option></select><button className="btn btn--primary" type="submit" disabled={busy || (!text.trim() && !uploads.length)}>{busy ? <Spinner size={16} /> : "Post"}</button></footer>
         {busy ? <div className="social-compose__progress" role="status" aria-live="polite">{preparingPhotos ? "Preparing photos…" : `Uploading… ${uploadProgress}%`}<progress max="100" value={preparingPhotos ? undefined : uploadProgress} /></div> : null}
       </form>
-      {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length ? <><div className="social-feed__list">{posts.map((post) => <PostCard key={post.id} post={post} me={me} onChange={load} onHashtag={(tag) => { setScope("all"); setHashtagFilter(tag); setLoading(true); }} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : <EmptyState text={hashtagFilter ? `No posts found for #${hashtagFilter}.` : scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
+      {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length ? <><div className="social-feed__list" ref={feedListRef}>{posts.map((post) => <PostCard key={post.id} post={post} me={me} onChange={load} onHashtag={(tag) => { setScope("all"); setHashtagFilter(tag); setLoading(true); }} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : <EmptyState text={hashtagFilter ? `No posts found for #${hashtagFilter}.` : scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
       {sharingPostId ? <div className="social-share-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !shareBusy) setSharingPostId(null); }}><section className="social-share-dialog" role="dialog" aria-modal="true" aria-labelledby="social-share-title"><header><h3 id="social-share-title">Share to chat</h3><button type="button" aria-label="Close share dialog" disabled={shareBusy} onClick={() => setSharingPostId(null)}><X size={18} /></button></header><div>{Object.values(rooms).filter((room) => !room.isArchived).map((room) => <button key={room.id} type="button" className="social-share-dialog__room" disabled={shareBusy} onClick={() => shareToRoom(room.id)}><Avatar src={room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture} name={roomTitle(room, contactMap, me)} group={room.isGroup} size={38} /><span>{roomTitle(room, contactMap, me)}</span>{shareBusy ? <Spinner size={15} /> : <Send size={15} />}</button>)}</div>{!Object.values(rooms).some((room) => !room.isArchived) ? <EmptyState text="No chats available." /> : null}<p>The post is shared only if everyone in the chat can view it.</p></section></div> : null}
     </section>
   );

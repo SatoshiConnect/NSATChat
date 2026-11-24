@@ -1,10 +1,12 @@
 import tempfile
+from datetime import timedelta
 from io import BytesIO
 
 from django.core import signing
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.test import override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 from apps.accounts.models import Contact, User
@@ -42,6 +44,21 @@ class SocialPostAPITests(TestCase):
         ids = self.ids(self.stranger_client.get("/api/social/posts/"))
         self.assertIn(public.id, ids)
         self.assertNotIn(private.id, ids)
+
+    def test_feed_orders_newest_post_first_with_stable_ties(self):
+        now = timezone.now()
+        older = Post.objects.create(author=self.author, text="Older")
+        newer = Post.objects.create(author=self.author, text="Newer")
+        tied = Post.objects.create(author=self.author, text="Same timestamp")
+        Post.objects.filter(pk=older.pk).update(created_at=now - timedelta(minutes=2))
+        Post.objects.filter(pk=newer.pk).update(created_at=now - timedelta(minutes=1))
+        Post.objects.filter(pk=tied.pk).update(created_at=now - timedelta(minutes=1))
+
+        response = self.author_client.get("/api/social/posts/?limit=20")
+
+        self.assertEqual(response.status_code, 200)
+        ids = [post["id"] for post in response.data["results"]]
+        self.assertEqual(ids[:3], [tied.id, newer.id, older.id])
 
     def test_hashtag_filter_is_case_insensitive_and_rejects_invalid_input(self):
         tagged = Post.objects.create(author=self.author, text="Summer #Travel #ไทย", visibility=Post.EVERYONE)
