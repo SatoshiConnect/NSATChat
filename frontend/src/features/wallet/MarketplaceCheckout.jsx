@@ -157,6 +157,8 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         destination_creation_reserve_too_low: "The recipient needs a larger first payment.",
         payment_already_submitted: "This part of the order is already submitted.",
         order_expired: "This order expired. Start checkout again.",
+        already_owned: "You already own this item through another order. Nothing was charged.",
+        order_closed: "This order is closed. Start checkout again from the catalog.",
         payment_failed: "The network rejected the payment. Nothing was delivered.",
         wallet_address_mismatch: "This device holds a different wallet than your account.",
       };
