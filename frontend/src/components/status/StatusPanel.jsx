@@ -83,6 +83,9 @@ export default function StatusPanel() {
           toast.error("That status is no longer available.");
           return;
         }
+        // A push/URL deep link wins over the merged "Posts" tab: the viewer
+        // only renders inside the Stories view, so show that first.
+        setMobileView("stories");
         setViewer({ groups, start: index, startStatusId: Number(detail.status_id) });
       } catch (error) {
         openingStatusId.current = null;

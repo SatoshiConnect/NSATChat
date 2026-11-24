@@ -7,6 +7,7 @@ import { generateWalletKeypair, readKeystoreMeta, saveEncryptedWallet, unlockEnc
 import { buildSignedPayment, paymentPreflight, parsePositiveAmount } from "./transaction";
 import { createWalletReceiptMessage } from "./paymentRequest";
 import { sendText } from "../../store/actions";
+import MarketplaceCheckout from "./MarketplaceCheckout";
 
 const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const ADDRESS_KEY = "satoshicore:messenger-wallet-address:v1";
@@ -343,6 +344,10 @@ export default function WalletPanel({ launch = null }) {
       } else setError(failure?.message || "The transfer was not signed or submitted.");
     } finally { setSendBusy(false); }
   };
+
+  if (launch?.orderId) {
+    return <MarketplaceCheckout orderId={launch.orderId} onDone={() => app.setSection("marketplace")} />;
+  }
 
   const actions = [
     { key: "send", label: "Send", icon: ArrowUpRight },

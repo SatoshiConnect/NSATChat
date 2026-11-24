@@ -1,5 +1,4 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
-import { MessageCircle, Phone, ShoppingBag, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { realtime } from "../../services/realtime";
 import { setTitleBadge } from "../../services/notify";
@@ -44,29 +43,6 @@ const MarketplacePanel = lazy(() => import("../marketplace/MarketplacePanel"));
 const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 const fallback = <div className="panel panel--loading"><Spinner /></div>;
-
-function MobileSectionSwitcher({ type, section, onChange }) {
-  const options = type === "communications"
-    ? [
-      { id: "chats", label: "Chats", icon: MessageCircle },
-      { id: "calls", label: "Calls", icon: Phone },
-    ]
-    : [
-      { id: "wallet", label: "Wallet", icon: WalletCards },
-      { id: "marketplace", label: "Marketplace", icon: ShoppingBag },
-    ];
-
-  return (
-    <nav className={`mobile-section-switcher mobile-section-switcher--${type}`} aria-label={type === "communications" ? "Chats and calls" : "Wallet and marketplace"} role="tablist">
-      {options.map(({ id, label, icon: Icon }) => (
-        <button key={id} type="button" role="tab" aria-selected={section === id} className={section === id ? "is-active" : ""} onClick={() => onChange(id)}>
-          <Icon size={17} strokeWidth={1.9} />
-          <span>{label}</span>
-        </button>
-      ))}
-    </nav>
-  );
-}
 
 const PANELS = {
   archived: ArchivedPanel,
@@ -284,7 +260,6 @@ export default function MainLayout({ onLogout }) {
           <NavRail section={section === "aiChat" ? "chats" : section} onChange={setSection} onOpenMedia={openMedia} />
           {!showWallet && !showMarketplace ? (
             <aside className="sidebar">
-              {compact && (section === "chats" || section === "calls") ? <MobileSectionSwitcher type="communications" section={section} onChange={setSection} /> : null}
               <div className="sidebar__stack">
                 <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} /></Suspense>
                 {OverlayPanel ? (
@@ -295,10 +270,7 @@ export default function MainLayout({ onLogout }) {
               </div>
             </aside>
           ) : null}
-          <main className={`main ${showWallet ? "main--wallet" : ""}`}>
-            {compact && (showWallet || showMarketplace) ? <MobileSectionSwitcher type="commerce" section={showMarketplace ? "marketplace" : "wallet"} onChange={setSection} /> : null}
-            <Suspense fallback={fallback}>{main}</Suspense>
-          </main>
+          <main className={`main ${showWallet ? "main--wallet" : ""}`}><Suspense fallback={fallback}>{main}</Suspense></main>
           {Drawer && showChat ? (
             <aside className="drawer" key={drawer.type}>
               <Suspense fallback={fallback}><Drawer {...drawer.payload} /></Suspense>

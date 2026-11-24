@@ -39,6 +39,11 @@ jobs:
         run: python manage.py test
         env:
           DJANGO_SETTINGS_MODULE: config.settings.test
+      - name: Settlement concurrency on PostgreSQL
+        run: python manage.py test apps.marketplace apps.wallet_integration
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test_postgres
+          TEST_DATABASE_URL: postgres://mhtalk:mhtalk@localhost:5432/mhtalk_ci
       - name: Migrations are complete
         run: python manage.py makemigrations --check --dry-run
         env:

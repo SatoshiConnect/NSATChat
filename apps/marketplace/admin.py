@@ -1,6 +1,27 @@
-from django.contrib import admin
+import logging
 
-from .models import CreatorNotification, CreatorProfile, DigitalItem, DigitalItemAsset, GiftEvent, InventoryItem, ItemReport, MarketplaceAuditEvent, PurchaseDispute, SimulatedPurchase
+from django.contrib import admin, messages
+
+from .models import (
+    CreatorNotification,
+    CreatorProfile,
+    CreatorSale,
+    DigitalItem,
+    DigitalItemAsset,
+    GiftEvent,
+    InventoryItem,
+    ItemReport,
+    MarketplaceAuditEvent,
+    MarketplaceEntitlement,
+    MarketplaceOrder,
+    MarketplaceReconciliationIssue,
+    MarketplaceReconciliationRun,
+    OrderPayment,
+    PurchaseDispute,
+    SimulatedPurchase,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class DigitalItemAssetInline(admin.TabularInline):
@@ -133,6 +154,161 @@ admin.site.register(CreatorNotification)
 class GiftEventAdmin(admin.ModelAdmin):
     list_display = ("item", "sender", "recipient", "simulation_only", "created_at")
     readonly_fields = ("sender", "recipient", "item", "status", "simulation_only", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class OrderPaymentInline(admin.TabularInline):
+    model = OrderPayment
+    extra = 0
+    readonly_fields = ("role", "payee_address", "amount_nsat", "state", "tx_hash", "submitted_at", "confirmed_at", "ledger")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(MarketplaceOrder)
+class MarketplaceOrderAdmin(admin.ModelAdmin):
+    """Read-only: settlement rows must only ever come from a confirmed payment."""
+
+    list_display = ("item", "buyer", "unit_amount_nsat", "platform_fee_nsat", "state", "created_at", "paid_at")
+    list_filter = ("state", "network")
+    search_fields = ("item__title", "buyer__phone_number", "buyer__email")
+    inlines = (OrderPaymentInline,)
+    readonly_fields = tuple(field.name for field in MarketplaceOrder._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(CreatorSale)
+class CreatorSaleAdmin(admin.ModelAdmin):
+    list_display = ("item", "creator", "gross_nsat", "platform_fee_nsat", "creator_proceeds_nsat", "tx_hash", "order_reference", "created_at")
+    search_fields = ("item__title", "creator__phone_number", "tx_hash", "order_reference")
+    readonly_fields = tuple(field.name for field in CreatorSale._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(MarketplaceEntitlement)
+class MarketplaceEntitlementAdmin(admin.ModelAdmin):
+    list_display = ("item", "owner", "order", "acquired_at", "revoked_at")
+    list_filter = ("revoked_at",)
+    search_fields = ("item__title", "owner__phone_number")
+    readonly_fields = ("owner", "item", "order", "acquired_at", "revoked_at", "revoked_reason", "revoked_by")
+    actions = ("revoke_entitlements", "restore_entitlements")
+
+    def has_add_permission(self, request):
+        return False
+
+    def revoke_entitlements(self, request, queryset):
+        from . import services
+
+        count = 0
+        for entitlement in queryset.filter(revoked_at__isnull=True):
+            services.revoke_entitlement(entitlement, actor=request.user, reason="Revoked by moderator")
+            count += 1
+        self.message_user(request, f"{count} entitlement(s) revoked. Buyers were notified and the reason was audited.")
+
+    revoke_entitlements.short_description = "Revoke selected entitlements (audited)"
+
+    def restore_entitlements(self, request, queryset):
+        from . import services
+
+        count = 0
+        for entitlement in queryset.exclude(revoked_at__isnull=True):
+            services.restore_entitlement(entitlement, actor=request.user, reason="Restored by moderator")
+            count += 1
+        self.message_user(request, f"{count} entitlement(s) restored. The restore was audited and the buyer notified.")
+
+    restore_entitlements.short_description = "Restore selected entitlements (audited)"
+
+
+class ReconciliationIssueInline(admin.TabularInline):
+    model = MarketplaceReconciliationIssue
+    extra = 0
+    fields = ("code", "severity", "order_reference", "detail", "repaired")
+    readonly_fields = fields
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(MarketplaceReconciliationRun)
+class MarketplaceReconciliationRunAdmin(admin.ModelAdmin):
+    """The report admins read; a run is history, so nothing here is editable."""
+
+    list_display = (
+        "started_at",
+        "status",
+        "source",
+        "dry_run",
+        "orders_scanned",
+        "payments_scanned",
+        "issues_found",
+        "critical_issues",
+        "repairs_applied",
+        "summary",
+    )
+    list_filter = ("status", "source", "dry_run")
+    search_fields = ("summary", "error")
+    date_hierarchy = "started_at"
+    inlines = (ReconciliationIssueInline,)
+    actions = ("run_reconciliation_now",)
+    readonly_fields = tuple(field.name for field in MarketplaceReconciliationRun._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Run a reconciliation pass now")
+    def run_reconciliation_now(self, request, queryset):
+        from .reconciliation import run_reconciliation
+
+        try:
+            # A browser request must not sit on hundreds of indexer calls; the
+            # scheduled pass does the deep scan. A failed pass is reported in the
+            # message area instead of answering the operator with a 500.
+            run = run_reconciliation(
+                trigger=request.user,
+                source=MarketplaceReconciliationRun.Source.ADMIN,
+                limit=100,
+            )
+        except Exception as error:  # noqa: BLE001 - the failed run row keeps the detail
+            logger.exception("admin reconciliation pass failed")
+            self.message_user(
+                request,
+                f"Reconciliation failed with {type(error).__name__}; the failed run is in the list below.",
+                level=messages.ERROR,
+            )
+            return
+        level = messages.ERROR if run.critical_issues else messages.WARNING if run.issues_found else messages.SUCCESS
+        self.message_user(request, run.summary, level=level)
+
+
+@admin.register(MarketplaceReconciliationIssue)
+class MarketplaceReconciliationIssueAdmin(admin.ModelAdmin):
+    list_display = ("code", "severity", "order_reference", "repaired", "run", "created_at")
+    list_filter = ("severity", "code", "repaired")
+    search_fields = ("code", "detail", "order_reference")
+    readonly_fields = tuple(field.name for field in MarketplaceReconciliationIssue._meta.fields)
 
     def has_add_permission(self, request):
         return False

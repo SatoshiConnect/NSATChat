@@ -1,25 +1,132 @@
+import hashlib
 import uuid
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Count, Max, Q, Sum
+from django.db.models.functions import Coalesce
+from django.http import HttpResponseNotModified
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import CursorPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from .models import CreatorNotification, CreatorProfile, DigitalItem, GiftEvent, InventoryItem, ItemReport, MarketplaceAuditEvent, PurchaseDispute, SimulatedPurchase
-from .serializers import CreatorProfileSerializer, DigitalItemSerializer, GiftEventSerializer, InventorySerializer, ItemReportSerializer, OwnedStickerPackSerializer, SimulatedPurchaseSerializer, SubmitItemSerializer
+from . import services
+from .models import (
+    CreatorNotification,
+    CreatorProfile,
+    CreatorSale,
+    DigitalItem,
+    GiftEvent,
+    InventoryItem,
+    ItemReport,
+    MarketplaceAuditEvent,
+    MarketplaceEntitlement,
+    MarketplaceOrder,
+    OrderPayment,
+    PurchaseDispute,
+    SimulatedPurchase,
+)
+from .serializers import (
+    CreatorProfileSerializer,
+    DigitalItemSerializer,
+    EntitlementSerializer,
+    GiftEventSerializer,
+    InventorySerializer,
+    ItemReportSerializer,
+    OwnedStickerPackSerializer,
+    SimulatedPurchaseSerializer,
+    SubmitItemSerializer,
+)
+
+
+class CatalogCursorPagination(CursorPagination):
+    """Newest-first pages that stay correct while creators publish.
+
+    Cursor paging carries the position instead of a row offset, so an item
+    approved between two requests cannot make a shopper see one row twice or
+    skip one. A fixed page size also bounds the response a slow phone downloads.
+    """
+
+    page_size = 48
+    page_size_query_param = "page_size"
+    max_page_size = 96
+    ordering = ("-created_at", "-pk")
 
 
 class CatalogAPIView(generics.ListAPIView):
     permission_classes = (permissions.IsAuthenticated,)
     serializer_class = DigitalItemSerializer
+    pagination_class = CatalogCursorPagination
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        etag = self._etag(queryset)
+        if request.headers.get("If-None-Match") == etag:
+            response = HttpResponseNotModified()
+        else:
+            serializer = self.get_serializer(self.paginate_queryset(queryset), many=True)
+            response = self.get_paginated_response(serializer.data)
+        response["ETag"] = etag
+        # The body carries this viewer's ownership flags, so it must never be
+        # stored by a shared cache. A short private window removes most repeat
+        # reads while still refreshing an item the buyer just paid for.
+        response["Cache-Control"] = "private, max-age=30"
+        response["Vary"] = "Authorization"
+        return response
+
+    def _etag(self, queryset):
+        """Cheap validator for everything this viewer's catalog depends on.
+
+        The body carries per-viewer ownership flags and a listing turns from
+        payable to closed when its creator connects a wallet, so counting the
+        catalog rows alone is not enough: a buyer who just paid, or whose
+        access was revoked, must never be handed a cached page that still says
+        the item is for sale. Both aggregates are indexed one-row-per-item
+        lookups, far cheaper than serialising a page.
+        """
+        catalog = queryset.aggregate(
+            rows=Count("pk", distinct=True),
+            newest=Max("updated_at"),
+            sellers_with_wallet=Count("creator__nsat_wallet_link", distinct=True),
+        )
+        owned = MarketplaceEntitlement.objects.filter(owner=self.request.user).aggregate(
+            rows=Count("pk"),
+            newest=Max("acquired_at"),
+            revoked=Max("revoked_at"),
+        )
+
+        def stamp(value):
+            return value.isoformat() if value else "0"
+
+        parts = [
+            str(self.request.user.pk),
+            str(catalog["rows"]),
+            stamp(catalog["newest"]),
+            str(catalog["sellers_with_wallet"]),
+            str(owned["rows"]),
+            stamp(owned["newest"]),
+            stamp(owned["revoked"]),
+            self.request.get_full_path(),
+        ]
+        return f'"{hashlib.sha256(":".join(parts).encode("utf-8")).hexdigest()[:32]}"'
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        if self.request.user.is_authenticated:
+            context["owned_ids"] = set(
+                MarketplaceEntitlement.objects.filter(owner=self.request.user, revoked_at__isnull=True)
+                .values_list("item_id", flat=True)
+            )
+        return context
 
     def get_queryset(self):
-        qs = DigitalItem.objects.filter(state=DigitalItem.State.APPROVED).select_related("creator", "creator__profile", "creator__creator_profile").prefetch_related("assets")
+        qs = DigitalItem.objects.filter(state=DigitalItem.State.APPROVED).select_related(
+            "creator", "creator__profile", "creator__creator_profile", "creator__nsat_wallet_link"
+        ).prefetch_related("assets")
         kind = self.request.query_params.get("kind")
         query = self.request.query_params.get("q", "").strip()[:100]
         if kind in DigitalItem.Kind.values:
@@ -56,10 +163,15 @@ class OwnedStickerPacksAPIView(generics.ListAPIView):
     serializer_class = OwnedStickerPackSerializer
 
     def get_queryset(self):
+        # Paid access is independent of the sale state: disabling a listing
+        # stops new sales, not what buyers already own. Only an explicit
+        # revocation (audited) ends it. Legacy simulated grants still require
+        # an approved listing because nobody paid for them.
+        paid = Q(entitlements__owner=self.request.user, entitlements__revoked_at__isnull=True)
+        legacy = Q(inventory_entries__owner=self.request.user, state=DigitalItem.State.APPROVED)
         return DigitalItem.objects.filter(
-            inventory_entries__owner=self.request.user,
+            paid | legacy,
             kind=DigitalItem.Kind.STICKER_PACK,
-            state=DigitalItem.State.APPROVED,
         ).prefetch_related("assets").distinct()
 
 
@@ -77,6 +189,9 @@ class PurchaseSimulationAPIView(APIView):
     throttle_scope = "marketplace_purchase"
 
     def post(self, request, pk):
+        if not services.simulations_enabled():
+            # Paid inventory is minted only by a confirmed on-chain order.
+            return Response({"code": "simulation_disabled"}, status=status.HTTP_404_NOT_FOUND)
         item = get_object_or_404(DigitalItem, pk=pk, state=DigitalItem.State.APPROVED)
         try:
             key = uuid.UUID(str(request.data.get("idempotency_key", "")))
@@ -157,11 +272,28 @@ class CreatorDashboardAPIView(APIView):
         gifts = GiftEvent.objects.filter(recipient=request.user).select_related("item")[:100]
         notifications = CreatorNotification.objects.filter(recipient=request.user).values("id", "event_type", "message", "is_read", "created_at")[:100]
         creator_profile = CreatorProfile.objects.filter(user=request.user).first() or CreatorProfile(user=request.user)
+        sales = CreatorSale.objects.filter(creator=request.user).select_related("item", "order")[:50]
+        totals = CreatorSale.objects.filter(creator=request.user).aggregate(
+            count=Count("id"), gross=Coalesce(Sum("gross_nsat"), 0), proceeds=Coalesce(Sum("creator_proceeds_nsat"), 0)
+        )
         return Response({
             "profile": CreatorProfileSerializer(creator_profile).data,
             "items": DigitalItemSerializer(items, many=True, context={"request": request}).data,
             "gift_activity": GiftEventSerializer(gifts, many=True).data,
             "notifications": list(notifications),
+            "sales": [
+                {
+                    "id": sale.pk,
+                    "item": sale.item.title,
+                    "gross_nsat": sale.gross_nsat,
+                    "platform_fee_nsat": sale.platform_fee_nsat,
+                    "creator_proceeds_nsat": sale.creator_proceeds_nsat,
+                    "tx_hash": sale.tx_hash,
+                    "created_at": sale.created_at.isoformat(),
+                }
+                for sale in sales
+            ],
+            "sales_totals": {"count": totals["count"], "gross_nsat": totals["gross"], "creator_proceeds_nsat": totals["proceeds"]},
             "simulated_only": True,
         })
 
@@ -223,3 +355,96 @@ class ReportItemAPIView(APIView):
         report = serializer.save(reporter=request.user, item=item)
         MarketplaceAuditEvent.objects.create(actor=request.user, item=item, action="item.reported", metadata={"report_id": report.pk, "reason": report.reason})
         return Response({"id": report.pk, "state": report.state}, status=status.HTTP_201_CREATED)
+
+
+def _order_or_404(request, order_id):
+    return get_object_or_404(
+        MarketplaceOrder.objects.select_related("item", "item__creator", "buyer").prefetch_related("payments"),
+        pk=order_id,
+        buyer=request.user,
+    )
+
+
+def _error_response(error):
+    return Response({"code": error.code}, status=error.status)
+
+
+def _validated_key(request):
+    try:
+        return uuid.UUID(str(request.data.get("idempotency_key", "")))
+    except (ValueError, TypeError, AttributeError):
+        raise ValidationError({"idempotency_key": "Provide a UUID idempotency key."})
+
+
+class OrderCreateAPIView(APIView):
+    """Price a listing and open the signed transfers the buyer must pay."""
+
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "marketplace_purchase"
+
+    def post(self, request, pk):
+        item = get_object_or_404(DigitalItem.objects.select_related("creator"), pk=pk)
+        key = _validated_key(request)
+        try:
+            order = services.create_order(buyer=request.user, item=item, idempotency_key=key)
+        except services.MarketplaceError as error:
+            return _error_response(error)
+        order = MarketplaceOrder.objects.select_related("item").prefetch_related("payments").get(pk=order.pk)
+        return Response(services.order_payload(order), status=status.HTTP_201_CREATED)
+
+
+class OrderListAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request):
+        orders = (
+            MarketplaceOrder.objects.filter(buyer=request.user)
+            .select_related("item")
+            .prefetch_related("payments")[:50]
+        )
+        return Response({"results": [services.order_payload(order) for order in orders]})
+
+
+class OrderDetailAPIView(APIView):
+    """Read an order and pull fresh confirmation state from the indexer."""
+
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "marketplace_order"
+
+    def get(self, request, order_id):
+        order = _order_or_404(request, order_id)
+        order = services.sync_order(order)
+        order = MarketplaceOrder.objects.select_related("item").prefetch_related("payments").get(pk=order.pk)
+        return Response(services.order_payload(order))
+
+
+class OrderPaymentAPIView(APIView):
+    """Accept one signed tranche, then wait for indexer confirmation."""
+
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "marketplace_purchase"
+
+    def post(self, request, order_id, role):
+        order = _order_or_404(request, order_id)
+        envelope = request.data.get("envelope_xdr") if isinstance(request.data, dict) else None
+        try:
+            services.record_order_payment(order=order, role=role, envelope=envelope)
+        except services.MarketplaceError as error:
+            return _error_response(error)
+        order = MarketplaceOrder.objects.select_related("item").prefetch_related("payments").get(pk=order.pk)
+        return Response(services.order_payload(services.sync_order(order)), status=status.HTTP_200_OK)
+
+
+class EntitlementListAPIView(generics.ListAPIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = EntitlementSerializer
+
+    def get_queryset(self):
+        # Revoked grants stay in the database as an audit record; they are not
+        # listed as owned content.
+        return MarketplaceEntitlement.objects.filter(owner=self.request.user, revoked_at__isnull=True).select_related(
+            "item", "item__creator", "item__creator__creator_profile", "item__creator__nsat_wallet_link"
+        )

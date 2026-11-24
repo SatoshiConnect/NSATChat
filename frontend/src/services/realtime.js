@@ -347,6 +347,12 @@ class Realtime {
         scheduleStatusReload();
         break;
       }
+      case "marketplace.order_paid": {
+        const title = data.item_title || "your item";
+        toast(`Payment confirmed — “${title}” is in your library.`, { type: "success", duration: 6000 });
+        window.dispatchEvent(new CustomEvent("mhtalk:marketplace-order-paid", { detail: data }));
+        break;
+      }
       case "calls.updated":
         loadCalls();
         window.dispatchEvent(new CustomEvent("mhtalk:call-changed", { detail: data }));

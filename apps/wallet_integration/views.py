@@ -254,6 +254,18 @@ def _u32(value):
     return int(value).to_bytes(4, "big")
 
 
+def _encode_wallet_address(public_key):
+    """StrKey-encode a raw Ed25519 public key as a public G... address."""
+    body = b"\x30" + bytes(public_key)
+    crc = 0
+    for byte in body:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    tail = bytes((crc & 0xFF, (crc >> 8) & 0xFF))
+    return base64.b32encode(body + tail).decode("ascii").rstrip("=")
+
+
 def _verify_signed_payment_envelope(envelope):
     """Accept only one-signer NSAT V0 native payment/create-account XDR."""
     raw = base64.b64decode(envelope, validate=True)
@@ -305,7 +317,46 @@ def _verify_signed_payment_envelope(envelope):
         Ed25519PublicKey.from_public_bytes(source).verify(signature, payload)
     except (ValueError, InvalidSignature) as error:
         raise ValueError("invalid transaction signature") from error
-    return {"amount": amount, "fee": fee}
+    return {
+        "hash": payload.hex(),
+        "source": _encode_wallet_address(source),
+        "destination": _encode_wallet_address(destination),
+        "amount": amount,
+        "fee": fee,
+        "operation": "create_account" if operation_type == 0 else "payment",
+    }
+
+
+def verify_payment_envelope(envelope):
+    """Public entry point shared by wallet send and marketplace settlement."""
+    return _verify_signed_payment_envelope(envelope)
+
+
+def submit_signed_envelope(envelope):
+    """Submit one already-verified envelope to the gateway and return its state."""
+    if not _verified_mainnet():
+        raise ValueError("mainnet unverified")
+    result = _post_json(f"{GATEWAY}/api/v1/tx", {"envelope_xdr": envelope})
+    result_status = str(result.get("status", "UNKNOWN")).upper()
+    if result_status not in {"PENDING", "DUPLICATE", "ERROR", "TRY_AGAIN_LATER", "FILTERED"}:
+        result_status = "UNKNOWN"
+    return result_status
+
+
+def confirmation_for_hash(tx_hash, submitted_at):
+    """Return the indexer's normalized verdict for a submitted transaction hash."""
+    result = _get_json(f"{INDEXER}/v1/confirmations/{tx_hash}?submitted_at={int(submitted_at)}")
+    if str(result.get("hash", "")).lower() != tx_hash:
+        raise ValueError("confirmation hash mismatch")
+    status_value = str(result.get("status", "unknown"))
+    if status_value not in {"confirmed", "failed", "pending", "unknown", "not_found"}:
+        status_value = "unknown"
+    return {
+        "status": status_value,
+        "success": result.get("success") if isinstance(result.get("success"), bool) else None,
+        "result_code": str(result.get("result_code", ""))[:64],
+        "ledger": result.get("ledger") if isinstance(result.get("ledger"), int) else None,
+    }
 
 
 def _verified_mainnet():

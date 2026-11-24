@@ -1596,6 +1596,14 @@ class ChatInboxConsumer(AsyncWebsocketConsumer):
             "status_id": event.get("status_id"),
         }))
 
+    async def inbox_marketplace_paid(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "marketplace.order_paid",
+            "order_id": event.get("order_id"),
+            "item_id": event.get("item_id"),
+            "item_title": event.get("item_title", ""),
+        }))
+
     async def inbox_call_changed(self, event):
         payload = {key: value for key, value in event.items() if key != "type"}
         await self.send(text_data=json.dumps({"type": "calls.updated", **payload}))
