@@ -1,6 +1,7 @@
 import { memo, useRef, useState } from "react";
 import { ArrowUpRight, Ban, ChevronDown, Download, FileText, Forward, Image as ImageIcon, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Pin, Play, Reply, RotateCw, Smile, Star, Video, Video as VideoIcon } from "lucide-react";
 import { mediaUrl } from "../../api/client";
+import LazyVideo from "../media/LazyVideo";
 import { parseWalletReceiptMessage, parseWalletRequestMessage } from "../../features/wallet/paymentRequest";
 import { emojiOnly } from "../../utils/emoji";
 import { clockTime, duration as formatDuration, fileSize } from "../../utils/format";
@@ -210,9 +211,8 @@ function VideoContent({ attachment, onOpen, progress, pending }) {
       {failed ? (
         <span className="media__error">Video preview unavailable</span>
       ) : (
-        <video
+        <LazyVideo
           src={`${mediaUrl(attachment.file)}#t=0.1`}
-          preload="none"
           muted
           playsInline
           onLoadedMetadata={(event) => {
@@ -347,7 +347,7 @@ function StatusPreview({ payload, ownerName, onOpen }) {
   const type = payload.status_type;
   let thumb;
   if (media && type === "IMAGE") thumb = <img src={media} alt="" />;
-  else if (media && type === "VIDEO") thumb = <video src={`${media}#t=0.5`} preload="metadata" muted playsInline />;
+  else if (media && type === "VIDEO") thumb = <LazyVideo src={`${media}#t=0.5`} muted playsInline />;
   else
     thumb = (
       <span className="status-reaction__text-thumb" style={{ background: payload.status_bg || "var(--accent)", color: payload.status_fg || "#fff" }}>
