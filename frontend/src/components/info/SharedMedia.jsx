@@ -8,6 +8,7 @@ import { contactsByUser, displayUserName } from "../../utils/messages";
 import { EmptyState, PanelHeader, Spinner } from "../common/ui";
 import { useApp } from "../layout/AppContext";
 import Lightbox from "../media/Lightbox";
+import LazyVideo from "../media/LazyVideo";
 
 const TABS = [
   { id: "media", label: "Media" },
@@ -63,7 +64,7 @@ export default function SharedMedia({ roomId, tab: initialTab = "media" }) {
               <button key={item.id} type="button" className="media-thumb" onClick={() => setViewer(index)}>
                 {item.mime_type?.startsWith("video/") ? (
                   <>
-                    <video src={`${mediaUrl(item.file)}#t=0.1`} muted preload="metadata" />
+                    <LazyVideo src={`${mediaUrl(item.file)}#t=0.1`} muted />
                     <span className="media-thumb__play"><Play size={16} fill="currentColor" /></span>
                   </>
                 ) : (

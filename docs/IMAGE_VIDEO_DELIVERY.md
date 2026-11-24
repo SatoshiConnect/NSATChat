@@ -4,7 +4,7 @@
 
 - Chat photos are resized to a 1600 px longest edge and JPEG encoded before upload by default. The existing HD option preserves larger originals.
 - Social posts and Stories convert large/high-resolution still photos to WebP at up to 1920 px on the longest edge. Animated GIFs remain unchanged.
-- Social feed and chat video previews use `preload="none"`; the browser waits until a viewer starts playback instead of fetching metadata for every video in a long feed/history.
+- Off-screen feed, chat, and media-gallery videos start with no source attached. A shared `IntersectionObserver` attaches the URL when a preview comes within 300 px of the viewport; only then may the browser fetch metadata/preview data. Browsers without IntersectionObserver attach the source immediately as a compatibility fallback.
 - Authorized Post and Story media endpoints support a single HTTP byte range and return `206 Partial Content`, allowing browsers to start/seek playback without downloading the complete file first. Signed viewer authorization is rechecked on each request. Responses remain private and non-cacheable.
 - In-app camera video capture requests up to 720p and records at a target 1.5 Mbps video / 96 kbps audio. Browser codecs and devices can choose different effective settings. Gallery-selected videos are preserved as provided and are not silently transcoded.
 

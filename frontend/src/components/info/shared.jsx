@@ -3,6 +3,7 @@ import { ChevronRight, FileText, Play } from "lucide-react";
 import { mediaUrl } from "../../api/client";
 import { chatApi } from "../../api/endpoints";
 import { useStore } from "../../store/store";
+import LazyVideo from "../media/LazyVideo";
 
 /** "Media, links and docs" summary row with the latest thumbnails. */
 export function MediaSummary({ roomId, onOpen }) {
@@ -36,7 +37,7 @@ export function MediaSummary({ roomId, onOpen }) {
             <button key={item.id} type="button" className="media-thumb" onClick={onOpen}>
               {item.mime_type?.startsWith("video/") ? (
                 <>
-                  <video src={`${mediaUrl(item.file)}#t=0.1`} muted preload="metadata" />
+                  <LazyVideo src={`${mediaUrl(item.file)}#t=0.1`} muted />
                   <span className="media-thumb__play"><Play size={16} fill="currentColor" /></span>
                 </>
               ) : (
