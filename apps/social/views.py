@@ -220,7 +220,7 @@ class PostFeedAPIView(generics.ListCreateAPIView):
             queryset = queryset.filter(text__icontains=f"#{hashtag}")
         return queryset.select_related("author", "author__profile").annotate(
             likes_count=Count("likes", distinct=True), comments_count=Count("comments", filter=Q(comments__deleted_at__isnull=True), distinct=True), _is_liked=Exists(liked), _is_saved=Exists(saved)
-        )
+        ).order_by("-created_at", "-id")
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
