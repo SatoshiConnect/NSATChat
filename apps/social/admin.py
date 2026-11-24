@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils import timezone
-from .models import Post, PostComment, PostLike, PostReport
+from .models import Post, PostAttachment, PostComment, PostLike, PostReport, PostSave, SocialFollow
 
 
 class PostCommentInline(admin.TabularInline):
@@ -9,19 +9,38 @@ class PostCommentInline(admin.TabularInline):
     readonly_fields = ("author", "text", "created_at", "deleted_at")
 
 
+class PostAttachmentInline(admin.TabularInline):
+    model = PostAttachment
+    extra = 0
+    readonly_fields = ("file", "kind", "position", "created_at")
+
+
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
     list_display = ("id", "author", "visibility", "moderation_status", "created_at", "deleted_at")
     list_filter = ("moderation_status", "visibility", "created_at", "deleted_at")
     search_fields = ("text", "author__phone_number", "author__email", "author__public_id")
     readonly_fields = ("created_at", "updated_at", "deleted_at")
-    inlines = (PostCommentInline,)
+    inlines = (PostCommentInline, PostAttachmentInline)
 
 
 @admin.register(PostLike)
 class PostLikeAdmin(admin.ModelAdmin):
     list_display = ("id", "post", "user", "created_at")
     readonly_fields = ("post", "user", "created_at")
+
+
+@admin.register(PostSave)
+class PostSaveAdmin(admin.ModelAdmin):
+    list_display = ("id", "post", "user", "created_at")
+    readonly_fields = ("post", "user", "created_at")
+
+
+@admin.register(SocialFollow)
+class SocialFollowAdmin(admin.ModelAdmin):
+    list_display = ("id", "follower", "following", "status", "created_at")
+    list_filter = ("status", "created_at")
+    readonly_fields = ("follower", "following", "status", "created_at", "updated_at")
 
 
 @admin.register(PostReport)

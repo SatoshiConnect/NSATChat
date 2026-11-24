@@ -14,6 +14,7 @@ from .views import (
     StatusHighlightDetailAPIView,
     StatusHighlightItemsAPIView,
     ReorderStatusHighlightsAPIView,
+    StatusMediaAPIView,
 )
 
 app_name = "status"
@@ -24,6 +25,7 @@ urlpatterns = [
     path("highlights/<int:pk>/", StatusHighlightDetailAPIView.as_view(), name="status-highlight-detail"),
     path("highlights/<int:pk>/items/", StatusHighlightItemsAPIView.as_view(), name="status-highlight-items"),
     path("highlights/<int:pk>/items/<int:status_id>/", StatusHighlightItemsAPIView.as_view(), name="status-highlight-item-detail"),
+    path("<int:pk>/media/", StatusMediaAPIView.as_view(), name="status-media"),
     path("contacts/", StatusContactsAPIView.as_view(), name="status-privacy-contacts"),
 
     path(

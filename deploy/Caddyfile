@@ -24,6 +24,10 @@
 	# /api/chat/messages/<id>/view-once/. "hide" works on the resolved file
 	# path, so tricks like //, /./ or ../ can't reach it either.
 	handle_path /media/* {
+		@status_media path_regexp status (?i)^/+status(/|$)
+		respond @status_media "Not found" 404
+		@social_media path_regexp social (?i)^/+social(/|$)
+		respond @social_media "Not found" 404
 		@private path_regexp private (?i)^/+private(/|$)
 		respond @private "Not found" 404
 		root * /media

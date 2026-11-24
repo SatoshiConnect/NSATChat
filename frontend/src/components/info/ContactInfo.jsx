@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStarredCount } from "../../hooks";
-import { Ban, Bell, BellOff, Eraser, Heart, HeartOff, Pencil, Phone, Share2, Star, Timer, Trash2, UserPlus, Video } from "lucide-react";
+import { Ban, Bell, BellOff, Eraser, Heart, HeartOff, Pencil, Phone, Share2, Star, Timer, Trash2, UserCheck, UserPlus, Video } from "lucide-react";
 import { ForwardDialog } from "../conversation/dialogs";
 import { sendContactCard } from "../conversation/shareContact";
-import { contactsApi, statusApi } from "../../api/endpoints";
+import { errorMessage } from "../../api/client";
+import { contactsApi, statusApi, socialApi } from "../../api/endpoints";
 import { favoriteRoom, muteRoom } from "../../store/actions";
 import { useStore } from "../../store/store";
 import { lastSeenLabel } from "../../utils/format";
@@ -14,6 +15,7 @@ import { useApp } from "../layout/AppContext";
 import { askBlock, askClearChat, askDeleteChat, askMute } from "../chat-list/roomMenu";
 import { ContactForm } from "../chat-list/NewContactPanel";
 import { useCalls } from "../calls/callContext";
+import { toast } from "../../services/toast";
 import Lightbox from "../media/Lightbox";
 import { InfoRow, MediaSummary } from "./shared";
 import { DisappearingDialog } from "../conversation/FeatureDialogs";
@@ -40,6 +42,8 @@ export default function ContactInfo({ roomId }) {
   const [disappearingOpen, setDisappearingOpen] = useState(false);
   const [highlights, setHighlights] = useState([]);
   const [highlightViewer, setHighlightViewer] = useState(null);
+  const [followState, setFollowState] = useState(null);
+  const [followBusy, setFollowBusy] = useState(false);
 
   const user = room?.otherUser;
   const saved = user ? contactMap.get(Number(user.id)) : null;
@@ -56,6 +60,28 @@ export default function ContactInfo({ roomId }) {
     statusApi.highlights(user.id).then((items) => { if (!cancelled) setHighlights(items); }).catch(() => { if (!cancelled) setHighlights([]); });
     return () => { cancelled = true; };
   }, [user?.id, blocked]);
+
+  useEffect(() => {
+    if (!user?.id || Number(user.id) === Number(me?.id) || blocked) return;
+    let cancelled = false;
+    socialApi.followStatus(user.id).then((value) => { if (!cancelled) setFollowState({ ...value, userId: Number(user.id) }); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id, me?.id, blocked]);
+
+  async function toggleFollow() {
+    if (!user?.id || followBusy) return;
+    const current = followState?.userId === Number(user.id) ? followState : null;
+    setFollowBusy(true);
+    try {
+      if (current?.following || current?.request_pending) {
+        await socialApi.unfollow(user.id);
+        setFollowState({ ...current, following: false, request_pending: false });
+      } else {
+        setFollowState({ ...(await socialApi.follow(user.id)), userId: Number(user.id) });
+      }
+    } catch (error) { toast.error(errorMessage(error, "Couldn't update follow status.")); }
+    finally { setFollowBusy(false); }
+  }
 
   if (!room || !user) return null;
   const title = roomTitle(room, contactMap, me);
@@ -92,6 +118,7 @@ export default function ContactInfo({ roomId }) {
                 <UserPlus size={20} /> Add
               </button>
             ) : null}
+            {Number(user.id) !== Number(me?.id) && !blocked ? <button type="button" onClick={toggleFollow} disabled={followBusy || !followState || followState.userId !== Number(user.id)}>{followState?.following || followState?.request_pending ? <UserCheck size={20} /> : <UserPlus size={20} />}{followState?.following ? "Following" : followState?.request_pending ? "Requested" : "Follow"}</button> : null}
           </div>
         </div>
 

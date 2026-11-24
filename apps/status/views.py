@@ -1,5 +1,6 @@
 import json
 import uuid
+import mimetypes
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -7,6 +8,9 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Prefetch
+from django.core import signing
+from django.core.signing import BadSignature, SignatureExpired
+from django.http import FileResponse, Http404
 
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -161,6 +165,51 @@ class StatusHighlightItemsAPIView(APIView):
             highlight.cover_status = highlight.items.order_by("position", "id").values_list("status", flat=True).first()
             highlight.save(update_fields=("cover_status", "updated_at"))
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StatusMediaAPIView(APIView):
+    """Serve status media only through a short-lived viewer-bound capability URL."""
+    authentication_classes = ()
+    permission_classes = (permissions.AllowAny,)
+
+    def get(self, request, pk):
+        token = request.query_params.get("token", "")
+        try:
+            claims = signing.loads(token, salt="status.media.v1", max_age=300)
+        except (BadSignature, SignatureExpired):
+            raise Http404
+        if claims.get("status") != pk:
+            raise Http404
+        viewer = User.objects.filter(pk=claims.get("viewer"), is_active=True, is_deleted=False).first()
+        story = Status.objects.filter(pk=pk, is_deleted=False).select_related("user", "user__profile").first()
+        if not viewer or not story or not story.media:
+            raise Http404
+        highlighted = story.highlight_items.filter(highlight__owner=story.user).exists()
+        active = story.expires_at > timezone.now()
+        if viewer.id == story.user_id:
+            allowed = active or highlighted
+        else:
+            contact_ids = set(Contact.objects.filter(owner=viewer).values_list("contact_user_id", flat=True))
+            contact_ids |= set(Participant.objects.filter(
+                room__room_type=RoomType.PRIVATE, room__is_active=True,
+                room__participants__user=viewer,
+            ).exclude(user=viewer).values_list("user_id", flat=True))
+            from apps.chat.utils import blocked_user_ids
+            blocked = blocked_user_ids(viewer.id)
+            allowed = story.user_id not in blocked and (active or highlighted) and can_view_status(
+                story, viewer, contact_ids, allow_expired=highlighted,
+            )
+        if not allowed:
+            raise Http404
+        try:
+            file_handle = story.media.open("rb")
+        except (OSError, ValueError, FileNotFoundError):
+            raise Http404
+        response = FileResponse(file_handle, content_type=mimetypes.guess_type(story.media.name)[0] or "application/octet-stream")
+        response["Cache-Control"] = "private, no-store"
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cross-Origin-Resource-Policy"] = "same-origin"
+        return response
 
 
 class ReorderStatusHighlightsAPIView(APIView):
@@ -500,10 +549,8 @@ class StatusReactionAPIView(APIView):
 
             media_url = ""
             if status_obj.media:
-                try:
-                    media_url = status_obj.media.url
-                except (ValueError, AttributeError):
-                    media_url = ""
+                from .media import status_media_url
+                media_url = status_media_url(status_obj, status_obj.user_id)
             preview = {
                 "kind": "status_reaction",
                 "status_id": status_obj.id,

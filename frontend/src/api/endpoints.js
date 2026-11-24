@@ -187,12 +187,22 @@ export const statusApi = {
 
 export const socialApi = {
   posts: (params = {}) => api.get("social/posts/", { params }).then((r) => r.data),
+  followStatus: (userId) => api.get(`social/users/${userId}/follow/`).then((r) => r.data),
+  follow: (userId) => api.post(`social/users/${userId}/follow/`).then((r) => r.data),
+  unfollow: (userId) => api.delete(`social/users/${userId}/follow/`),
+  followRequests: () => api.get("social/follow-requests/").then((r) => asList(r.data)),
+  answerFollowRequest: (id, action) => api.post("social/follow-requests/", { id, action }).then((r) => r.data),
+  followers: (userId, params = {}) => api.get(`social/users/${userId}/followers/`, { params }).then((r) => r.data),
+  following: (userId, params = {}) => api.get(`social/users/${userId}/following/`, { params }).then((r) => r.data),
   createPost: (payload) => api.post("social/posts/", payload).then((r) => r.data),
   toggleLike: (id) => api.post(`social/posts/${id}/`).then((r) => r.data),
   removePost: (id) => api.delete(`social/posts/${id}/`),
+  updatePost: (id, payload) => api.patch(`social/posts/${id}/`, payload).then((r) => r.data),
+  savePost: (id) => api.post(`social/posts/${id}/save/`).then((r) => r.data),
+  unsavePost: (id) => api.delete(`social/posts/${id}/save/`),
   reportPost: (id, payload) => api.post(`social/posts/${id}/report/`, payload).then((r) => r.data),
   comments: (id) => api.get(`social/posts/${id}/comments/`).then((r) => asList(r.data)),
-  addComment: (id, text) => api.post(`social/posts/${id}/comments/`, { text }).then((r) => r.data),
+  addComment: (id, text, parent_id) => api.post(`social/posts/${id}/comments/`, { text, ...(parent_id ? { parent_id } : {}) }).then((r) => r.data),
   editComment: (postId, commentId, text) => api.patch(`social/posts/${postId}/comments/${commentId}/`, { text }).then((r) => r.data),
   removeComment: (postId, commentId) => api.delete(`social/posts/${postId}/comments/${commentId}/`),
 };

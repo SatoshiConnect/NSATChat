@@ -1,8 +1,14 @@
+import tempfile
+from io import BytesIO
+
+from django.core import signing
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.test import override_settings
+from PIL import Image
 from rest_framework.test import APIClient
 from apps.accounts.models import Contact, User
-from apps.social.models import Post, PostComment, PostLike, PostReport
+from apps.social.models import Post, PostComment, PostLike, PostReport, SocialFollow
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "social-test"}})
@@ -98,6 +104,31 @@ class SocialPostAPITests(TestCase):
         BlockedUser.objects.create(blocked_by=self.stranger, blocked_user=self.author)
         self.assertNotIn(public.id, self.ids(self.stranger_client.get("/api/social/posts/")))
 
+    def test_post_media_is_signed_and_visibility_is_rechecked(self):
+        with tempfile.TemporaryDirectory() as media_root:
+            with self.settings(MEDIA_ROOT=media_root):
+                content = BytesIO()
+                Image.new("RGB", (4, 4), "green").save(content, format="JPEG")
+                content.seek(0)
+                response = self.author_client.post("/api/social/posts/", {
+                    "text": "Private media", "visibility": "CONTACTS",
+                    "uploads": [SimpleUploadedFile("one.jpg", content.read(), content_type="image/jpeg")],
+                }, format="multipart")
+                self.assertEqual(response.status_code, 201, response.data)
+                attachment = response.data["attachments"][0]
+                self.assertEqual(attachment["kind"], "IMAGE")
+                media_path = attachment["url"].split("testserver", 1)[-1]
+                self.assertEqual(self.author_client.get(media_path).status_code, 200)
+                self.assertEqual(self.stranger_client.get(f"/api/social/posts/{response.data['id']}/media/attachments/{attachment['id']}/").status_code, 404)
+                unauthorized_token = signing.dumps({"post": response.data["id"], "attachment": attachment["id"], "viewer": self.stranger.id}, salt="social.media.v1", compress=True)
+                self.assertEqual(self.stranger_client.get(f"/api/social/posts/{response.data['id']}/media/attachments/{attachment['id']}/?token={unauthorized_token}").status_code, 404)
+
+    def test_post_upload_rejects_invalid_image_content(self):
+        response = self.author_client.post("/api/social/posts/", {
+            "uploads": [SimpleUploadedFile("fake.jpg", b"not an image", content_type="image/jpeg")],
+        }, format="multipart")
+        self.assertEqual(response.status_code, 400)
+
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "social-report-test"}})
 class SocialPostModerationTests(TestCase):
@@ -157,3 +188,55 @@ class SocialPostModerationTests(TestCase):
         self.assertIsNotNone(report.reviewed_at)
         self.assertEqual(post.moderation_status, Post.MODERATION_HIDDEN)
         self.assertGreaterEqual(LogEntry.objects.filter(user=admin_user).count(), 2)
+
+
+class SocialFollowTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(phone_number="+66910000301", password="StrongPass123!")
+        self.follower = User.objects.create_user(phone_number="+66910000302", password="StrongPass123!")
+        self.other = User.objects.create_user(phone_number="+66910000303", password="StrongPass123!")
+        self.owner_client = APIClient()
+        self.owner_client.force_authenticate(self.owner)
+        self.follower_client = APIClient()
+        self.follower_client.force_authenticate(self.follower)
+        self.other_client = APIClient()
+        self.other_client.force_authenticate(self.other)
+
+    def test_public_follow_unlocks_followers_posts_and_following_feed(self):
+        post = Post.objects.create(author=self.owner, text="Followers only", visibility=Post.FOLLOWERS)
+        path = f"/api/social/users/{self.owner.id}/follow/"
+        result = self.follower_client.post(path)
+        self.assertEqual(result.status_code, 201)
+        self.assertTrue(result.data["following"])
+        feed = self.follower_client.get("/api/social/posts/?scope=following")
+        self.assertIn(post.id, {item["id"] for item in feed.data["results"]})
+        self.assertNotIn(post.id, {item["id"] for item in self.other_client.get("/api/social/posts/").data["results"]})
+        self.assertIn(self.follower.id, {item["id"] for item in self.owner_client.get(f"/api/social/users/{self.owner.id}/followers/").data["results"]})
+        self.assertEqual(self.follower_client.delete(path).status_code, 204)
+        self.assertNotIn(post.id, {item["id"] for item in self.follower_client.get("/api/social/posts/?scope=following").data["results"]})
+
+    def test_private_profile_requires_owner_approval_before_posts_are_visible(self):
+        self.owner.profile.social_private = True
+        self.owner.profile.save(update_fields=("social_private",))
+        post = Post.objects.create(author=self.owner, text="Private post", visibility=Post.EVERYONE)
+        path = f"/api/social/users/{self.owner.id}/follow/"
+        requested = self.follower_client.post(path)
+        self.assertEqual(requested.status_code, 201)
+        self.assertTrue(requested.data["request_pending"])
+        self.assertNotIn(post.id, {item["id"] for item in self.follower_client.get("/api/social/posts/").data["results"]})
+        requests = self.owner_client.get("/api/social/follow-requests/")
+        self.assertEqual(len(requests.data), 1)
+        accepted = self.owner_client.post("/api/social/follow-requests/", {"id": requests.data[0]["id"], "action": "accept"}, format="json")
+        self.assertEqual(accepted.status_code, 200)
+        self.assertIn(post.id, {item["id"] for item in self.follower_client.get("/api/social/posts/").data["results"]})
+
+    def test_private_profile_rejects_contacts_without_an_accepted_follow_and_block_prevents_follow(self):
+        Contact.objects.create(owner=self.owner, contact_user=self.other)
+        self.owner.profile.social_private = True
+        self.owner.profile.save(update_fields=("social_private",))
+        post = Post.objects.create(author=self.owner, text="Private profile", visibility=Post.CONTACTS)
+        self.assertNotIn(post.id, {item["id"] for item in self.other_client.get("/api/social/posts/").data["results"]})
+        from apps.chat.models import BlockedUser
+        BlockedUser.objects.create(blocked_by=self.owner, blocked_user=self.follower)
+        self.assertEqual(self.follower_client.post(f"/api/social/users/{self.owner.id}/follow/").status_code, 404)
+        self.assertEqual(self.owner_client.post(f"/api/social/users/{self.owner.id}/follow/").status_code, 404)

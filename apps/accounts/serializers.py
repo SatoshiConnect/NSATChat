@@ -248,6 +248,7 @@ class PrivacySettingsSerializer(serializers.Serializer):
     allow_id_search = serializers.BooleanField(required=False)
     allow_phone_search = serializers.BooleanField(required=False)
     allow_contact_discovery = serializers.BooleanField(required=False)
+    social_private = serializers.BooleanField(required=False)
 
     def update(self, instance, validated_data):
         for field, value in validated_data.items():

@@ -22,7 +22,7 @@ const ONLINE = [
   { value: "everyone", label: "Everyone" },
   { value: "same_as_last_seen", label: "Same as last seen" },
 ];
-const DEFAULTS = { last_seen: "everyone", online: "everyone", profile_photo: "everyone", about: "everyone", read_receipts: true, allow_id_search: true, allow_phone_search: true, allow_contact_discovery: false };
+const DEFAULTS = { last_seen: "everyone", online: "everyone", profile_photo: "everyone", about: "everyone", read_receipts: true, allow_id_search: true, allow_phone_search: true, allow_contact_discovery: false, social_private: false };
 const label = (options, value) => options.find((option) => option.value === value)?.label || "Everyone";
 
 function RadioGroup({ name, options, value, onChange, disabled }) {
@@ -143,6 +143,13 @@ export function PrivacyView({ onBack, blockedCount, onOpenBlocked, onOpenStatus 
           <Toggle checked={Boolean(settings.read_receipts)} label="Read receipts" onChange={(value) => update({ read_receipts: value })} />
         </div>
         <div className="section-label section-label--muted">Contacts</div>
+        <div className="settings-toggle">
+          <span className="settings-row__body">
+            <span className="settings-row__title">Private social account</span>
+            <span className="settings-row__subtitle settings-row__subtitle--wrap">New followers need your approval. Only approved followers can see your social posts.</span>
+          </span>
+          <Toggle checked={Boolean(settings.social_private)} label="Private social account" onChange={(value) => update({ social_private: value })} />
+        </div>
         <div className="settings-toggle">
           <span className="settings-row__body">
             <span className="settings-row__title">Allow ID search</span>

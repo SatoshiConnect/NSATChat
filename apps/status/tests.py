@@ -1,12 +1,16 @@
 from datetime import timedelta
 
+from django.core import signing
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from unittest.mock import patch
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Contact, User
 from apps.status.choices import StatusType, StatusVisibility
 from apps.status.models import Status, StatusPrivacy, StatusView, StatusHighlight, StatusHighlightItem
+from apps.status.media import status_media_url
 
 
 class StatusFeatureAPITests(TestCase):
@@ -199,6 +203,52 @@ class StatusFeatureAPITests(TestCase):
         self.assertEqual(self.owner_client.delete(f"/api/status/highlights/{highlight.data['id']}/items/{own_story.id}/").status_code, 204)
         self.assertEqual(self.owner_client.delete(f"/api/status/highlights/{highlight.data['id']}/").status_code, 204)
 
+
+
+class StatusMediaPrivacyTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(phone_number="+66911110001", password="StrongPass123!")
+        self.viewer = User.objects.create_user(phone_number="+66911110002", password="StrongPass123!")
+        self.stranger = User.objects.create_user(phone_number="+66911110003", password="StrongPass123!")
+        Contact.objects.create(owner=self.owner, contact_user=self.viewer)
+        Contact.objects.create(owner=self.viewer, contact_user=self.owner)
+        self.owner_client = APIClient()
+        self.owner_client.force_authenticate(self.owner)
+        self.viewer_client = APIClient()
+        self.viewer_client.force_authenticate(self.viewer)
+        self.stranger_client = APIClient()
+        self.stranger_client.force_authenticate(self.stranger)
+        self.story = Status.objects.create(
+            user=self.owner, status_type=StatusType.IMAGE, content="private image",
+            visibility=StatusVisibility.CONTACTS,
+            media=SimpleUploadedFile("private.jpg", b"story-bytes", content_type="image/jpeg"),
+        )
+
+    def token_url(self, user):
+        return status_media_url(self.story, user.id)
+
+    def test_capability_url_rechecks_original_audience_and_expires(self):
+        viewer_url = self.token_url(self.viewer)
+        allowed = self.viewer_client.get(viewer_url)
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(b"".join(allowed.streaming_content), b"story-bytes")
+        self.assertEqual(self.stranger_client.get(self.token_url(self.stranger)).status_code, 404)
+        self.assertEqual(self.owner_client.get("/api/status/%s/media/?token=broken" % self.story.id).status_code, 404)
+
+        Status.objects.filter(pk=self.story.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
+        self.assertEqual(self.viewer_client.get(viewer_url).status_code, 404)
+        highlight = StatusHighlight.objects.create(owner=self.owner, title="Memory")
+        StatusHighlightItem.objects.create(highlight=highlight, status=self.story)
+        self.assertEqual(self.viewer_client.get(viewer_url).status_code, 200)
+        from apps.chat.models import BlockedUser
+        BlockedUser.objects.create(blocked_by=self.viewer, blocked_user=self.owner)
+        self.assertEqual(self.viewer_client.get(viewer_url).status_code, 404)
+
+    def test_expired_capability_is_rejected(self):
+        old_timestamp = int((timezone.now() - timedelta(minutes=10)).timestamp())
+        with patch("django.core.signing.time.time", return_value=old_timestamp):
+            expired = signing.dumps({"status": self.story.id, "viewer": self.viewer.id}, salt="status.media.v1")
+        self.assertEqual(self.viewer_client.get(f"/api/status/{self.story.id}/media/?token={expired}").status_code, 404)
 
 
 class StatusReactionMessageTests(TestCase):

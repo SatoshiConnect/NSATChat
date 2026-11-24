@@ -198,6 +198,10 @@ REST_FRAMEWORK = {
         # People API paging is client-side; this protects the server-side match
         # endpoint from contact harvesting while allowing large address books.
         "contact_sync": config("THROTTLE_CONTACT_SYNC", default="30/hour"),
+        "social_follow": config("THROTTLE_SOCIAL_FOLLOW", default="60/hour"),
+        "social_post": config("THROTTLE_SOCIAL_POST", default="30/hour"),
+        "social_comment": config("THROTTLE_SOCIAL_COMMENT", default="120/hour"),
+        "social_interaction": config("THROTTLE_SOCIAL_INTERACTION", default="300/hour"),
         "wallet_read": config("THROTTLE_WALLET_READ", default="30/min"),
         "wallet_send": config("THROTTLE_WALLET_SEND", default="10/hour"),
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),

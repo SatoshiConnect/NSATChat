@@ -9,6 +9,10 @@
 		Referrer-Policy same-origin
 		Permissions-Policy "geolocation=(self), camera=(self), microphone=(self), display-capture=(self)"
 	}
+	@protected_media path /media/status/* /media/social/*
+	handle @protected_media {
+		respond "Not found" 404
+	}
 	@backend path /api/* /ws/* /admin/* /static/* /media/*
 	handle @backend {
 		reverse_proxy 127.0.0.1:18002 {

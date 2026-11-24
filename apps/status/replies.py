@@ -19,10 +19,8 @@ from .policies import can_view_status
 def status_snapshot(status_obj):
     media_url = ""
     if status_obj.media:
-        try:
-            media_url = status_obj.media.url
-        except (ValueError, AttributeError):
-            media_url = ""
+        from .media import status_media_url
+        media_url = status_media_url(status_obj, status_obj.user_id)
     return {
         "status_id": status_obj.id,
         "status_type": status_obj.status_type,
