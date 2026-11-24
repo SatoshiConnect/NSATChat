@@ -7,6 +7,7 @@ from .views import (
     EntitlementListAPIView,
     GiftAPIView,
     InventoryAPIView,
+    MarketplaceConfigAPIView,
     OrderCreateAPIView,
     OrderDetailAPIView,
     OrderListAPIView,
@@ -21,6 +22,7 @@ from .views import (
 
 app_name = "marketplace"
 urlpatterns = [
+    path("config/", MarketplaceConfigAPIView.as_view(), name="config"),
     path("items/", CatalogAPIView.as_view(), name="catalog"),
     path("items/submit/", SubmitItemAPIView.as_view(), name="submit"),
     path("items/<int:pk>/report/", ReportItemAPIView.as_view(), name="report"),

@@ -237,6 +237,7 @@ export const marketplaceApi = {
   inventory: () => api.get("marketplace/inventory/").then((r) => asList(r.data)),
   stickerPacks: () => api.get("marketplace/stickers/mine/").then((r) => asList(r.data)),
   purchases: () => api.get("marketplace/purchases/").then((r) => asList(r.data)),
+  config: () => api.get("marketplace/config/").then((r) => r.data),
   entitlements: () => api.get("marketplace/entitlements/").then((r) => asList(r.data)),
   createOrder: (itemId, idempotencyKey) =>
     api.post(`marketplace/items/${itemId}/orders/`, { idempotency_key: idempotencyKey }).then((r) => r.data),

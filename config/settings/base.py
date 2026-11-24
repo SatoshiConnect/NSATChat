@@ -210,6 +210,7 @@ REST_FRAMEWORK = {
         "marketplace_purchase": config("THROTTLE_MARKETPLACE_PURCHASE", default="20/hour"),
         # Checkout polls an order while the network confirms; reads must be cheap
         # but not block a single purchase attempt.
+        "marketplace_read": config("THROTTLE_MARKETPLACE_READ", default="120/min"),
         "marketplace_order": config("THROTTLE_MARKETPLACE_ORDER", default="600/hour"),
         "marketplace_gift": config("THROTTLE_MARKETPLACE_GIFT", default="20/hour"),
         "marketplace_report": config("THROTTLE_MARKETPLACE_REPORT", default="20/hour"),

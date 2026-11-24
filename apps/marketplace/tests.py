@@ -1426,3 +1426,39 @@ class ReconciliationTests(APITestCase):
         self.assertIn("did not finish", abandoned.error)
         self.assertIsNotNone(abandoned.finished_at)
         self.assertEqual(fresh.status, MarketplaceReconciliationRun.Status.RUNNING)
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}},
+)
+class MarketplaceConfigTests(APITestCase):
+    """The panel asks the deployment which flows exist before offering them."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(phone_number="+66800000042", password="StrongPass123!")
+
+    @override_settings(
+        MARKETPLACE_LIVE_PAYMENTS=True,
+        MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
+        MARKETPLACE_PLATFORM_FEE_BPS=0,
+    )
+    def test_live_deployment_hides_the_simulation_flows(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.get(reverse("marketplace:config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["live_payments"])
+        self.assertFalse(response.data["simulations"])
+        self.assertEqual(response.data["platform_fee_bps"], 0)
+
+    @override_settings(MARKETPLACE_LIVE_PAYMENTS=False, MARKETPLACE_ALLOW_SIMULATED_PURCHASES=True)
+    def test_demo_deployment_reports_simulations(self):
+        response = self.client.get(reverse("marketplace:config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["live_payments"])
+        self.assertTrue(response.data["simulations"])
+
+    @override_settings(MARKETPLACE_PLATFORM_FEE_BPS=20000)
+    def test_misconfigured_fee_is_reported_as_unpriced(self):
+        response = self.client.get(reverse("marketplace:config"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data["platform_fee_bps"])

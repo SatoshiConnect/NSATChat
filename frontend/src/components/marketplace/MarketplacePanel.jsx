@@ -34,6 +34,10 @@ export default function MarketplacePanel() {
   const [creators, setCreators] = useState([]);
   const [giftHistory, setGiftHistory] = useState({ received: [], sent: [] });
   const [busy, setBusy] = useState(true);
+  const [config, setConfig] = useState(null);
+  // Unknown config keeps the demo sections visible; a live deployment hides
+  // them, so a shopper never sees an empty simulation history.
+  const simulationsEnabled = config ? Boolean(config.simulations) : true;
   const [nextCursor, setNextCursor] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
   const [acting, setActing] = useState(null);
@@ -127,6 +131,14 @@ export default function MarketplacePanel() {
       setLoadingMore(false);
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    marketplaceApi.config()
+      .then((value) => { if (active) setConfig(value); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     // A confirmed payment may arrive while checkout is closed; the inbox
@@ -260,7 +272,7 @@ export default function MarketplacePanel() {
         {tab === "library" ? <>
           {busy ? <div className="marketplace__loading"><Spinner /></div> : library.length ? <div className="marketplace__grid">{library.map(({ id, item, acquired_at, on_chain }) => <article className="market-item market-item--library" key={id}><div className="market-item__preview market-item__placeholder"><Library /></div><div className="market-item__body"><span className="market-item__kind">{LABELS[item.kind] || item.kind}</span><h2>{item.title}</h2><p>{item.usage_rights || "Personal in-app use."}</p><small>Added {new Date(acquired_at).toLocaleDateString()}</small><strong className="market-item__owned">{on_chain ? "Owned · on-chain" : "Owned · simulated"}</strong></div></article>)}</div> : <EmptyState icon={Library} text="Your library is empty. Buy an item from the catalog to unlock it." />}
           <section className="marketplace__purchase-history"><h2>NSAT orders</h2>{orders.length ? orders.map((order) => <div className="marketplace__submission" key={order.id}><div><strong>{order.item.title}</strong><span className="marketplace__history-meta">{Number(order.total_due_nsat).toLocaleString()} NSAT · {order.state.replace("_", " ")} · {new Date(order.created_at).toLocaleDateString()}</span></div>{order.state === "awaiting_payment" || order.state === "partially_paid" ? <button type="button" onClick={() => app.openWallet({ orderId: order.id })}>Continue payment</button> : null}</div>) : <p>No NSAT orders yet. Paid items appear here and in your library.</p>}</section>
-          <section className="marketplace__purchase-history"><h2>Purchase history · simulations</h2>{purchases.length ? purchases.map((purchase) => <div className="marketplace__submission" key={purchase.id}><div><strong>{purchase.item.title}</strong><span className="marketplace__history-meta">{purchase.amount_nsat.toLocaleString()} proposed NSAT · {purchase.state} · no chain transfer</span></div>{purchase.dispute_state ? <span>Issue: {purchase.dispute_state}</span> : <details className="marketplace__dispute"><summary>Report an issue</summary><form onSubmit={(event) => submitDispute(event, purchase)}><input name="reason" minLength="5" maxLength="500" required placeholder="Describe the issue" /><button type="submit">Submit simulated dispute</button></form></details>}</div>) : <p>No simulated purchases yet.</p>}</section>
+          {simulationsEnabled ? <section className="marketplace__purchase-history"><h2>Purchase history · simulations</h2>{purchases.length ? purchases.map((purchase) => <div className="marketplace__submission" key={purchase.id}><div><strong>{purchase.item.title}</strong><span className="marketplace__history-meta">{purchase.amount_nsat.toLocaleString()} proposed NSAT · {purchase.state} · no chain transfer</span></div>{purchase.dispute_state ? <span>Issue: {purchase.dispute_state}</span> : <details className="marketplace__dispute"><summary>Report an issue</summary><form onSubmit={(event) => submitDispute(event, purchase)}><input name="reason" minLength="5" maxLength="500" required placeholder="Describe the issue" /><button type="submit">Submit simulated dispute</button></form></details>}</div>) : <p>No simulated purchases yet.</p>}</section> : null}
         </> : null}
 
         {tab === "creator" ? <div className="marketplace__creator">
@@ -281,10 +293,10 @@ export default function MarketplacePanel() {
             <label>About<textarea name="creator_bio" maxLength="500" rows="3" defaultValue={dashboard?.profile?.bio || ""} /></label>
             <button type="submit">Save profile</button>
           </form>
-          <section className="marketplace__activity"><h2>Your submissions</h2>{dashboard?.items?.length ? dashboard.items.map((item) => <div className="marketplace__submission" key={item.id}><strong>{item.title}</strong><span>{item.kind} · {item.state || "Pending review"}</span></div>) : <p>Your submitted items and simulated creator gift activity will appear here.</p>}<h3>Creator gift activity</h3>{dashboard?.gift_activity?.length ? dashboard.gift_activity.map((gift) => <div className="marketplace__submission" key={gift.id}><strong>{gift.item.title}</strong><span>Simulation · {new Date(gift.created_at).toLocaleString()}</span></div>) : <p>No gift activity yet.</p>}</section>
+          <section className="marketplace__activity"><h2>Your submissions</h2>{dashboard?.items?.length ? dashboard.items.map((item) => <div className="marketplace__submission" key={item.id}><strong>{item.title}</strong><span>{item.kind} · {item.state || "Pending review"}</span></div>) : <p>Your submitted items{simulationsEnabled ? " and simulated creator gift activity" : ""} will appear here.</p>}{simulationsEnabled ? <><h3>Creator gift activity</h3>{dashboard?.gift_activity?.length ? dashboard.gift_activity.map((gift) => <div className="marketplace__submission" key={gift.id}><strong>{gift.item.title}</strong><span>Simulation · {new Date(gift.created_at).toLocaleString()}</span></div>) : <p>No gift activity yet.</p>}</> : null}</section>
           <section className="marketplace__activity"><h2>NSAT sales</h2><div className="marketplace__sales-totals"><strong>{dashboard?.sales_totals?.count || 0} sale(s)</strong><span>{Number(dashboard?.sales_totals?.creator_proceeds_nsat || 0).toLocaleString()} NSAT received · {Number(dashboard?.sales_totals?.gross_nsat || 0).toLocaleString()} NSAT gross</span></div>{dashboard?.sales?.length ? dashboard.sales.map((sale) => <div className="marketplace__submission" key={sale.id}><strong>{sale.item}</strong><span>{Number(sale.creator_proceeds_nsat).toLocaleString()} NSAT · {new Date(sale.created_at).toLocaleString()}</span></div>) : <p>No sales yet. Connect an NSAT wallet so buyers can pay you directly.</p>}</section>
           <section className="marketplace__activity"><h2>Notifications</h2>{dashboard?.notifications?.length ? dashboard.notifications.map((notice) => <div className="marketplace__submission" key={notice.id}><strong>{notice.message}</strong><span>{new Date(notice.created_at).toLocaleString()}</span></div>) : <p>No creator notifications yet.</p>}</section>
-          <section className="marketplace__activity"><h2>Gift history · simulations</h2>{giftRows.length ? giftRows.map((gift) => <div className="marketplace__submission" key={`${gift.direction}-${gift.id}`}><strong>{gift.direction}: {gift.item.title}</strong><span>{new Date(gift.created_at).toLocaleString()}</span></div>) : <p>No gifts recorded yet.</p>}</section>
+          {simulationsEnabled ? <section className="marketplace__activity"><h2>Gift history · simulations</h2>{giftRows.length ? giftRows.map((gift) => <div className="marketplace__submission" key={`${gift.direction}-${gift.id}`}><strong>{gift.direction}: {gift.item.title}</strong><span>{new Date(gift.created_at).toLocaleString()}</span></div>) : <p>No gifts recorded yet.</p>}</section> : null}
         </div> : null}
       </div>
     </section>
