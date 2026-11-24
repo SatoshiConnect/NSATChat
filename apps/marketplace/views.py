@@ -183,6 +183,30 @@ class PurchaseHistoryAPIView(generics.ListAPIView):
         return SimulatedPurchase.objects.filter(buyer=self.request.user).select_related("item", "item__creator", "item__creator__profile", "item__creator__creator_profile")
 
 
+class MarketplaceConfigAPIView(APIView):
+    """Which settlement flows this deployment runs.
+
+    Shoppers only ever see flows the deployment actually enables: a live
+    marketplace must not show an empty "simulations" history, and a demo
+    deployment must not advertise NSAT checkout it cannot settle.
+    """
+
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = "marketplace_read"
+
+    def get(self, request):
+        try:
+            fee_bps = services.platform_fee_bps()
+        except services.MarketplaceError:
+            fee_bps = None
+        return Response({
+            "live_payments": services.live_payments_enabled(),
+            "simulations": services.simulations_enabled(),
+            "platform_fee_bps": fee_bps,
+        })
+
+
 class PurchaseSimulationAPIView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
     throttle_classes = (ScopedRateThrottle,)
