@@ -42,8 +42,8 @@ Chats · groups · voice and video calls · status · stickers and GIFs · polls
 | **Scope** | ~90 REST endpoints, 4 WebSocket channels, 5 Django apps, a React single-page app and a PWA service worker |
 | **Quality** | 365 automated backend tests (run on SQLite and PostgreSQL), N+1 query guards, ESLint, Playwright end-to-end runs, GitHub Actions CI |
 | **Performance** (2 vCPU, measured) | 400 WebSocket connections opened in under 3 s · 2,000 requests at 50 concurrency with 0 errors · a message reached 200 open tabs in 120 ms |
-| **Deployment** | Live on a free Oracle Cloud server. Every push to `main` is tested, deployed, health-checked and **rolled back automatically** if it fails |
-| **Operations** | Nightly database and weekly media backups to object storage (30-day retention), uptime monitoring, in-app "new version" prompt |
+| **Deployment** | Live on the SatoshiCore iMac Docker host. Every push to `main` is tested, deployed, health-checked and **rolled back automatically** if it fails |
+| **Operations** | Encrypted database/media backup pipeline; offsite destination and restore drill still need configuration, uptime monitoring, in-app "new version" prompt |
 
 ## 🎯 Engineering highlights
 
@@ -56,7 +56,7 @@ What this project demonstrates beyond the features themselves:
 - **Product polish.** A layout closely modelled on WhatsApp Web, a separate phone layout, light and dark themes, an in-browser photo editor (draw, text, shapes, blur, crop), offline support, and Web Push notifications that arrive even when the app is closed.
 - **Media pipeline.** Uploads up to 100 MB, videos trimmed on the server with ffmpeg (stream copy, no re-encode), a built-in photo editor, and an original sticker set generated from code (SVG → WebP).
 - **Web platform depth.** An installable PWA with its own service worker, Web Push, an offline shell, a version-aware "Update now / Later" prompt, and a **Web Share Target**, so photos, videos and GIFs can be shared into SatoshiCore from other apps on Android.
-- **DevOps.** CI on every push, continuous deployment with a health check and **automatic rollback**, nightly backups uploaded to object storage with a 30-day lifecycle rule, uptime monitoring, production Dockerfiles, a Caddy reverse proxy with automatic HTTPS, and a step-by-step guide for a free Oracle Cloud deployment.
+- **DevOps.** CI on every push, continuous deployment with a health check and **automatic rollback**, an encrypted backup pipeline awaiting offsite configuration and a real restore drill, uptime monitoring, production Dockerfiles, a Caddy reverse proxy with automatic HTTPS, and a step-by-step guide for a free Oracle Cloud deployment.
 
 ---
 
@@ -160,7 +160,7 @@ A few problems that shaped the design, and how they were solved:
 | A bad release should never take the live site down. | Deploys tag the running images first, then health-check the new version through the real HTTPS path; on failure the script **restores the previous commit and images** on its own. |
 | Users keep old versions open in their browser for days. | The service worker and a release-notes file let the app **detect a newer version**, show a short "Update now / Later" card, and swap versions without losing the session. |
 | Videos are large and status clips must be short. | Trimming happens **on the server with ffmpeg stream copy** (`-c copy`), which is fast and lossless; if trimming fails the original is kept. |
-| A free server can disappear (hardware failure, account limits). | **Nightly database and weekly media backups** go to object storage outside the server, old copies expire after 30 days by a lifecycle rule, and an uptime monitor emails on any outage. |
+| A free server can disappear (hardware failure, account limits). | The backup pipeline supports encrypted daily database and weekly media copies, but no offsite destination or restore drill is currently verified; this remains an operations gap. |
 | Privacy rules are easy to get subtly wrong. | Privacy is enforced on the server before data leaves the API, and every rule has tests. One audience leak in status visibility was found in review, fixed, and locked down with new tests. |
 
 ---
@@ -177,7 +177,7 @@ A few problems that shaped the design, and how they were solved:
 | Frontend | React 19, Vite, lucide-react, a hand-written service worker (PWA + Web Push) |
 | Production | Docker Compose, Caddy (automatic HTTPS), WhiteNoise, optional S3-compatible media |
 | Media | ffmpeg (server-side video trimming), Pillow, an SVG → WebP sticker generator |
-| Operations | GitHub Actions (CI + CD with rollback), Oracle Cloud Always Free VM, Object Storage backups, UptimeRobot monitoring |
+| Operations | GitHub Actions (CI + CD with rollback), iMac-hosted production, encrypted backup pipeline (offsite setup pending), UptimeRobot monitoring |
 | Quality | 365 backend tests (SQLite + PostgreSQL), query-count (N+1) guards, ESLint, Playwright end-to-end runs, GitHub Actions CI |
 
 ---
@@ -313,7 +313,7 @@ flowchart LR
 
 - **CI** ([`django.yml`](.github/workflows/django.yml)) runs on every push and pull request.
 - **CD** ([`deploy.yml`](.github/workflows/deploy.yml) + [`deploy/deploy.sh`](deploy/deploy.sh)) deploys `main` only after CI passes, then verifies the live site.
-- **Backups** ([`deploy/backup.sh`](deploy/backup.sh)): a nightly `pg_dump` and a weekly archive of uploaded files, uploaded to Oracle Object Storage (Always Free) through a write-only pre-authenticated URL. A lifecycle rule deletes copies older than 30 days, so storage never fills up.
+- **Backups** ([`deploy/backup.sh`](deploy/backup.sh)): age-encrypted daily PostgreSQL dumps and weekly media archives, with optional rclone offsite copying. The age recipient, private Drive remote, schedule, and restore drill must be configured and verified before this can be called an active offsite backup service.
 - **Monitoring**: an uptime check on `/api/health/` (backend + database) emails on any outage. Docker restarts every service after a reboot.
 
 ---
@@ -328,7 +328,7 @@ counts, paginated history).
 
 | Stage | Load (rough) | What changes | Why |
 |---|---|---|---|
-| **Now** | up to a few thousand users | One VM: Caddy, uvicorn workers, PostgreSQL, Redis, coturn. CI/CD with rollback, nightly off-site backups. | Cheapest setup that is still safe to update and to recover. |
+| **Now** | up to a few thousand users | iMac host: Caddy, uvicorn workers, PostgreSQL, Redis, coturn. CI/CD with rollback; encrypted offsite backup setup remains pending. | Cheapest setup that is still safe to update; disaster recovery needs the configured offsite backups and a restore drill. |
 | **1. Scale out the app** | tens of thousands | Several identical app servers behind a load balancer; managed PostgreSQL and Redis; media on object storage behind a **CDN**. Blue-green or rolling deploys. | Web workers are stateless, so they scale horizontally; WebSockets need no sticky sessions because Redis carries every event. Serving photos from a CDN takes the heaviest traffic off the servers. |
 | **2. Scale reads** | hundreds of thousands | PostgreSQL **read replicas** for chat history, search and media listings; PgBouncer; Redis Cluster for the channel layer. Canary releases to a small share of users first. | Messaging is read-heavy (history, chat lists). Writes stay on the primary; reads spread over replicas. |
 | **3. Bigger calls** | groups above 8 people | An **SFU** (e.g. LiveKit or mediasoup) instead of mesh WebRTC. | In a mesh every person uploads to every other person; an SFU receives one stream each and forwards it. |
