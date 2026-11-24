@@ -1,4 +1,5 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
+import { makeOfflineSnapshot, rememberOfflineUser, writeOfflineSnapshot } from "../services/offlineCache";
 
 /**
  * Minimal external store (Redux-like) with selector subscriptions.
@@ -65,6 +66,28 @@ export function reducer(state, action) {
   switch (action.type) {
     case "reset":
       return { ...initialState };
+    case "offline/hydrate": {
+      const snapshot = action.snapshot;
+      if (!snapshot || Number(snapshot.userId) !== Number(snapshot.me?.id)) return state;
+      const now = Date.now();
+      const rooms = Object.fromEntries((snapshot.rooms || []).map((room) => [room.id, room]));
+      const messages = {};
+      Object.entries(snapshot.messages || {}).forEach(([roomId, entry]) => {
+        const items = (entry.items || []).filter((message) =>
+          !message.is_view_once && (!message.expires_at || new Date(message.expires_at).getTime() > now),
+        );
+        messages[roomId] = { ...entry, items, loaded: true, loading: false, error: "" };
+      });
+      return {
+        ...state,
+        me: snapshot.me,
+        rooms,
+        roomsLoaded: true,
+        messages,
+        contacts: snapshot.contacts || [],
+        connection: "offline",
+      };
+    }
     case "me":
       return { ...state, me: action.me };
     case "activeRoom":
@@ -255,6 +278,24 @@ function createStore(reducerFn, preloaded) {
 export const store = createStore(reducer, initialState);
 export const dispatch = store.dispatch;
 export const getState = store.getState;
+
+// Persist only the bounded, sanitized conversation snapshot. Typing and
+// presence updates reuse the same references and therefore never hit disk.
+let snapshotTimer = null;
+let lastSnapshotRefs = null;
+store.subscribe(() => {
+  const state = store.getState();
+  const refs = [state.me?.id, state.rooms, state.roomsLoaded, state.messages, state.contacts];
+  if (lastSnapshotRefs && refs.every((value, index) => value === lastSnapshotRefs[index])) return;
+  lastSnapshotRefs = refs;
+  if (!state.me?.id || !state.roomsLoaded) return;
+  rememberOfflineUser(state.me.id);
+  globalThis.clearTimeout(snapshotTimer);
+  snapshotTimer = globalThis.setTimeout(() => {
+    const snapshot = makeOfflineSnapshot(store.getState());
+    if (snapshot) writeOfflineSnapshot(snapshot);
+  }, 650);
+});
 
 /** Subscribe to a slice of the store. */
 export function useStore(selector) {

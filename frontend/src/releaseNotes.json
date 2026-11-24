@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.41.0",
+    "date": "2026-11-25",
+    "title": "Recent chats available offline",
+    "items": [
+      "Recent chats and messages open from a saved device copy while offline, then refresh when you reconnect.",
+      "Chat photos and video previews can be available offline. Open a video and choose Save video offline to keep a small clip on this device.",
+      "Find local storage controls in Settings → Offline data. New messages still need an internet connection."
+    ]
+  },
+  {
     "version": "1.40.0",
     "date": "2026-11-11",
     "title": "Swipe to reply, safer view once",
