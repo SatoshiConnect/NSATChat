@@ -1,4 +1,5 @@
 import os
+import re
 
 from django.core import signing
 from django.db.models import Count
@@ -80,11 +81,12 @@ class PostSerializer(serializers.ModelSerializer):
     reactions = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
+    hashtags = serializers.SerializerMethodField()
     uploads = serializers.ListField(child=serializers.FileField(), write_only=True, required=False, max_length=9)
 
     class Meta:
         model = Post
-        fields = ("id", "author", "text", "image", "attachments", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "my_reaction", "reactions", "comments")
+        fields = ("id", "author", "text", "image", "attachments", "hashtags", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "my_reaction", "reactions", "comments")
         read_only_fields = ("id", "author", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "comments")
 
     def get_is_liked(self, obj):
@@ -131,6 +133,9 @@ class PostSerializer(serializers.ModelSerializer):
 
     def get_attachments(self, obj):
         return [{"id": item.pk, "kind": item.kind, "url": self._media_url(obj, item)} for item in obj.attachments.all()]
+
+    def get_hashtags(self, obj):
+        return list(dict.fromkeys(match.casefold() for match in re.findall(r"(?<!\w)#([\w]{1,50})", obj.text or "")))
 
     def get_comments(self, obj):
         # Keep feed response size bounded even for posts with long comment histories.

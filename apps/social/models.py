@@ -147,3 +147,17 @@ class SocialFollow(models.Model):
             models.CheckConstraint(condition=~models.Q(follower=models.F("following")), name="social_no_self_follow"),
         ]
         indexes = [models.Index(fields=("following", "status", "created_at")), models.Index(fields=("follower", "status", "created_at"))]
+
+
+class SocialMute(models.Model):
+    muter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="social_mutes")
+    muted = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="muted_by_social")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "social_mutes"
+        constraints = [
+            models.UniqueConstraint(fields=("muter", "muted"), name="unique_social_mute_edge"),
+            models.CheckConstraint(condition=~models.Q(muter=models.F("muted")), name="social_no_self_mute"),
+        ]
+        indexes = [models.Index(fields=("muter", "created_at"))]

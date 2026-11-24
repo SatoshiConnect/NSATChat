@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Bookmark, Check, Flag, Image as ImageIcon, MessageCircle, Pencil, Send, Trash2, UserPlus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bookmark, Check, Flag, Image as ImageIcon, MessageCircle, Pencil, Send, Share2, Trash2, UserPlus, X } from "lucide-react";
 import { socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
 import { useStore } from "../../store/store";
@@ -7,6 +7,7 @@ import { toast } from "../../services/toast";
 import { Avatar, EmptyState, Spinner } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
 import { detailTime } from "../../utils/format";
+import { contactsByUser, roomTitle } from "../../utils/messages";
 
 const POST_REACTIONS = [{ key: "LIKE", emoji: "👍", label: "Like" }, { key: "LOVE", emoji: "❤️", label: "Love" }, { key: "HAHA", emoji: "😂", label: "Haha" }, { key: "WOW", emoji: "😮", label: "Wow" }, { key: "SAD", emoji: "😢", label: "Sad" }, { key: "CARE", emoji: "🤗", label: "Care" }];
 
@@ -77,7 +78,7 @@ function PostCommentItem({ comment, postId, me, onChange, depth = 0 }) {
   );
 }
 
-function PostCard({ post, me, onChange }) {
+function PostCard({ post, me, onChange, onHashtag }) {
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -126,11 +127,13 @@ function PostCard({ post, me, onChange }) {
         {Number(post.author?.id) === Number(me?.id) ? <><button type="button" className="social-post__delete" aria-label="Edit post" onClick={async () => { const text = window.prompt("Edit your post", post.text); if (text === null) return; try { await socialApi.updatePost(post.id, { text }); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't edit post.")); } }}><Pencil size={16} /></button><button type="button" className="social-post__delete" aria-label="Delete post" onClick={async () => { if (!window.confirm("Delete this post?")) return; try { await socialApi.removePost(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't delete post.")); } }}><Trash2 size={17} /></button></> : <button type="button" className="social-post__report-toggle" onClick={() => setReportOpen((open) => !open)} aria-expanded={reportOpen}><Flag size={16} /> Report</button>}
       </header>
       {post.text ? <p className="social-post__text">{post.text}</p> : null}
+      {post.hashtags?.length ? <div className="social-post__hashtags">{post.hashtags.map((tag) => <button type="button" key={tag} onClick={() => onHashtag(tag)}>#{tag}</button>)}</div> : null}
       {post.attachments?.length ? <div className={`social-post__media social-post__media--${Math.min(post.attachments.length, 4)}`}>{post.attachments.map((attachment) => attachment.kind === "VIDEO" ? <video key={attachment.id} className="social-post__image" src={mediaUrl(attachment.url)} controls playsInline preload="metadata" /> : <img key={attachment.id} className="social-post__image" src={mediaUrl(attachment.url)} alt="Post attachment" loading="lazy" />)}</div> : post.image ? <img className="social-post__image" src={mediaUrl(post.image)} alt="Post attachment" loading="lazy" /> : null}
       <div className="social-post__counts"><span>{post.likes_count || 0} reactions</span><span>{post.comments_count || comments.length} comments</span></div>
       <div className="social-post__actions">
         <div className="social-post__reaction-picker" aria-label="React to post">{POST_REACTIONS.map((reaction) => <button key={reaction.key} type="button" className={post.my_reaction === reaction.key ? "is-liked" : ""} aria-label={reaction.label} aria-pressed={post.my_reaction === reaction.key} title={reaction.label} onClick={async () => { try { await socialApi.toggleLike(post.id, reaction.key); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't update reaction.")); } }}>{reaction.emoji}{post.reactions?.[reaction.key] ? <small>{post.reactions[reaction.key]}</small> : null}</button>)}</div>
         <button type="button" className={saved ? "is-liked" : ""} onClick={toggleSave} disabled={saving}><Bookmark size={17} /> {saved ? "Saved" : "Save"}</button>
+        <button type="button" onClick={() => onChange({ sharePostId: post.id })}><Share2 size={17} /> Share</button>
         <span><MessageCircle size={17} /> Comment</span>
       </div>
       {reportOpen ? <form className="social-post__report-form" onSubmit={submitReport}>
@@ -146,6 +149,9 @@ function PostCard({ post, me, onChange }) {
 
 export default function StatusMain() {
   const me = useStore((state) => state.me);
+  const rooms = useStore((state) => state.rooms);
+  const contacts = useStore((state) => state.contacts);
+  const contactMap = useMemo(() => contactsByUser(contacts), [contacts]);
   const [posts, setPosts] = useState([]);
   const [text, setText] = useState("");
   const [visibility, setVisibility] = useState("CONTACTS");
@@ -156,20 +162,24 @@ export default function StatusMain() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [scope, setScope] = useState("all");
+  const [hashtagFilter, setHashtagFilter] = useState("");
   const [followRequests, setFollowRequests] = useState([]);
   const [requestsBusy, setRequestsBusy] = useState(false);
-  const load = useCallback(async () => {
-    try { const page = await socialApi.posts({ limit: 20, offset: 0, ...(scope !== "all" ? { scope } : {}) }); setPosts(page.results || []); setHasMore(Boolean(page.next)); setError(""); }
+  const [sharingPostId, setSharingPostId] = useState(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const load = useCallback(async (options = {}) => {
+    if (options.sharePostId) { setSharingPostId(options.sharePostId); return; }
+    try { const page = await socialApi.posts({ limit: 20, offset: 0, ...(scope !== "all" ? { scope } : {}), ...(hashtagFilter ? { hashtag: hashtagFilter } : {}) }); setPosts(page.results || []); setHasMore(Boolean(page.next)); setError(""); }
     catch (cause) { setError(errorMessage(cause, "Couldn't load posts.")); }
     finally { setLoading(false); }
-  }, [scope]);
+  }, [scope, hashtagFilter]);
   useEffect(() => {
     let active = true;
-    socialApi.posts({ limit: 20, offset: 0, ...(scope !== "all" ? { scope } : {}) }).then((page) => { if (active) { setPosts(page.results || []); setHasMore(Boolean(page.next)); setError(""); } })
+    socialApi.posts({ limit: 20, offset: 0, ...(scope !== "all" ? { scope } : {}), ...(hashtagFilter ? { hashtag: hashtagFilter } : {}) }).then((page) => { if (active) { setPosts(page.results || []); setHasMore(Boolean(page.next)); setError(""); } })
       .catch((cause) => { if (active) setError(errorMessage(cause, "Couldn't load posts.")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [scope]);
+  }, [scope, hashtagFilter]);
   useEffect(() => {
     let active = true;
     socialApi.followRequests().then((items) => { if (active) setFollowRequests(items); }).catch(() => {});
@@ -178,7 +188,7 @@ export default function StatusMain() {
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    try { const page = await socialApi.posts({ limit: 20, offset: posts.length, ...(scope !== "all" ? { scope } : {}) }); setPosts((current) => [...current, ...(page.results || [])]); setHasMore(Boolean(page.next)); }
+    try { const page = await socialApi.posts({ limit: 20, offset: posts.length, ...(scope !== "all" ? { scope } : {}), ...(hashtagFilter ? { hashtag: hashtagFilter } : {}) }); setPosts((current) => [...current, ...(page.results || [])]); setHasMore(Boolean(page.next)); }
     catch (cause) { toast.error(errorMessage(cause, "Couldn't load more posts.")); }
     finally { setLoadingMore(false); }
   };
@@ -211,17 +221,29 @@ export default function StatusMain() {
     finally { setRequestsBusy(false); }
   };
 
+  const shareToRoom = async (roomId) => {
+    if (!sharingPostId || shareBusy) return;
+    setShareBusy(true);
+    try {
+      await socialApi.sharePost(sharingPostId, roomId);
+      setSharingPostId(null);
+      toast.success("Post shared to chat.");
+    } catch (cause) { toast.error(errorMessage(cause, "Couldn't share this post to that chat.")); }
+    finally { setShareBusy(false); }
+  };
+
   return (
     <section className="social-feed" aria-label="Social posts">
       <header className="social-feed__heading"><div><h2>Posts</h2><p>Persistent updates. Stories stay separate and expire after 24 hours.</p></div></header>
-      <nav className="social-feed__tabs" aria-label="Post feed"><button type="button" className={scope === "all" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("all"); }}>All posts</button><button type="button" className={scope === "following" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("following"); }}>Following</button><button type="button" className={scope === "saved" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("saved"); }}>Saved</button></nav>
+      <nav className="social-feed__tabs" aria-label="Post feed"><button type="button" className={scope === "all" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("all"); }}>All posts</button><button type="button" className={scope === "following" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("following"); }}>Following</button><button type="button" className={scope === "saved" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("saved"); }}>Saved</button>{hashtagFilter ? <button type="button" className="is-active" onClick={() => setHashtagFilter("")}>#{hashtagFilter} <X size={14} /></button> : null}</nav>
       {followRequests.length ? <section className="social-follow-requests" aria-label="Follow requests"><h3><UserPlus size={17} /> Follow requests <span>{followRequests.length}</span></h3>{followRequests.map((request) => <div key={request.id} className="social-follow-requests__row"><PresenceAvatar user={request.user} src={request.user?.profile?.profile_picture} name={request.user?.profile?.display_name || request.user?.public_id || "Member"} size={36} /><span>{request.user?.profile?.display_name || request.user?.public_id || "Member"}</span><button type="button" aria-label="Accept follow request" disabled={requestsBusy} onClick={() => answerFollow(request, "accept")}><Check size={17} /></button><button type="button" aria-label="Decline follow request" disabled={requestsBusy} onClick={() => answerFollow(request, "decline")}><X size={17} /></button></div>)}</section> : null}
       <form className="social-compose" onSubmit={publish}>
         <div className="social-compose__row"><Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={40} /><textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} rows={3} placeholder="What's on your mind?" aria-label="Post text" /></div>
         {uploads.length ? <div className="social-compose__files">{uploads.map((file, index) => <div className="social-compose__file" key={`${file.name}-${file.lastModified}-${index}`}>{file.name}<button type="button" onClick={() => setUploads((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove ${file.name}`}>×</button></div>)}</div> : null}
         <footer><label className="social-compose__image"><ImageIcon size={18} /> Photo or video<input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/webm" multiple onChange={(event) => { setUploads(Array.from(event.target.files || [])); }} /></label><select value={visibility} onChange={(event) => setVisibility(event.target.value)} aria-label="Post audience"><option value="CONTACTS">My contacts</option><option value="FOLLOWERS">Followers</option><option value="EVERYONE">Public</option></select><button className="btn btn--primary" type="submit" disabled={busy || (!text.trim() && !uploads.length)}>{busy ? <Spinner size={16} /> : "Post"}</button></footer>
       </form>
-      {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length ? <><div className="social-feed__list">{posts.map((post) => <PostCard key={post.id} post={post} me={me} onChange={load} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : <EmptyState text={scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
+      {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length ? <><div className="social-feed__list">{posts.map((post) => <PostCard key={post.id} post={post} me={me} onChange={load} onHashtag={(tag) => { setScope("all"); setHashtagFilter(tag); setLoading(true); }} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : <EmptyState text={hashtagFilter ? `No posts found for #${hashtagFilter}.` : scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
+      {sharingPostId ? <div className="social-share-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !shareBusy) setSharingPostId(null); }}><section className="social-share-dialog" role="dialog" aria-modal="true" aria-labelledby="social-share-title"><header><h3 id="social-share-title">Share to chat</h3><button type="button" aria-label="Close share dialog" disabled={shareBusy} onClick={() => setSharingPostId(null)}><X size={18} /></button></header><div>{Object.values(rooms).filter((room) => !room.isArchived).map((room) => <button key={room.id} type="button" className="social-share-dialog__room" disabled={shareBusy} onClick={() => shareToRoom(room.id)}><Avatar src={room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture} name={roomTitle(room, contactMap, me)} group={room.isGroup} size={38} /><span>{roomTitle(room, contactMap, me)}</span>{shareBusy ? <Spinner size={15} /> : <Send size={15} />}</button>)}</div>{!Object.values(rooms).some((room) => !room.isArchived) ? <EmptyState text="No chats available." /> : null}<p>The post is shared only if everyone in the chat can view it.</p></section></div> : null}
     </section>
   );
 }

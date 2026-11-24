@@ -11,6 +11,7 @@ from apps.accounts.models import Contact, User
 from apps.status.choices import StatusType, StatusVisibility
 from apps.status.models import Status, StatusPrivacy, StatusView, StatusHighlight, StatusHighlightItem
 from apps.status.media import status_media_url
+from apps.social.models import SocialMute
 
 
 class StatusFeatureAPITests(TestCase):
@@ -139,6 +140,15 @@ class StatusFeatureAPITests(TestCase):
         self.assertEqual(viewer_feed.status_code, 200)
         self.assertTrue(any(int(group["user"]["id"]) == self.owner.id for group in viewer_feed.data))
         self.assertEqual(self.other_client.post(f"/api/status/{status_id}/view/").status_code, 403)
+
+    def test_muted_account_stories_are_hidden_from_feed_and_view_endpoint(self):
+        self.add_mutual_contact(self.owner, self.viewer)
+        story = Status.objects.create(user=self.owner, status_type=StatusType.TEXT, content="Muted", visibility=StatusVisibility.EVERYONE)
+        SocialMute.objects.create(muter=self.viewer, muted=self.owner)
+        response = self.viewer_client.get("/api/status/")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(any(int(group["user"]["id"]) == self.owner.id for group in response.data))
+        self.assertEqual(self.viewer_client.post(f"/api/status/{story.id}/view/").status_code, 404)
 
     def test_expired_status_is_not_in_any_active_feed(self):
         expired = Status.objects.create(

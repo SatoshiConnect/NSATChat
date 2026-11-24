@@ -21,6 +21,7 @@ from apps.chat.choices import RoomType
 from apps.chat.serializers import MessageSerializer
 from apps.accounts.models import Contact, User
 from apps.accounts.serializers import UserSerializer
+from apps.social.models import SocialMute
 
 from apps.status.policies import can_view_status
 from drf_spectacular.utils import (
@@ -59,7 +60,8 @@ def _highlight_viewer_context(request):
     ).exclude(user=request.user).values_list("user_id", flat=True))
     saved_me_ids = set(Contact.objects.filter(contact_user=request.user).values_list("owner_id", flat=True))
     from apps.chat.utils import blocked_user_ids
-    return contact_ids, saved_me_ids, blocked_user_ids(request.user.id)
+    muted_ids = set(SocialMute.objects.filter(muter=request.user).values_list("muted_id", flat=True))
+    return contact_ids, saved_me_ids, blocked_user_ids(request.user.id) | muted_ids
 
 
 def _highlight_visible_items(request, highlight, viewer_context=None):
@@ -195,7 +197,7 @@ class StatusMediaAPIView(APIView):
                 room__participants__user=viewer,
             ).exclude(user=viewer).values_list("user_id", flat=True))
             from apps.chat.utils import blocked_user_ids
-            blocked = blocked_user_ids(viewer.id)
+            blocked = blocked_user_ids(viewer.id) | set(SocialMute.objects.filter(muter=viewer).values_list("muted_id", flat=True))
             allowed = story.user_id not in blocked and (active or highlighted) and can_view_status(
                 story, viewer, contact_ids, allow_expired=highlighted,
             )
@@ -388,8 +390,9 @@ class ContactsStatusAPIView(APIView):
         from apps.chat.utils import blocked_user_ids
 
         blocked = blocked_user_ids(request.user.id)
-        candidate_ids -= blocked
-        contact_ids -= blocked
+        muted_ids = set(SocialMute.objects.filter(muter=request.user).values_list("muted_id", flat=True))
+        candidate_ids -= blocked | muted_ids
+        contact_ids -= blocked | muted_ids
 
         statuses = (
             Status.objects.filter(
@@ -470,6 +473,9 @@ class ViewStatusAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if SocialMute.objects.filter(muter=request.user, muted_id=status_obj.user_id).exists():
+            return Response({"detail": "You muted this account's updates."}, status=status.HTTP_404_NOT_FOUND)
+
         contact_ids = status_contact_ids(request.user)
 
         if not ContactsStatusAPIView().can_view_status(
@@ -514,6 +520,9 @@ class StatusReactionAPIView(APIView):
         )
         if status_obj.user_id == request.user.id:
             return Response({"detail": "You cannot react to your own status."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if SocialMute.objects.filter(muter=request.user, muted_id=status_obj.user_id).exists():
+            return Response({"detail": "You muted this account's updates."}, status=status.HTTP_404_NOT_FOUND)
 
         contact_ids = set(Contact.objects.filter(owner=request.user).values_list("contact_user_id", flat=True))
         contact_ids.update(

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStarredCount } from "../../hooks";
-import { Ban, Bell, BellOff, Eraser, Heart, HeartOff, Pencil, Phone, Share2, Star, Timer, Trash2, UserCheck, UserPlus, Video } from "lucide-react";
+import { Ban, Bell, BellOff, Eraser, Eye, EyeOff, Heart, HeartOff, Pencil, Phone, Share2, Star, Timer, Trash2, UserCheck, UserPlus, Video } from "lucide-react";
 import { ForwardDialog } from "../conversation/dialogs";
 import { sendContactCard } from "../conversation/shareContact";
 import { errorMessage } from "../../api/client";
@@ -44,6 +44,8 @@ export default function ContactInfo({ roomId }) {
   const [highlightViewer, setHighlightViewer] = useState(null);
   const [followState, setFollowState] = useState(null);
   const [followBusy, setFollowBusy] = useState(false);
+  const [socialMuted, setSocialMuted] = useState(false);
+  const [socialMuteBusy, setSocialMuteBusy] = useState(false);
 
   const user = room?.otherUser;
   const saved = user ? contactMap.get(Number(user.id)) : null;
@@ -68,6 +70,13 @@ export default function ContactInfo({ roomId }) {
     return () => { cancelled = true; };
   }, [user?.id, me?.id, blocked]);
 
+  useEffect(() => {
+    if (!user?.id || Number(user.id) === Number(me?.id) || blocked) return;
+    let cancelled = false;
+    socialApi.muteStatus(user.id).then((value) => { if (!cancelled) setSocialMuted(Boolean(value.muted)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id, me?.id, blocked]);
+
   async function toggleFollow() {
     if (!user?.id || followBusy) return;
     const current = followState?.userId === Number(user.id) ? followState : null;
@@ -81,6 +90,17 @@ export default function ContactInfo({ roomId }) {
       }
     } catch (error) { toast.error(errorMessage(error, "Couldn't update follow status.")); }
     finally { setFollowBusy(false); }
+  }
+
+  async function toggleSocialMute() {
+    if (!user?.id || socialMuteBusy) return;
+    setSocialMuteBusy(true);
+    try {
+      const result = socialMuted ? await socialApi.unmuteUser(user.id) : await socialApi.muteUser(user.id);
+      setSocialMuted(Boolean(result.muted));
+      toast.success(result.muted ? "Posts and stories from this account are muted." : "Posts and stories from this account are visible again.");
+    } catch (error) { toast.error(errorMessage(error, "Couldn't update mute setting.")); }
+    finally { setSocialMuteBusy(false); }
   }
 
   if (!room || !user) return null;
@@ -168,6 +188,7 @@ export default function ContactInfo({ roomId }) {
         ) : null}
 
         <div className="info-section info-section--list">
+          {Number(user.id) !== Number(me?.id) && !blocked ? <InfoRow icon={socialMuted ? Eye : EyeOff} title={socialMuted ? "Unmute posts and stories" : "Mute posts and stories"} onClick={toggleSocialMute} disabled={socialMuteBusy} /> : null}
           <InfoRow
             icon={room.isFavorite ? HeartOff : Heart}
             title={room.isFavorite ? "Remove from favorites" : "Add to favorites"}

@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils import timezone
-from .models import Post, PostAttachment, PostComment, PostLike, PostReport, PostSave, SocialFollow
+from .models import Post, PostAttachment, PostComment, PostLike, PostReport, PostSave, SocialFollow, SocialMute
 
 
 class PostCommentInline(admin.TabularInline):
@@ -41,6 +41,12 @@ class SocialFollowAdmin(admin.ModelAdmin):
     list_display = ("id", "follower", "following", "status", "created_at")
     list_filter = ("status", "created_at")
     readonly_fields = ("follower", "following", "status", "created_at", "updated_at")
+
+
+@admin.register(SocialMute)
+class SocialMuteAdmin(admin.ModelAdmin):
+    list_display = ("id", "muter", "muted", "created_at")
+    readonly_fields = ("muter", "muted", "created_at")
 
 
 @admin.register(PostReport)

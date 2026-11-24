@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.accounts.models import Contact
+from apps.social.models import SocialMute
 from apps.chat.choices import RoomType
 from apps.chat.models import Participant
 
@@ -34,6 +35,8 @@ def status_snapshot(status_obj):
 
 
 def viewer_can_see(status_obj, user):
+    if SocialMute.objects.filter(muter=user, muted_id=status_obj.user_id).exists():
+        return False
     contact_ids = set(Contact.objects.filter(owner=user).values_list("contact_user_id", flat=True))
     contact_ids.update(
         Participant.objects.filter(

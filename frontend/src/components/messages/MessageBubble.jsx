@@ -11,6 +11,7 @@ import { Ticks } from "../chat-list/ChatListItem";
 import AudioPlayer from "./AudioPlayer";
 import { LinkPreviewCard,
   ContactCard, LocationCard, PollCard, ViewOnceContent } from "./FeatureCards";
+import SocialPostCard from "./SocialPostCard";
 
 const SWIPE_REPLY_AT = 64; // px the row must travel to reply
 const SWIPE_MAX = 96;
@@ -511,7 +512,8 @@ function MessageBubble({
   const walletRequest = kind === "text" ? parseWalletRequestMessage(message.content) : null;
   const walletReceipt = kind === "text" ? parseWalletReceiptMessage(message.content) : null;
   const caption = kind === "image" || kind === "video" ? message.content : "";
-  const statusRef = message.status_ref && kind !== "status_reaction" ? message.status_ref : null;
+  const socialPostId = message.status_ref?.kind === "social_post" ? message.status_ref.post_id : null;
+  const statusRef = message.status_ref && message.status_ref.kind !== "social_post" && kind !== "status_reaction" ? message.status_ref : null;
   // A reply to a status that is only emoji shows them big, like WhatsApp.
   const statusEmoji = Boolean(statusRef) && kind === "text" && message.content && message.content.length <= 24 && EMOJI_ONLY.test(message.content);
   const emojiOnly = !statusRef && ((kind === "text" && message.content && message.content.length <= 24 && EMOJI_ONLY.test(message.content)) || kind === "sticker");
@@ -654,6 +656,7 @@ function MessageBubble({
               />
             </div>
           ) : null}
+          {socialPostId ? <SocialPostCard postId={socialPostId} onOpen={() => onAction("openSocialPost", message, { postId: socialPostId })} /> : null}
           {body}
           {caption ? (
             <span className="bubble__text bubble__caption">

@@ -8,7 +8,7 @@ from django.test import override_settings
 from PIL import Image
 from rest_framework.test import APIClient
 from apps.accounts.models import Contact, User
-from apps.social.models import Post, PostComment, PostLike, PostReport, SocialFollow
+from apps.social.models import Post, PostComment, PostLike, PostReport, SocialFollow, SocialMute
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "social-test"}})
@@ -43,6 +43,15 @@ class SocialPostAPITests(TestCase):
         self.assertIn(public.id, ids)
         self.assertNotIn(private.id, ids)
 
+    def test_hashtag_filter_is_case_insensitive_and_rejects_invalid_input(self):
+        tagged = Post.objects.create(author=self.author, text="Summer #Travel #ไทย", visibility=Post.EVERYONE)
+        other = Post.objects.create(author=self.author, text="Winter", visibility=Post.EVERYONE)
+        response = self.stranger_client.get("/api/social/posts/?hashtag=travel")
+        self.assertEqual([item["id"] for item in response.data["results"]], [tagged.id])
+        self.assertEqual(response.data["results"][0]["hashtags"], ["travel", "ไทย"])
+        self.assertEqual(self.stranger_client.get("/api/social/posts/?hashtag=tag%20injection").data["results"], [])
+        self.assertNotIn(other.id, {item["id"] for item in response.data["results"]})
+
     def test_create_post_requires_text_or_image_and_rejects_invalid_visibility(self):
         self.assertEqual(self.author_client.post("/api/social/posts/", {}, format="json").status_code, 400)
         invalid = self.author_client.post("/api/social/posts/", {"text": "Hi", "visibility": "FRIENDS_OF_FRIENDS"}, format="json")
@@ -66,6 +75,31 @@ class SocialPostAPITests(TestCase):
         self.assertEqual(PostLike.objects.get(post=post, user=self.contact).reaction, "HAHA")
         self.assertEqual(self.contact_client.post(path, {"reaction": "HAHA"}, format="json").data["reaction"], None)
         self.assertEqual(self.contact_client.post(path, {"reaction": "HACK"}, format="json").status_code, 400)
+
+    def test_public_post_can_be_shared_to_chat_and_recipient_resolves_post(self):
+        from apps.chat.choices import RoomType
+        from apps.chat.models import ChatRoom, Participant, Message
+        post = Post.objects.create(author=self.author, text="Share this", visibility=Post.EVERYONE)
+        room = ChatRoom.objects.create(created_by=self.stranger, room_type=RoomType.PRIVATE)
+        Participant.objects.create(room=room, user=self.stranger)
+        Participant.objects.create(room=room, user=self.contact)
+        response = self.stranger_client.post(f"/api/social/posts/{post.id}/share/", {"room_id": room.id}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        message = Message.objects.get(pk=response.data["data"]["id"])
+        self.assertEqual(message.status_ref, {"kind": "social_post", "post_id": post.id})
+        self.assertEqual(self.contact_client.get(f"/api/social/posts/{post.id}/").data["text"], "Share this")
+
+    def test_post_share_is_denied_when_a_room_member_cannot_view_post(self):
+        from apps.chat.choices import RoomType
+        from apps.chat.models import ChatRoom, Participant, Message
+        private_post = Post.objects.create(author=self.author, text="Private", visibility=Post.CONTACTS)
+        Contact.objects.create(owner=self.author, contact_user=self.stranger)
+        room = ChatRoom.objects.create(created_by=self.stranger, room_type=RoomType.GROUP)
+        Participant.objects.create(room=room, user=self.stranger)
+        Participant.objects.create(room=room, user=self.contact)
+        response = self.stranger_client.post(f"/api/social/posts/{private_post.id}/share/", {"room_id": room.id}, format="json")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(Message.objects.filter(room=room).count(), 0)
 
     def test_comments_require_post_visibility_and_validate_nonempty_text(self):
         Contact.objects.create(owner=self.author, contact_user=self.contact)
@@ -112,6 +146,16 @@ class SocialPostAPITests(TestCase):
         public = Post.objects.create(author=self.author, text="Block test", visibility=Post.EVERYONE)
         BlockedUser.objects.create(blocked_by=self.stranger, blocked_user=self.author)
         self.assertNotIn(public.id, self.ids(self.stranger_client.get("/api/social/posts/")))
+
+    def test_mute_hides_posts_and_unmute_restores_feed(self):
+        public = Post.objects.create(author=self.author, text="Muted public post", visibility=Post.EVERYONE)
+        path = f"/api/social/users/{self.author.id}/mute/"
+        self.assertEqual(self.stranger_client.post(path).data, {"muted": True})
+        self.assertNotIn(public.id, self.ids(self.stranger_client.get("/api/social/posts/")))
+        self.assertEqual(self.stranger_client.get(path).data["muted"], True)
+        self.assertEqual(self.stranger_client.delete(path).data, {"muted": False})
+        self.assertIn(public.id, self.ids(self.stranger_client.get("/api/social/posts/")))
+        self.assertFalse(SocialMute.objects.filter(muter=self.stranger, muted=self.author).exists())
 
     def test_post_media_is_signed_and_visibility_is_rechecked(self):
         with tempfile.TemporaryDirectory() as media_root:

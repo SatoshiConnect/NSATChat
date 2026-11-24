@@ -334,6 +334,9 @@ export default function Conversation({ roomId }) {
           setStatusView({ groups: [{ ...group, statuses }], statusId });
           break;
         }
+        case "openSocialPost":
+          app.setSection("status");
+          break;
         case "disappearing":
           setDisappearingOpen(true);
           break;

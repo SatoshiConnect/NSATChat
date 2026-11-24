@@ -1,4 +1,7 @@
 import mimetypes
+import re
+from datetime import timedelta
+from uuid import uuid4
 
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
@@ -15,8 +18,11 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 from apps.accounts.serializers import UserSerializer
-from apps.chat.utils import blocked_user_ids
-from .models import Post, PostAttachment, PostComment, PostLike, PostReport, PostSave, SocialFollow
+from apps.chat.choices import MessageType
+from apps.chat.models import ChatRoom, Message, Participant
+from apps.chat.permissions import send_message_error
+from apps.chat.utils import blocked_user_ids, broadcast_message, get_message_with_relations, sender_has_blocked_peer
+from .models import Post, PostAttachment, PostComment, PostLike, PostReport, PostSave, SocialFollow, SocialMute
 from .policies import can_view_post, visible_posts_for
 from .serializers import CreateCommentSerializer, CreatePostReportSerializer, PostCommentSerializer, PostSerializer
 
@@ -102,6 +108,34 @@ class SocialFollowAPIView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class SocialMuteAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_scope = "social_follow"
+
+    def _target(self, request, user_id):
+        target = get_object_or_404(User.objects.filter(is_active=True, is_deleted=False), pk=user_id)
+        if target.id == request.user.id or target.id in blocked_user_ids(request.user.id):
+            return None
+        return target
+
+    def get(self, request, user_id):
+        target = self._target(request, user_id)
+        if not target:
+            return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"muted": SocialMute.objects.filter(muter=request.user, muted=target).exists()})
+
+    def post(self, request, user_id):
+        target = self._target(request, user_id)
+        if not target:
+            return Response({"detail": "Account not found."}, status=status.HTTP_404_NOT_FOUND)
+        SocialMute.objects.get_or_create(muter=request.user, muted=target)
+        return Response({"muted": True}, status=status.HTTP_200_OK)
+
+    def delete(self, request, user_id):
+        SocialMute.objects.filter(muter=request.user, muted_id=user_id).delete()
+        return Response({"muted": False}, status=status.HTTP_200_OK)
+
+
 class SocialFollowRequestsAPIView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
     throttle_scope = "social_follow"
@@ -177,6 +211,11 @@ class PostFeedAPIView(generics.ListCreateAPIView):
             queryset = queryset.filter(Q(author=self.request.user) | Q(author_id__in=following_ids))
         elif self.request.query_params.get("scope") == "saved":
             queryset = queryset.filter(saves__user=self.request.user)
+        hashtag = (self.request.query_params.get("hashtag") or "").strip().lstrip("#")
+        if hashtag:
+            if not re.fullmatch(r"[\w]{1,50}", hashtag, flags=re.UNICODE):
+                return queryset.none()
+            queryset = queryset.filter(text__icontains=f"#{hashtag}")
         return queryset.select_related("author", "author__profile").annotate(
             likes_count=Count("likes", distinct=True), comments_count=Count("comments", filter=Q(comments__deleted_at__isnull=True), distinct=True), _is_liked=Exists(liked), _is_saved=Exists(saved)
         )
@@ -194,6 +233,18 @@ class PostDetailAPIView(APIView):
 
     def post_obj(self, request, pk):
         return get_object_or_404(visible_posts_for(request.user), pk=pk)
+
+    def get(self, request, pk):
+        post = self.post_obj(request, pk)
+        liked = PostLike.objects.filter(post_id=OuterRef("pk"), user=request.user)
+        saved = PostSave.objects.filter(post_id=OuterRef("pk"), user=request.user)
+        post = Post.objects.filter(pk=post.pk).select_related("author", "author__profile").annotate(
+            likes_count=Count("likes", distinct=True),
+            comments_count=Count("comments", filter=Q(comments__deleted_at__isnull=True), distinct=True),
+            _is_liked=Exists(liked),
+            _is_saved=Exists(saved),
+        ).get()
+        return Response(PostSerializer(post, context={"request": request}).data)
 
     def post(self, request, pk):
         post = self.post_obj(request, pk)
@@ -247,6 +298,42 @@ class PostSaveAPIView(APIView):
         post = get_object_or_404(visible_posts_for(request.user), pk=pk)
         PostSave.objects.filter(post=post, user=request.user).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SharePostToChatAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_scope = "social_interaction"
+
+    def post(self, request, pk):
+        post = get_object_or_404(visible_posts_for(request.user), pk=pk)
+        try:
+            room_id = int(request.data.get("room_id"))
+        except (TypeError, ValueError):
+            return Response({"detail": "Choose a chat first."}, status=status.HTTP_400_BAD_REQUEST)
+        room = get_object_or_404(ChatRoom, pk=room_id, is_active=True)
+        denied = send_message_error(request.user, room)
+        if denied:
+            return Response({"detail": denied}, status=status.HTTP_403_FORBIDDEN)
+        if sender_has_blocked_peer(room, request.user):
+            return Response({"detail": "Unblock this contact to send a message."}, status=status.HTTP_403_FORBIDDEN)
+        recipient_ids = Participant.objects.filter(room=room, joined_at__lte=timezone.now()).exclude(user=request.user).values_list("user_id", flat=True)
+        recipients = User.objects.filter(pk__in=recipient_ids, is_active=True, is_deleted=False)
+        if not recipients.exists() or any(not can_view_post(post, recipient) for recipient in recipients):
+            return Response({"detail": "Everyone in this chat must have permission to view this post."}, status=status.HTTP_403_FORBIDDEN)
+        expires_at = timezone.now() + timedelta(seconds=room.disappearing_seconds) if room.disappearing_seconds else None
+        message = Message.objects.create(
+            room=room,
+            sender=request.user,
+            message_type=MessageType.TEXT,
+            content="Shared a post",
+            client_message_id=f"social-share-{post.pk}-{request.user.pk}-{uuid4().hex[:12]}",
+            status_ref={"kind": "social_post", "post_id": post.pk},
+            expires_at=expires_at,
+        )
+        message = get_message_with_relations(message.pk)
+        broadcast_message(message, request)
+        from apps.chat.serializers import MessageSerializer
+        return Response({"message": "Post shared to chat.", "data": MessageSerializer(message, context={"request": request}).data}, status=status.HTTP_201_CREATED)
 
 
 class PostCommentsAPIView(APIView):

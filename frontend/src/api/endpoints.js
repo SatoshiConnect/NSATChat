@@ -187,9 +187,13 @@ export const statusApi = {
 
 export const socialApi = {
   posts: (params = {}) => api.get("social/posts/", { params }).then((r) => r.data),
+  post: (id) => api.get(`social/posts/${id}/`).then((r) => r.data),
   followStatus: (userId) => api.get(`social/users/${userId}/follow/`).then((r) => r.data),
   follow: (userId) => api.post(`social/users/${userId}/follow/`).then((r) => r.data),
   unfollow: (userId) => api.delete(`social/users/${userId}/follow/`),
+  muteStatus: (userId) => api.get(`social/users/${userId}/mute/`).then((r) => r.data),
+  muteUser: (userId) => api.post(`social/users/${userId}/mute/`).then((r) => r.data),
+  unmuteUser: (userId) => api.delete(`social/users/${userId}/mute/`).then((r) => r.data),
   followRequests: () => api.get("social/follow-requests/").then((r) => asList(r.data)),
   answerFollowRequest: (id, action) => api.post("social/follow-requests/", { id, action }).then((r) => r.data),
   followers: (userId, params = {}) => api.get(`social/users/${userId}/followers/`, { params }).then((r) => r.data),
@@ -197,6 +201,7 @@ export const socialApi = {
   createPost: (payload) => api.post("social/posts/", payload).then((r) => r.data),
   toggleLike: (id, reaction = "LIKE") => api.post(`social/posts/${id}/`, { reaction }).then((r) => r.data),
   removePost: (id) => api.delete(`social/posts/${id}/`),
+  sharePost: (id, room_id) => api.post(`social/posts/${id}/share/`, { room_id }).then((r) => r.data),
   updatePost: (id, payload) => api.patch(`social/posts/${id}/`, payload).then((r) => r.data),
   savePost: (id) => api.post(`social/posts/${id}/save/`).then((r) => r.data),
   unsavePost: (id) => api.delete(`social/posts/${id}/save/`),
