@@ -84,9 +84,11 @@ host-served `frontend/dist` only after both builds succeed. It retains the
 previous frontend bundle until health checks pass, then restores it with the
 backend and container images on rollback.
 
-Backups: `deploy/backup.sh` (nightly database dump, weekly uploaded-files
-archive, copied to Object Storage); see [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md#nightly-backups).
-Keep dumps off GitHub (`*.sql` is git-ignored).
+Backups: `deploy/backup.sh` creates age-encrypted daily database dumps and
+weekly media archives, with optional offsite rclone copying. Configure the
+recipient and remote, then pass an isolated restore drill before enabling the
+LaunchAgent; see [SECURE-BACKUPS.md](operations/SECURE-BACKUPS.md).
+Keep private identities, rclone config and backups out of GitHub.
 
 ## 3. Option B: free PaaS pieces (no server to manage)
 
@@ -118,7 +120,7 @@ EC2 instance; the managed equivalents are RDS (PostgreSQL), ElastiCache
 - [ ] `python manage.py check --deploy` shows no security errors.
 - [ ] `/api/health/` returns `{"status": "ok"}`.
 - [ ] A voice call works between two phones on mobile data (TURN works).
-- [ ] Database backups are scheduled and copied off the server.
+- [ ] Encrypted backups are scheduled, copied to private offsite storage, and restored successfully in an isolated drill.
 - [ ] An uptime monitor checks `/api/health/`.
 # Google Contacts discovery
 

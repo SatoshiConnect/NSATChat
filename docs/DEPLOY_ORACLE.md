@@ -157,68 +157,37 @@ and the padlock should appear. Admin: `/admin/`, API docs: `/api/docs/`.
 | Restart | `docker compose -f docker-compose.prod.yml --env-file .env.prod restart web` |
 | Database backup | `docker compose -f docker-compose.prod.yml exec -T db pg_dump -U mhtalk mhtalk > ~/backup-$(date +%F).sql` |
 
-### Nightly backups
+### Encrypted backups
 
-`deploy/backup.sh` writes a compressed database dump to `~/backups` (kept 14
-days). The server clock is UTC, so `0 22 * * *` runs at 03:00 in Pakistan
-(UTC+5); adjust for your time zone. Add it once (and check with `crontab -l` that
-there is only one backup line):
+`deploy/backup.sh` targets the production Compose project explicitly
+(`nsat-mhtalk-prod`, including `docker-compose.host-proxy.yml`). It writes
+PostgreSQL custom-format dumps every run and a full media archive weekly. Both
+streams are encrypted with `age` before they are written to the backup
+directory. A public recipient is required; without it the script stops rather
+than creating a new plaintext backup. Local database retention defaults to 14
+days and media retention to 8 weeks. Files and directories are owner-only.
 
-```bash
-mkdir -p ~/backups
-(crontab -l 2>/dev/null; echo "0 22 * * * cd ~/mhtalk && bash deploy/backup.sh >> ~/backups/backup.log 2>&1") | crontab -
-```
+Before enabling a schedule:
 
-The script also archives uploaded files (photos, videos, voice notes) every
-Sunday (`BACKUP_MEDIA_NOW=1 bash deploy/backup.sh` makes one now).
+1. Install `age` and `rclone` on the host that runs Docker. Generate an age
+   identity on a trusted offline device with `age-keygen`; keep the private
+   identity in a separate secure offline location. Put only its public
+   `age1...` recipient in `BACKUP_AGE_RECIPIENT` in `.env.prod`.
+2. Configure a private rclone remote (Google Drive is supported), then set
+   `BACKUP_REMOTE=gdrive:nsat-messenger-backups`. Do not use a shared/public
+   folder. The remote receives ciphertext and SHA-256 checksums only.
+3. Run `BACKUP_MEDIA_NOW=1 bash deploy/backup.sh`. Confirm the resulting files
+   end in `.age`, have mode `600`, and were copied to the remote. Do not put the
+   private age identity or a plaintext dump in Drive.
+4. Perform the restore drill in `docs/operations/SECURE-BACKUPS.md` to a
+   separate staging database and temporary media directory before relying on
+   these backups.
 
-**Copy backups off the server.** A backup on the same machine is lost with the
-machine. Oracle's Always Free tier includes free Object Storage (the console
-shows the current limit), which is separate from the VM.
-
-Simplest way (no keys, nothing to install):
-
-1. Console → ☰ → **Storage → Buckets → Create bucket**, name `mhtalk-backups`
-   (Standard tier, private).
-2. Open the bucket → **Pre-authenticated requests → Create pre-authenticated
-   request**: target *Bucket*, access *Permit object writes*, expiration a few
-   years ahead. Copy the URL (shown once; it ends in `/o/`).
-3. In `.env.prod` set `BACKUP_UPLOAD_URL=<that URL>`, then test with
-   `BACKUP_MEDIA_NOW=1 bash deploy/backup.sh`; both files appear in the
-   bucket's *Objects* list.
-4. **Delete old copies automatically** (so the bucket never fills up):
-   - ☰ → **Identity & Security → Policies** → compartment *(root)* → **Create
-     Policy**, name `backup-cleanup`, *Show manual editor*, and paste
-     (use your own region identifier):
-     ```
-     Allow service objectstorage-me-dubai-1 to manage object-family in tenancy
-     ```
-   - Bucket → **Management → Lifecycle policy rules → Create rule**: name
-     `delete-old-backups`, target *Objects*, action *Delete*, *30* days, filter
-     *Include by prefix* `mhtalk-`, state *Enabled*.
-
-Or with rclone (can also delete old copies):
-
-1. Console → ☰ → **Storage → Buckets → Create bucket**, name `mhtalk-backups`
-   (Standard tier, private).
-2. Console → your profile (top right) → **My profile → Customer secret keys →
-   Generate secret key**. Copy the secret (shown once) and the access key.
-3. Note your **namespace** (Console → ☰ → Governance → Tenancy details →
-   *Object storage namespace*).
-4. On the server:
-
-```bash
-sudo apt -y install rclone
-rclone config create oci s3 provider=Other \
-  access_key_id=<access key> secret_access_key=<secret> \
-  endpoint=https://<namespace>.compat.objectstorage.me-dubai-1.oraclecloud.com \
-  region=me-dubai-1 force_path_style=true no_check_bucket=true
-```
-
-5. In `.env.prod` set `BACKUP_REMOTE=oci:mhtalk-backups`, then test with
-   `bash deploy/backup.sh` and `rclone ls oci:mhtalk-backups`.
-
-Restore: see the comment at the top of `deploy/backup.sh`.
+No schedule or offsite target is considered active until the recipient, remote,
+and restore drill are verified. On macOS use the provided LaunchAgent installer
+after configuration; it requires the user session and Docker Desktop to be
+available. A Linux host can schedule `deploy/backup.sh` with cron or a systemd
+timer after the same checks.
 
 
 ### Monitoring and keeping it free
