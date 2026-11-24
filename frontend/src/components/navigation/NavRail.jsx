@@ -9,8 +9,9 @@ import { useAppUpdate } from "../../services/appUpdate";
 const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 /**
- * Compact vertical navigation on desktop; on phones a WhatsApp-style bottom
- * tab bar (Chats, Updates, Calls, Contacts, Wallet, You). SatoshiCore AI and
+ * Compact vertical navigation on desktop; on phones a condensed bottom
+ * tab bar (Chats, Updates, Contacts, Wallet, You). Calls live inside Chats,
+ * and Marketplace lives inside Wallet. SatoshiCore AI and
  * Media move to the floating button / chat menu on phones.
  * Badges are derived from real state: unread chats (non-archived), unseen
  * statuses and unacknowledged missed calls.
@@ -26,16 +27,18 @@ function NavRail({ section, onChange, onOpenMedia }) {
   const update = useAppUpdate();
 
   if (compact) {
+    const marketplaceTab = WALLET_UI_ENABLED
+      ? { id: "wallet", label: "Wallet", match: ["wallet", "marketplace"], icon: () => <WalletCards size={22} strokeWidth={1.8} /> }
+      : { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> };
     const tabs = [
-      { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
+      { id: "chats", label: "Chats", match: ["chats", "calls"], icon: (active) => <ChatsIcon filled={active} />, badge: (unreadChats + missed) || null, ariaLabel: `Chats and calls${unreadChats || missed ? `, ${unreadChats} unread chats and ${missed} missed calls` : ""}` },
       { id: "status", label: "Updates", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
-      { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
       { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
-      ...(WALLET_UI_ENABLED ? [{ id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> }] : []),
+      marketplaceTab,
       {
         id: "settings",
         label: "You",
-        match: ["settings", "profile", "marketplace"],
+        match: ["settings", "profile"],
         dot: update.available,
         dotLabel: "New version available",
         icon: () => <Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={26} />,
@@ -51,7 +54,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
               type="button"
               className={`tabbar__btn ${active ? "is-active" : ""}`}
               onClick={() => onChange(tab.id)}
-              aria-label={tab.badge ? `${tab.label}, ${tab.badge} unread` : tab.label}
+              aria-label={tab.ariaLabel || (tab.badge ? `${tab.label}, ${tab.badge} unread` : tab.label)}
               aria-current={active ? "page" : undefined}
             >
               <span className="tabbar__pill">
