@@ -54,6 +54,9 @@
 .status-composer {
   position: fixed;
   inset: 0;
+  top: var(--app-viewport-top, 0px);
+  bottom: auto;
+  height: var(--app-viewport-height, 100dvh);
   z-index: 1150;
   display: flex;
   flex-direction: column;
@@ -63,7 +66,7 @@
 .status-composer__top {
   display: flex;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
 }
 .status-composer__top .icon-btn {
   color: #fff;
@@ -112,6 +115,57 @@
   gap: 16px;
   padding: 14px 24px 20px;
   background: rgba(0, 0, 0, 0.25);
+}
+
+.status-composer__queue {
+  display: flex;
+  gap: 8px;
+  max-width: min(100%, 100vw);
+  overflow-x: auto;
+  padding: 4px 2px 8px;
+  scrollbar-width: thin;
+}
+
+.status-composer__queue > div {
+  position: relative;
+  flex: 0 0 52px;
+  width: 52px;
+  height: 64px;
+}
+
+.status-composer__queue > div > button:first-child {
+  width: 52px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+}
+
+.status-composer__queue > div.is-active > button:first-child {
+  border-color: var(--accent, #00a884);
+}
+
+.status-composer__queue img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.status-composer__queue > div > button:last-child {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #111;
+  color: white;
 }
 .status-composer__caption {
   position: relative;
@@ -164,6 +218,9 @@
 .status-viewer {
   position: fixed;
   inset: 0;
+  top: var(--app-viewport-top, 0px);
+  bottom: auto;
+  height: var(--app-viewport-height, 100dvh);
   z-index: 1150;
   display: grid;
   place-items: center;
@@ -173,7 +230,7 @@
 .status-viewer__frame {
   position: relative;
   width: min(480px, 100vw);
-  height: min(860px, 100dvh);
+  height: min(860px, 100%);
   display: flex;
   flex-direction: column;
   background: #000;
@@ -181,7 +238,7 @@
 }
 .status-viewer__bars {
   position: absolute;
-  top: 10px;
+  top: calc(10px + env(safe-area-inset-top, 0px));
   left: 10px;
   right: 10px;
   display: flex;
@@ -202,7 +259,7 @@
 }
 .status-viewer__top {
   position: absolute;
-  top: 20px;
+  top: calc(20px + env(safe-area-inset-top, 0px));
   left: 0;
   right: 0;
   display: flex;
@@ -232,6 +289,8 @@
   display: grid;
   place-items: center;
   user-select: none;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 .status-viewer__content img,
 .status-viewer__content video {
@@ -287,7 +346,7 @@
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 14px 14px 18px;
+  padding: 14px 14px calc(18px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
   z-index: 3;
 }

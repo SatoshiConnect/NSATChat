@@ -140,21 +140,30 @@ export default function StatusPanel() {
         ref={fileRef}
         type="file"
         accept="image/*,video/*"
+        multiple
         hidden
         onChange={async (event) => {
           const picked = [...(event.target.files || [])];
           event.target.value = "";
-          const [file] = validateFiles(await normalizeFiles(picked), "media");
-          if (!file) return;
-          if (file.size > 50 * 1024 * 1024) {
-            toast.error("Status media must be 50 MB or smaller.");
+          const files = validateFiles(await normalizeFiles(picked), "media");
+          if (!files.length) return;
+          if (files.length > 10) {
+            toast.error("Choose up to 10 items for one status update.");
             return;
           }
-          setComposer({ mode: "media", file });
+          if (files.some((file) => file.type.startsWith("video/")) && files.length > 1) {
+            toast.error("Post videos individually. A multi-item status can contain up to 10 photos.");
+            return;
+          }
+          if (files.some((file) => file.size > 50 * 1024 * 1024)) {
+            toast.error("Each status media file must be 50 MB or smaller.");
+            return;
+          }
+          setComposer({ mode: "media", files });
         }}
       />
       {addAnchor ? <Menu anchor={addAnchor} items={addItems} onClose={() => setAddAnchor(null)} /> : null}
-      {composer ? <StatusComposer mode={composer.mode} initialFile={composer.file} onClose={() => setComposer(null)} /> : null}
+      {composer ? <StatusComposer mode={composer.mode} initialFile={composer.file} initialFiles={composer.files} onClose={() => setComposer(null)} /> : null}
       {viewer ? <StatusViewer groups={viewer.groups} startGroup={viewer.start} onClose={() => setViewer(null)} /> : null}
     </section>
   );

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, CircleDashed, Crop, Palette, Send, Smile, Type, X } from "lucide-react";
 import { errorMessage } from "../../api/client";
@@ -19,9 +19,11 @@ const FONTS = ["inherit", "Georgia, serif", "'Courier New', monospace", "'Trebuc
 const LABELS = { CONTACTS: "My contacts", CONTACTS_EXCEPT: "My contacts except…", ONLY_SHARE_WITH: "Only share with…", EVERYONE: "Everyone" };
 
 /** Create a text, photo or video status (24h). */
-export default function StatusComposer({ initialFile, mode = "text", onClose }) {
+export default function StatusComposer({ initialFile, initialFiles = [], mode = "text", onClose }) {
   const me = useStore((state) => state.me);
-  const [file, setFile] = useState(initialFile || null);
+  const [files, setFiles] = useState(() => initialFiles.length ? initialFiles : initialFile ? [initialFile] : []);
+  const [fileIndex, setFileIndex] = useState(0);
+  const file = files[fileIndex] || null;
   const [editing, setEditing] = useState(false);
   const [captionEmoji, setCaptionEmoji] = useState(false);
   const captionEmojiRef = useRef(null);
@@ -34,9 +36,11 @@ export default function StatusComposer({ initialFile, mode = "text", onClose }) 
   const [emojiOpen, setEmojiOpen] = useState(false);
   const emojiRef = useRef(null);
   const url = useObjectUrl(file);
+  const previewUrls = useMemo(() => files.map((item) => URL.createObjectURL(item)), [files]);
+  useEffect(() => () => previewUrls.forEach((previewUrl) => URL.revokeObjectURL(previewUrl)), [previewUrls]);
   const [privacy, setPrivacy] = useState(() => getStatusPrivacy(me.id));
   const [privacyOpen, setPrivacyOpen] = useState(false);
-  const isText = mode === "text" && !file;
+  const isText = mode === "text" && files.length === 0;
   const isVideo = file?.type.startsWith("video/");
   // Video: pick the part to post (WhatsApp keeps status videos to 60 s).
   const videoRef = useRef(null);
@@ -63,26 +67,52 @@ export default function StatusComposer({ initialFile, mode = "text", onClose }) 
       return;
     }
     setBusy(true);
+    setProgress(0);
+    let completed = 0;
     try {
-      await statusApi.upload(
-        {
-          status_type: isText ? "TEXT" : isVideo ? "VIDEO" : "IMAGE",
-          content: isText ? text.trim() : caption.trim(),
-          media: isText ? undefined : file,
-          background_color: color,
-          text_color: "#FFFFFF",
-          visibility: privacy.visibility,
-          trim_start: isVideo && trimmed ? trim.start.toFixed(2) : undefined,
-          trim_end: isVideo && trimmed ? trim.end.toFixed(2) : undefined,
-          users: ["CONTACTS_EXCEPT", "ONLY_SHARE_WITH"].includes(privacy.visibility) ? privacy.users : undefined,
-        },
-        (event) => event.total && setProgress(Math.round((event.loaded / event.total) * 100)),
-      );
+      const users = ["CONTACTS_EXCEPT", "ONLY_SHARE_WITH"].includes(privacy.visibility) ? privacy.users : undefined;
+      if (isText) {
+        await statusApi.upload({ status_type: "TEXT", content: text.trim(), background_color: color, text_color: "#FFFFFF", visibility: privacy.visibility, users });
+      } else {
+        const totalBytes = files.reduce((sum, item) => sum + item.size, 0);
+        for (let index = 0; index < files.length; index += 1) {
+          const item = files[index];
+          const itemVideo = item.type.startsWith("video/");
+          await statusApi.upload({
+            status_type: itemVideo ? "VIDEO" : "IMAGE",
+            content: caption.trim(),
+            media: item,
+            background_color: color,
+            text_color: "#FFFFFF",
+            visibility: privacy.visibility,
+            trim_start: itemVideo && index === fileIndex && trimmed ? trim.start.toFixed(2) : undefined,
+            trim_end: itemVideo && index === fileIndex && trimmed ? trim.end.toFixed(2) : undefined,
+            users,
+          }, (event) => {
+            if (event.total) {
+              const loaded = files.slice(0, index).reduce((sum, previous) => sum + previous.size, 0) + Math.min(item.size, event.loaded);
+              setProgress(Math.round((loaded / totalBytes) * 100));
+            }
+          });
+          completed += 1;
+        }
+      }
       await loadStatus();
-      toast.success("Status posted");
+      toast.success(files.length > 1 ? `${files.length} status updates posted` : "Status posted");
       onClose();
     } catch (error) {
+      if (files.length && completed === files.length) {
+        toast.success("Status posted. Reopen Updates if it doesn't appear yet.");
+        onClose();
+        return;
+      }
       toast.error(errorMessage(error, "Couldn't post the status."));
+      if (completed) {
+        setFiles((items) => items.slice(completed));
+        setFileIndex(0);
+        setDuration(0);
+        setTrim(null);
+      }
       setBusy(false);
     }
   }
@@ -95,7 +125,7 @@ export default function StatusComposer({ initialFile, mode = "text", onClose }) 
           url={url}
           onCancel={() => setEditing(false)}
           onApply={(edited) => {
-            setFile(edited);
+            setFiles((items) => items.map((item, index) => index === fileIndex ? edited : item));
             setEditing(false);
           }}
         />
@@ -156,6 +186,14 @@ export default function StatusComposer({ initialFile, mode = "text", onClose }) 
         {emojiOpen ? <EmojiPicker className="emoji-picker--status" ignoreRefs={[emojiRef]} onClose={() => setEmojiOpen(false)} onPick={(emoji) => setText((value) => value + emoji)} /> : null}
       </div>
       <div className="status-composer__bottom">
+        {files.length > 1 ? <div className="status-composer__queue" aria-label="Story items">
+            {files.map((item, index) => <div key={`${item.name}-${index}`} className={index === fileIndex ? "is-active" : ""}>
+            <button type="button" onClick={() => { setFileIndex(index); setDuration(0); setTrim(null); }} aria-label={`Select story item ${index + 1}`} aria-pressed={index === fileIndex}>
+              {item.type.startsWith("video/") ? <span>Video</span> : <img src={previewUrls[index]} alt="" />}
+            </button>
+            {files.length > 1 ? <button type="button" aria-label={`Remove story item ${index + 1}`} onClick={() => { setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index)); setFileIndex((current) => current > index ? current - 1 : Math.min(current, files.length - 2)); setDuration(0); setTrim(null); }}>×</button> : null}
+          </div>)}
+        </div> : null}
         {!isText ? (
           <div className="status-composer__caption">
             <span ref={captionEmojiRef}>
@@ -187,7 +225,7 @@ export default function StatusComposer({ initialFile, mode = "text", onClose }) 
             <span>Status ({audienceLabel})</span>
             <ChevronRight size={15} />
           </button>
-          <button type="button" className="fab status-composer__send" onClick={publish} disabled={busy} aria-label="Post status">
+          <button type="button" className="fab status-composer__send" onClick={publish} disabled={busy || (!isText && !files.length)} aria-label="Post status">
             {busy ? <span className="fab__progress">{progress ? `${progress}%` : <Spinner size={18} className="spinner--dark" />}</span> : <Send size={22} />}
           </button>
         </div>

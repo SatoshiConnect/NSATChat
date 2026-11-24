@@ -65,7 +65,7 @@ services:
 
   # Periodic jobs. Same image as "web" but without its entrypoint (no
   # migrations, no uvicorn): every 5 minutes it deletes disappeared messages
-  # (and their files) and view once media every recipient has opened.
+  # and stories (and their files), plus view once media every recipient opened.
   scheduler:
     build:
       context: .
@@ -83,6 +83,7 @@ services:
       - |
         while true; do
           python manage.py purge_expired_messages || echo "purge_expired_messages failed"
+          python manage.py purge_expired_statuses || echo "purge_expired_statuses failed"
           sleep 300
         done
     healthcheck:

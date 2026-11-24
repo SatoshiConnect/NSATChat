@@ -1,8 +1,11 @@
 from datetime import timedelta
+import tempfile
 
 from django.core import signing
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.test import override_settings
 from unittest.mock import patch
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -11,7 +14,43 @@ from apps.accounts.models import Contact, User
 from apps.status.choices import StatusType, StatusVisibility
 from apps.status.models import Status, StatusPrivacy, StatusView, StatusHighlight, StatusHighlightItem
 from apps.status.media import status_media_url
+from apps.status.management.commands.purge_expired_statuses import purge_expired_statuses
 from apps.social.models import SocialMute
+
+
+class ExpiredStatusCleanupTests(TestCase):
+    def setUp(self):
+        self.temp_media = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_media.cleanup)
+        settings_override = override_settings(MEDIA_ROOT=self.temp_media.name)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+        self.owner = User.objects.create_user(phone_number="+66919990001", password="StrongPass123!")
+
+    def test_purge_removes_expired_story_and_file_but_preserves_highlighted_story(self):
+        from apps.status.models import StatusHighlight, StatusHighlightItem
+
+        expired = Status.objects.create(user=self.owner, content="expired", expires_at=timezone.now() - timedelta(seconds=1))
+        expired.media.save("expired.jpg", SimpleUploadedFile("expired.jpg", b"expired-bytes", content_type="image/jpeg"), save=True)
+
+        highlighted = Status.objects.create(user=self.owner, content="saved", expires_at=timezone.now() - timedelta(seconds=1))
+        highlighted.media.save("saved.jpg", SimpleUploadedFile("saved.jpg", b"saved-bytes", content_type="image/jpeg"), save=True)
+        highlight = StatusHighlight.objects.create(owner=self.owner, title="Memories")
+        StatusHighlightItem.objects.create(highlight=highlight, status=highlighted)
+
+        expired_path = expired.media.name
+        highlighted_path = highlighted.media.name
+        self.assertTrue(default_storage.exists(expired_path))
+        self.assertEqual(purge_expired_statuses(), 1)
+        self.assertFalse(Status.objects.filter(pk=expired.pk).exists())
+        self.assertFalse(default_storage.exists(expired_path))
+        self.assertTrue(Status.objects.filter(pk=highlighted.pk).exists())
+        self.assertTrue(default_storage.exists(highlighted_path))
+
+    def test_purge_keeps_unexpired_story(self):
+        current = Status.objects.create(user=self.owner, content="still active")
+        self.assertEqual(purge_expired_statuses(), 0)
+        self.assertTrue(Status.objects.filter(pk=current.pk).exists())
 
 
 class StatusFeatureAPITests(TestCase):

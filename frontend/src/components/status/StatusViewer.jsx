@@ -95,6 +95,7 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [giftBusy, setGiftBusy] = useState(false);
   const [giftAnimation, setGiftAnimation] = useState("");
   const videoRef = useRef(null);
+  const swipeStart = useRef(null);
   const status = group?.statuses[index];
   const isMine = Number(group?.user?.id) === Number(me.id);
   const liveViews = useStore((state) => (isMine && status ? state.myStatuses.find((item) => item.id === status.id)?.views_count : undefined));
@@ -145,6 +146,30 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
       setIndex(0);
     }
   }, [index, groupIndex]);
+
+  const onContentPointerDown = (event) => {
+    if (event.target.closest("button, input, video, .status-viewer__reply")) return;
+    swipeStart.current = { x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setPaused(true);
+  };
+  const onContentPointerUp = (event) => {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (start && Math.abs(event.clientX - start.x) > 64 && Math.abs(event.clientX - start.x) > Math.abs(event.clientY - start.y)) {
+      setProgress(0);
+      if (event.clientX < start.x && groupIndex < groups.length - 1) {
+        const nextGroupIndex = groupIndex + 1;
+        setGroupIndex(nextGroupIndex);
+        setIndex(Math.max(0, groups[nextGroupIndex].statuses.findIndex((item) => !item.is_viewed)));
+      } else if (event.clientX > start.x && groupIndex > 0) {
+        const previousGroupIndex = groupIndex - 1;
+        setGroupIndex(previousGroupIndex);
+        setIndex(Math.max(0, groups[previousGroupIndex].statuses.findIndex((item) => !item.is_viewed)));
+      }
+    }
+    setPaused(false);
+  };
 
   // Record the view (server) and update the ring locally.
   useEffect(() => {
@@ -254,9 +279,9 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
         <div
           className="status-viewer__content"
           style={status.status_type === "TEXT" ? { background: status.background_color, color: status.text_color } : undefined}
-          onPointerDown={() => setPaused(true)}
-          onPointerUp={() => setPaused(false)}
-          onPointerLeave={() => setPaused(false)}
+          onPointerDown={onContentPointerDown}
+          onPointerUp={onContentPointerUp}
+          onPointerCancel={onContentPointerUp}
         >
           {status.status_type === "TEXT" ? <p className="status-viewer__text">{status.content}</p> : null}
           {status.status_type === "IMAGE" ? <img src={media} alt="Status" /> : null}

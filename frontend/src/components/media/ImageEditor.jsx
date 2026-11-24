@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, RotateCcw, RotateCw, Smile, Trash2, X } from "lucide-react";
+import { Brush, Check, RotateCcw, RotateCw, Smile, Trash2, X } from "lucide-react";
 import EmojiPicker from "../conversation/EmojiPicker";
 import { IconButton } from "../common/ui";
 
@@ -28,9 +28,13 @@ export default function ImageEditor({ file, url, onCancel, onApply }) {
   const [zoom, setZoom] = useState(1); // multiplier over cover-fit
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [stickers, setStickers] = useState([]);
+  const [drawPaths, setDrawPaths] = useState([]);
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawColor, setDrawColor] = useState("#ffffff");
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const dragRef = useRef(null);
+  const drawingId = useRef(0);
 
   useLayoutEffect(() => {
     const node = stageRef.current;
@@ -85,6 +89,15 @@ export default function ImageEditor({ file, url, onCancel, onApply }) {
 
   function onPointerDown(event) {
     if (event.target.closest(".sticker")) return;
+    if (drawMode) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = { x: Math.max(0, Math.min(1000, ((event.clientX - rect.left) / rect.width) * 1000)), y: Math.max(0, Math.min(1000, ((event.clientY - rect.top) / rect.height) * 1000)) };
+      const id = ++drawingId.current;
+      dragRef.current = { type: "draw", id };
+      setDrawPaths((paths) => [...paths, { id, color: drawColor, size: 9, points: [point] }]);
+      return;
+    }
     const handle = event.target.closest("[data-handle]")?.dataset.handle;
     if (handle) {
       event.stopPropagation();
@@ -98,7 +111,11 @@ export default function ImageEditor({ file, url, onCancel, onApply }) {
   function onPointerMove(event) {
     const drag = dragRef.current;
     if (!drag) return;
-    if (drag.type === "resize") {
+    if (drag.type === "draw") {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const point = { x: Math.max(0, Math.min(1000, ((event.clientX - rect.left) / rect.width) * 1000)), y: Math.max(0, Math.min(1000, ((event.clientY - rect.top) / rect.height) * 1000)) };
+      setDrawPaths((paths) => paths.map((path) => path.id === drag.id ? { ...path, points: [...path.points, point] } : path));
+    } else if (drag.type === "resize") {
       // The box stays centred, so each edge moves by the drag and the size by twice that.
       const dx = event.clientX - drag.x;
       const dy = event.clientY - drag.y;
@@ -149,6 +166,21 @@ export default function ImageEditor({ file, url, onCancel, onApply }) {
       ctx.textBaseline = "middle";
       ctx.fillText(sticker.emoji, sticker.x * canvas.width, sticker.y * canvas.height);
     });
+    drawPaths.forEach((path) => {
+      if (path.points.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = path.color;
+      ctx.lineWidth = Math.max(2, (path.size / 1000) * canvas.width);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      path.points.forEach((point, index) => {
+        const x = (point.x / 1000) * canvas.width;
+        const y = (point.y / 1000) * canvas.height;
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    });
     const type = file.type === "image/png" ? "image/png" : "image/jpeg";
     canvas.toBlob(
       (blob) => {
@@ -178,6 +210,7 @@ export default function ImageEditor({ file, url, onCancel, onApply }) {
         <span ref={emojiBtnRef}>
           <IconButton icon={Smile} label="Add emoji" active={emojiOpen} onClick={() => setEmojiOpen((value) => !value)} />
         </span>
+        <IconButton icon={Brush} label={drawMode ? "Stop drawing" : "Draw on image"} active={drawMode} onClick={() => setDrawMode((value) => !value)} />
         <button type="button" className="btn btn--primary" onClick={apply} disabled={busy || !natural}>
           <Check size={18} /> Done
         </button>
@@ -224,6 +257,9 @@ export default function ImageEditor({ file, url, onCancel, onApply }) {
               {sticker.emoji}
             </span>
           ))}
+          {drawPaths.length ? <svg className="editor__drawings" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
+            {drawPaths.map((path) => <polyline key={path.id} points={path.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={path.color} strokeWidth={path.size} strokeLinecap="round" strokeLinejoin="round" />)}
+          </svg> : null}
           <span className="editor__grid" aria-hidden />
           {aspect === "free"
             ? ["n", "s", "e", "w", "nw", "ne", "sw", "se"].map((handle) => (
@@ -248,13 +284,11 @@ export default function ImageEditor({ file, url, onCancel, onApply }) {
           <span>Zoom</span>
           <input type="range" min="1" max="4" step="0.01" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />
         </label>
-        {stickers.length ? (
-          <button type="button" className="btn btn--text" onClick={() => setStickers([])}>
-            <Trash2 size={16} /> Remove emoji
-          </button>
-        ) : (
-          <span className="editor__hint">{aspect === "free" ? "Drag the corners or edges to crop · drag the photo to move" : "Drag to reposition · scroll to zoom"}</span>
-        )}
+        {drawMode ? <div className="editor__draw-colors" aria-label="Drawing color">
+          {["#ffffff", "#ffe45e", "#ff4768"].map((color) => <button key={color} type="button" aria-label={`Use ${color} drawing color`} aria-pressed={drawColor === color} style={{ backgroundColor: color }} onClick={() => setDrawColor(color)} />)}
+        </div> : null}
+        {stickers.length || drawPaths.length ? <button type="button" className="btn btn--text" onClick={() => { setStickers([]); setDrawPaths([]); }}><Trash2 size={16} /> Clear edits</button>
+          : <span className="editor__hint">{drawMode ? "Draw with your finger or pointer · choose a color above" : aspect === "free" ? "Drag the corners or edges to crop · drag the photo to move" : "Drag to reposition · scroll to zoom"}</span>}
       </div>
     </div>
   );
