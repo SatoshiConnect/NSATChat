@@ -22,8 +22,9 @@ Implementation points:
 - `frontend/src/styles/layout.css` owns the responsive switcher and tab-bar
   presentation.
 
-The Wallet destination only appears when `VITE_FEATURE_WALLET_UI` is enabled.
-If Wallet is disabled, Marketplace remains directly available as **Market**.
+The Wallet destination and the Wallet option in its mobile section switcher
+appear only when `VITE_FEATURE_WALLET_UI` is enabled. If Wallet is disabled,
+Marketplace remains directly available as **Market** without a dead Wallet tab.
 
 ## Host-proxy deployment note
 
