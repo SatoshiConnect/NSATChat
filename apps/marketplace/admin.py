@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import admin, messages
 
 from .models import (
@@ -18,6 +20,8 @@ from .models import (
     PurchaseDispute,
     SimulatedPurchase,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DigitalItemAssetInline(admin.TabularInline):
@@ -278,7 +282,23 @@ class MarketplaceReconciliationRunAdmin(admin.ModelAdmin):
     def run_reconciliation_now(self, request, queryset):
         from .reconciliation import run_reconciliation
 
-        run = run_reconciliation(trigger=request.user, source=MarketplaceReconciliationRun.Source.ADMIN)
+        try:
+            # A browser request must not sit on hundreds of indexer calls; the
+            # scheduled pass does the deep scan. A failed pass is reported in the
+            # message area instead of answering the operator with a 500.
+            run = run_reconciliation(
+                trigger=request.user,
+                source=MarketplaceReconciliationRun.Source.ADMIN,
+                limit=100,
+            )
+        except Exception as error:  # noqa: BLE001 - the failed run row keeps the detail
+            logger.exception("admin reconciliation pass failed")
+            self.message_user(
+                request,
+                f"Reconciliation failed with {type(error).__name__}; the failed run is in the list below.",
+                level=messages.ERROR,
+            )
+            return
         level = messages.ERROR if run.critical_issues else messages.WARNING if run.issues_found else messages.SUCCESS
         self.message_user(request, run.summary, level=level)
 

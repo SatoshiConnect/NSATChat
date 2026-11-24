@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -189,18 +190,30 @@ def create_order(*, buyer, item, idempotency_key):
         return existing
 
     now = timezone.now()
-    _close_stale_orders(buyer, item, now)
-    age = MarketplaceOrder.objects.filter(
-        buyer=buyer,
-        item=item,
-        state__in=[MarketplaceOrder.State.AWAITING_PAYMENT, MarketplaceOrder.State.PARTIALLY_PAID],
-        expires_at__gte=now,
-    ).exists()
-    if age:
-        raise MarketplaceError("order_already_open", status=409)
-
     try:
         with transaction.atomic():
+            # Serialise checkout per buyer. Without this lock two tabs posting
+            # different idempotency keys in the same instant both pass the
+            # open-order check and become payable, so one listing could be paid
+            # for twice. The replay and ownership checks are repeated here so a
+            # request that waited on the lock sees what the winner committed.
+            get_user_model().objects.select_for_update().only("pk").get(pk=buyer.pk)
+            replay = MarketplaceOrder.objects.filter(buyer=buyer, idempotency_key=idempotency_key).first()
+            if replay:
+                if replay.item_id != item.pk:
+                    raise MarketplaceError("idempotency_key_reused", status=409)
+                return replay
+            _close_stale_orders(buyer, item, now)
+            age = MarketplaceOrder.objects.filter(
+                buyer=buyer,
+                item=item,
+                state__in=[MarketplaceOrder.State.AWAITING_PAYMENT, MarketplaceOrder.State.PARTIALLY_PAID],
+                expires_at__gte=now,
+            ).exists()
+            if age:
+                raise MarketplaceError("order_already_open", status=409)
+            if MarketplaceEntitlement.objects.filter(owner_id=buyer.pk, item_id=item.pk).exists():
+                raise MarketplaceError("already_owned", status=409)
             order = MarketplaceOrder.objects.create(
                 buyer=buyer,
                 item=item,
@@ -300,6 +313,14 @@ def record_order_payment(*, order, role, envelope):
                 locked.state = MarketplaceOrder.State.EXPIRED
                 locked.save(update_fields=["state"])
                 raise MarketplaceError("order_expired", status=409)
+            if MarketplaceEntitlement.objects.filter(
+                owner_id=locked.buyer_id, item_id=locked.item_id, revoked_at__isnull=True
+            ).exclude(order_id=locked.pk).exists():
+                # The buyer already owns this item through another order (for
+                # example a second order created before duplicate checkouts were
+                # serialised). Accepting a transfer here would charge twice and
+                # grant nothing, so it is refused before the gateway is called.
+                raise MarketplaceError("already_owned", status=409)
             buyer_address = linked_address(locked.buyer)
             if not buyer_address:
                 raise MarketplaceError("wallet_not_linked", status=409)

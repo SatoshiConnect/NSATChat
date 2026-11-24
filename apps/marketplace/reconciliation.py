@@ -16,6 +16,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from . import services
@@ -34,6 +35,10 @@ logger = logging.getLogger(__name__)
 CRITICAL = MarketplaceReconciliationIssue.Severity.CRITICAL
 WARNING = MarketplaceReconciliationIssue.Severity.WARNING
 OPEN_STATES = (MarketplaceOrder.State.AWAITING_PAYMENT, MarketplaceOrder.State.PARTIALLY_PAID)
+# A pass that has not finished in this long lost its process (deploy, OOM kill).
+# Its run row is closed so the admin list never shows a pass that is not coming
+# back, which would otherwise look like an audit that was still working.
+RUN_STALE_MINUTES = 60
 
 
 def _bounded_setting(name, default, low, high):
@@ -92,6 +97,9 @@ class Report:
         self.issues = 0
         self.critical = 0
         self.repairs = 0
+        # Orders this pass could not settle; a later check must not report the
+        # same stuck order a second time as a different finding.
+        self.sync_failures = set()
 
     def scan_order(self, order_id):
         self.order_ids.add(order_id)
@@ -176,6 +184,7 @@ def _settle_submitted_payments(report, limit, check_chain):
             settled = services.sync_order(order, allow_terminal=False)
         except Exception as error:  # one bad order must not stop the audit
             logger.exception("reconciliation could not settle order %s", order.pk)
+            report.sync_failures.add(order.pk)
             report.issue(
                 "order_sync_failed",
                 CRITICAL,
@@ -215,6 +224,18 @@ def _report_stalled(report, order, pending):
                 payment=payment,
                 detail=f"{payment.role} transfer submitted {age} min ago is still unconfirmed (threshold {threshold}).",
             )
+
+
+def _settlement_proven(payments, total):
+    """Access may only be rebuilt for an order its confirmed transfers back.
+
+    A paid row with a missing or disputed confirmation is exactly the
+    disagreement an admin has to resolve; granting access from such a row would
+    hand out paid content on the strength of a record nobody verified.
+    """
+    return bool(payments) and all(
+        payment.state == OrderPayment.State.CONFIRMED for payment in payments
+    ) and total == sum(payment.amount_nsat for payment in payments)
 
 
 def _repair_settlement(report, order):
@@ -295,9 +316,9 @@ def _audit_paid_orders(report, limit):
         for payment in payments:
             report.scan_payment(payment.pk)
 
-        _repair_settlement(report, order)
-
         total = sum(payment.amount_nsat for payment in payments)
+        if _settlement_proven(payments, total):
+            _repair_settlement(report, order)
         if total != order.unit_amount_nsat:
             report.issue(
                 "payment_amount_mismatch",
@@ -341,6 +362,80 @@ def _audit_paid_orders(report, limit):
             )
 
 
+def _scan_payments(report, order):
+    payments = list(order.payments.all())
+    for payment in payments:
+        report.scan_payment(payment.pk)
+    return payments
+
+
+def _audit_open_orders(report, limit):
+    """Every transfer confirmed, yet the order stayed open: access was missed."""
+    orders = (
+        MarketplaceOrder.objects.filter(
+            state__in=OPEN_STATES,
+            payments__state=OrderPayment.State.CONFIRMED,
+        )
+        .select_related("item")
+        .prefetch_related("payments")
+        .distinct()
+        .order_by("-created_at")[:limit]
+    )
+    for order in orders:
+        if order.pk in report.sync_failures:
+            # Already reported as order_sync_failed; one cause, one finding.
+            continue
+        report.scan_order(order.pk)
+        payments = _scan_payments(report, order)
+        if not payments or any(payment.state != OrderPayment.State.CONFIRMED for payment in payments):
+            continue
+        report.issue(
+            "order_fully_paid_but_open",
+            CRITICAL,
+            order=order,
+            detail=(
+                f"All {len(payments)} transfer(s) confirmed but the order is still {order.state}; "
+                "the buyer has no access."
+            ),
+        )
+
+
+def _audit_closed_orders(report, limit):
+    """A closed order must never keep a transfer the chain accepted.
+
+    Closing is fail-closed: one failed transfer of a multi-transfer payment ends
+    the order even if another one confirmed. That accepted transfer is still
+    money out of the buyer's wallet, so it is reported for a human to refund or
+    grant manually. Nothing is rewritten, because only an operator can decide
+    whether the buyer should be refunded or given access.
+    """
+    closed = (
+        MarketplaceOrder.objects.filter(
+            state__in=(MarketplaceOrder.State.EXPIRED, MarketplaceOrder.State.FAILED),
+            payments__state=OrderPayment.State.CONFIRMED,
+        )
+        .select_related("item")
+        .prefetch_related("payments")
+        .distinct()
+        .order_by("-created_at")[:limit]
+    )
+    for order in closed:
+        report.scan_order(order.pk)
+        payments = _scan_payments(report, order)
+        confirmed = sorted(payment.role for payment in payments if payment.state == OrderPayment.State.CONFIRMED)
+        if not confirmed:
+            continue
+        report.issue(
+            "closed_order_with_confirmed_payment",
+            CRITICAL,
+            order=order,
+            detail=(
+                f"Order is {order.state} but the {', '.join(confirmed)} transfer confirmed on chain; "
+                "the buyer paid and got no access."
+            ),
+        )
+
+
 def _audit_entitlements(report, limit):
     """Active rights must always be backed by an order the chain settled."""
     entitlements = (
@@ -372,14 +467,19 @@ def _recheck_confirmed_payments(report, limit):
             confirmed_at__gte=since,
         )
         .select_related("order")
-        .order_by("-confirmed_at")[: min(limit, 100)]
+        # Least recently verified first: a busy week would otherwise push older
+        # confirmed transfers out of the page and they would never be re-read.
+        .order_by(F("chain_checked_at").asc(nulls_first=True), "confirmed_at")[: min(limit, 100)]
     )
     for payment in payments:
         report.scan_payment(payment.pk)
         verdict = _chain_verdict(payment)
         if verdict is None:
+            # Unknown stays unmarked so the next pass retries it first.
             continue
         report.chain_check()
+        payment.chain_checked_at = timezone.now()
+        payment.save(update_fields=["chain_checked_at"])
         if _confirmed(verdict):
             continue
         report.issue(
@@ -403,9 +503,26 @@ def _summarise(run):
     )[:300]
 
 
+def close_abandoned_runs():
+    """Fail runs left behind by a killed process so the report stays honest."""
+    cutoff = timezone.now() - timedelta(minutes=RUN_STALE_MINUTES)
+    closed = MarketplaceReconciliationRun.objects.filter(
+        status=MarketplaceReconciliationRun.Status.RUNNING,
+        started_at__lt=cutoff,
+    ).update(
+        status=MarketplaceReconciliationRun.Status.FAILED,
+        error="The pass did not finish; its process stopped before the report was written.",
+        finished_at=timezone.now(),
+    )
+    if closed:
+        logger.warning("closed %s abandoned marketplace reconciliation run(s)", closed)
+    return closed
+
+
 def run_reconciliation(*, trigger=None, source=MarketplaceReconciliationRun.Source.COMMAND, dry_run=False, limit=500, check_chain=True):
     """Compare the chain with the ledger and record an admin-readable report."""
     limit = min(max(int(limit), 1), 2_000)
+    close_abandoned_runs()
     run = MarketplaceReconciliationRun.objects.create(
         source=source,
         dry_run=bool(dry_run),
@@ -417,6 +534,8 @@ def run_reconciliation(*, trigger=None, source=MarketplaceReconciliationRun.Sour
         # resulting ledger so a late settlement is not reported as a gap.
         _settle_submitted_payments(report, limit, check_chain)
         _audit_paid_orders(report, limit)
+        _audit_open_orders(report, limit)
+        _audit_closed_orders(report, limit)
         _audit_entitlements(report, limit)
         if check_chain:
             _recheck_confirmed_payments(report, limit)

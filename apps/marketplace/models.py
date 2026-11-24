@@ -243,6 +243,10 @@ class OrderPayment(models.Model):
     submitted_at = models.BigIntegerField(null=True, blank=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
     ledger = models.BigIntegerField(null=True, blank=True)
+    # When reconciliation last re-read this transfer on chain. Reorg re-checks
+    # take the least recently verified rows first, so every confirmed transfer
+    # in the window is revisited instead of only the newest ones.
+    chain_checked_at = models.DateTimeField(null=True, blank=True)
     state = models.CharField(max_length=12, choices=State.choices, default=State.PENDING, db_index=True)
 
     class Meta:

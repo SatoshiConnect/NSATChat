@@ -395,6 +395,37 @@ class OrderSettlementTests(APITestCase):
         row = next(entry for entry in self.client.get(reverse("marketplace:catalog")).data if entry["id"] == self.item.pk)
         self.assertEqual(row["purchase_mode"], "owned")
 
+    def test_a_duplicate_order_for_an_owned_item_cannot_take_money(self):
+        first = self._create_order().data
+        self._pay(first, ledger=41)
+        # A second payable order for the same listing, as an older build could
+        # leave behind before checkout creation was serialised per buyer.
+        duplicate = MarketplaceOrder.objects.create(
+            buyer=self.buyer,
+            item=self.item,
+            idempotency_key=uuid.uuid4(),
+            unit_amount_nsat=123_456_789,
+            platform_fee_bps=0,
+            platform_fee_nsat=0,
+            creator_proceeds_nsat=123_456_789,
+            network=services.MAINNET_ID,
+            expires_at=timezone.now() + timedelta(minutes=15),
+        )
+        OrderPayment.objects.create(
+            order=duplicate,
+            role=OrderPayment.Role.CREATOR,
+            payee_address=VALID_DESTINATION,
+            amount_nsat=123_456_789,
+        )
+        url = reverse("marketplace:order-payment", args=(duplicate.pk, "creator"))
+        with patch("apps.marketplace.services.submit_signed_envelope") as submit:
+            response = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "already_owned")
+        submit.assert_not_called()
+        self.assertEqual(CreatorSale.objects.count(), 1)
+        self.assertEqual(MarketplaceEntitlement.objects.count(), 1)
+
     def _pay(self, order, ledger=21):
         url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
         verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": ledger}
@@ -905,6 +936,79 @@ class EnvelopeReuseConcurrencyTests(TransactionTestCase):
     MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
     MARKETPLACE_PLATFORM_FEE_BPS=0,
     MARKETPLACE_TREASURY_ADDRESS="",
+)
+@skipUnless(
+    connection.vendor != "sqlite",
+    "SQLite serialises writers with a table lock instead of row locks; run this "
+    "race with DJANGO_SETTINGS_MODULE=config.settings.test_postgres.",
+)
+class CheckoutConcurrencyTests(TransactionTestCase):
+    """Two tabs checking out at once must leave one payable order, not two."""
+
+    def setUp(self):
+        self.buyer = User.objects.create_user(phone_number="+66839935591", password="StrongPassword123")
+        self.creator = User.objects.create_user(phone_number="+66839935592", password="StrongPassword123")
+        WalletLink.objects.create(user=self.buyer, address=VALID_SOURCE)
+        WalletLink.objects.create(user=self.creator, address=VALID_DESTINATION)
+        self.item = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.STICKER_PACK,
+            title="Checkout race pack",
+            proposed_price_nsat=123_456_789,
+            state=DigitalItem.State.APPROVED,
+        )
+
+    def test_parallel_checkouts_open_exactly_one_order(self):
+        from django.db import close_old_connections
+
+        buyer_id = self.buyer.pk
+        item_id = self.item.pk
+        buyer = self.buyer
+        item = self.item
+        barrier = threading.Barrier(2)
+        outcomes = []
+        outcome_lock = threading.Lock()
+
+        def checkout():
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                order = services.create_order(buyer=buyer, item=item, idempotency_key=uuid.uuid4())
+                with outcome_lock:
+                    outcomes.append(("created", str(order.pk)))
+            except services.MarketplaceError as error:
+                with outcome_lock:
+                    outcomes.append(("refused", error.code))
+            except Exception as error:  # pragma: no cover - diagnostics for the race test
+                with outcome_lock:
+                    outcomes.append(("error", repr(error)))
+            finally:
+                close_old_connections()
+
+        threads = [threading.Thread(target=checkout) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+
+        self.assertEqual(sorted(kind for kind, _ in outcomes), ["created", "refused"])
+        self.assertEqual([code for kind, code in outcomes if kind == "refused"], ["order_already_open"])
+        self.assertEqual(
+            MarketplaceOrder.objects.filter(
+                buyer_id=buyer_id,
+                item_id=item_id,
+                state__in=[MarketplaceOrder.State.AWAITING_PAYMENT, MarketplaceOrder.State.PARTIALLY_PAID],
+            ).count(),
+            1,
+        )
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}},
+    MARKETPLACE_LIVE_PAYMENTS=True,
+    MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
+    MARKETPLACE_PLATFORM_FEE_BPS=0,
+    MARKETPLACE_TREASURY_ADDRESS="",
     MARKETPLACE_RECONCILIATION_STALE_MINUTES=30,
     MARKETPLACE_RECONCILIATION_RECHECK_DAYS=7,
 )
@@ -975,6 +1079,47 @@ class ReconciliationTests(APITestCase):
         self.assertIn("dry run", issue.detail)
         self.assertEqual(run.repairs_applied, 0)
         self.assertTrue(run.summary.startswith("Dry run"))
+
+    def test_repair_never_grants_access_without_a_confirmed_transfer(self):
+        order = self._order()
+        now = timezone.now()
+        OrderPayment.objects.filter(order=order).update(
+            tx_hash="9" * 64,
+            submitted_at=int(now.timestamp()),
+        )
+        order.state = MarketplaceOrder.State.PAID
+        order.paid_at = now
+        order.save(update_fields=["state", "paid_at"])
+
+        run = reconciliation.run_reconciliation(check_chain=False)
+
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+        self.assertFalse(CreatorSale.objects.exists())
+        issue = run.issues.get(code="paid_without_confirmed_payment")
+        self.assertEqual(issue.severity, MarketplaceReconciliationIssue.Severity.CRITICAL)
+        self.assertFalse(issue.repaired)
+        self.assertFalse(run.issues.filter(code="order_missing_entitlement", repaired=True).exists())
+
+    def test_admin_action_reports_a_failed_pass_instead_of_raising(self):
+        from django.contrib.messages.storage.cookie import CookieStorage
+
+        from .admin import MarketplaceReconciliationRunAdmin
+
+        user = User.objects.create_user(
+            phone_number="+66839935565", password="StrongPassword123", is_staff=True
+        )
+        request = RequestFactory().post("/admin/marketplace/marketplacereconciliationrun/")
+        request.user = user
+        setattr(request, "_messages", CookieStorage(request))
+
+        with patch.object(reconciliation, "run_reconciliation", side_effect=RuntimeError("indexer down")):
+            MarketplaceReconciliationRunAdmin(MarketplaceReconciliationRun, AdminSite()).run_reconciliation_now(
+                request, MarketplaceReconciliationRun.objects.none()
+            )
+
+        stored = list(request._messages)
+        self.assertEqual(len(stored), 1)
+        self.assertIn("Reconciliation failed with RuntimeError", str(stored[0]))
 
     def test_paid_order_without_a_confirmed_transfer_is_critical_and_untouched(self):
         order = self._order()
@@ -1100,3 +1245,82 @@ class ReconciliationTests(APITestCase):
         self.assertEqual(issues.status_code, status.HTTP_200_OK)
         self.assertContains(runs, "Marketplace reconciliation runs")
         self.assertContains(issues, "order_missing_entitlement")
+
+    def test_fully_paid_but_open_order_is_reported(self):
+        order = self._order()
+        now = timezone.now()
+        OrderPayment.objects.filter(order=order).update(
+            state=OrderPayment.State.CONFIRMED,
+            tx_hash="1" * 64,
+            submitted_at=int(now.timestamp()),
+            confirmed_at=now,
+            ledger=77,
+        )
+
+        run = reconciliation.run_reconciliation(check_chain=False)
+
+        issue = run.issues.get(code="order_fully_paid_but_open")
+        self.assertEqual(issue.severity, MarketplaceReconciliationIssue.Severity.CRITICAL)
+        self.assertFalse(issue.repaired)
+        self.assertEqual(
+            MarketplaceOrder.objects.get(pk=order.pk).state, MarketplaceOrder.State.AWAITING_PAYMENT
+        )
+
+    def test_closed_order_that_kept_a_confirmed_transfer_is_reported(self):
+        order = self._order()
+        now = timezone.now()
+        OrderPayment.objects.filter(order=order).update(
+            state=OrderPayment.State.CONFIRMED,
+            tx_hash="3" * 64,
+            submitted_at=int(now.timestamp()),
+            confirmed_at=now,
+            ledger=78,
+        )
+        MarketplaceOrder.objects.filter(pk=order.pk).update(state=MarketplaceOrder.State.FAILED)
+
+        run = reconciliation.run_reconciliation(check_chain=False)
+
+        issue = run.issues.get(code="closed_order_with_confirmed_payment")
+        self.assertEqual(issue.severity, MarketplaceReconciliationIssue.Severity.CRITICAL)
+        self.assertFalse(issue.repaired)
+        self.assertIn("creator", issue.detail)
+        self.assertEqual(MarketplaceOrder.objects.get(pk=order.pk).state, MarketplaceOrder.State.FAILED)
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+
+    def test_reorg_recheck_rotates_through_every_confirmed_transfer(self):
+        first = self._paid(self._order(), tx_hash="4" * 64)
+        services.ensure_settlement_records(first)
+        other = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.BADGE,
+            title="Second recon pack",
+            proposed_price_nsat=500,
+            state=DigitalItem.State.APPROVED,
+        )
+        second = self._paid(services.create_order(buyer=self.buyer, item=other, idempotency_key=uuid.uuid4()), tx_hash="5" * 64)
+        services.ensure_settlement_records(second)
+        checked_at = timezone.now() - timedelta(hours=1)
+        OrderPayment.objects.filter(order=first).update(chain_checked_at=checked_at)
+
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": 99}
+        with patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            run = reconciliation.run_reconciliation(limit=1)
+
+        self.assertEqual(run.chain_checks, 1)
+        self.assertEqual(OrderPayment.objects.get(order=first).chain_checked_at, checked_at)
+        self.assertIsNotNone(OrderPayment.objects.get(order=second).chain_checked_at)
+
+    def test_a_pass_that_never_finished_is_closed_as_failed(self):
+        abandoned = MarketplaceReconciliationRun.objects.create(
+            started_at=timezone.now() - timedelta(hours=2)
+        )
+        fresh = MarketplaceReconciliationRun.objects.create()
+
+        reconciliation.run_reconciliation(check_chain=False)
+
+        abandoned.refresh_from_db()
+        fresh.refresh_from_db()
+        self.assertEqual(abandoned.status, MarketplaceReconciliationRun.Status.FAILED)
+        self.assertIn("did not finish", abandoned.error)
+        self.assertIsNotNone(abandoned.finished_at)
+        self.assertEqual(fresh.status, MarketplaceReconciliationRun.Status.RUNNING)

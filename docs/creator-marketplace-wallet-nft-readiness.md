@@ -22,7 +22,8 @@ Paid inventory is separate from the legacy demo: `MarketplaceOrder`, `OrderPayme
 - Platform fee is **0 basis points** (decided for launch), so the creator receives the entire listing price and no treasury address is needed. Integer-only split; the parts always sum to the listing price, and a 100% fee is rejected.
 - If the fee is above 0, a valid `MARKETPLACE_TREASURY_ADDRESS` is required or order creation fails closed with `marketplace_misconfigured` (503).
 - Orders expire after `MARKETPLACE_ORDER_TTL_SECONDS` (default 15 minutes). A late signature is refused before any gateway call.
-- One open order per buyer and listing; `idempotency_key` replays the same order and a reused key for another item is a conflict.
+- One open order per buyer and listing, enforced under a per-buyer row lock so two tabs checking out at the same time cannot open two payable orders; `idempotency_key` replays the same order and a reused key for another item is a conflict.
+- A transfer is refused with `409 already_owned` before the gateway call if the buyer already owns the item through another order, so a duplicate order can never take a second payment and grant nothing.
 - One submitted envelope per role and order; the transaction hash is derived server-side from the verified payload, never trusted from the client.
 - A signed transfer is usable once, globally. Reusing it for another order returns `409 payment_already_used`, checked before submission and enforced again by the unique transaction hash so a racing request is refused cleanly instead of returning a server error.
 - A failed confirmation marks the order `failed`; a partially confirmed multi-transfer order stays `partially_paid` and grants nothing.
@@ -62,15 +63,26 @@ What the pass checks:
   order missing its entitlement or sale record is repaired (`order_missing_entitlement`
   is critical, `order_missing_sale` is a warning); amount and confirmation
   disagreements are reported and never rewritten.
+- **An order whose transfers all confirmed but which never became paid** is
+  critical (`order_fully_paid_but_open`): the money is in and access was missed.
+- **A closed order that still holds a confirmed transfer** is critical
+  (`closed_order_with_confirmed_payment`): fail-closed settlement can close a
+  multi-transfer order after one transfer failed while another one confirmed,
+  and that money must be examined by a human. Nothing is rewritten.
 - **Active entitlements without a paid order** are critical (`entitlement_without_paid_order`):
   access exists but no confirmed settlement backs it.
 - **Reorg re-check**: confirmed transfers from the last
   `MARKETPLACE_RECONCILIATION_RECHECK_DAYS` days (default 7, 0 disables) are read
-  again; one the chain no longer confirms is reported as
+  again, least recently verified first (each transfer records
+  `chain_checked_at`), so a busy week cannot push older transfers permanently
+  out of the page; one the chain no longer confirms is reported as
   `payment_no_longer_confirmed`. Access is not revoked automatically — a human
   decides, because a reorg can resolve itself.
 - A transfer unconfirmed for `MARKETPLACE_RECONCILIATION_STALE_MINUTES` (default
   30) is reported as `payment_stalled`.
+
+A run whose process dies is closed as failed by the next pass (after 60
+minutes) instead of staying “running” in the report forever.
 
 The pass never moves money and never rewrites an amount, a payment state or a
 confirmation, so a disagreement stays visible until someone acts on it. Run it
