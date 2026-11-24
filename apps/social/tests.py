@@ -233,16 +233,49 @@ class SocialPostModerationTests(TestCase):
         admin_user = User.objects.create_superuser(phone_number="+66910000204", password="StrongPass123!")
         post = Post.objects.create(author=self.author, text="Actioned", visibility=Post.EVERYONE)
         report = PostReport.objects.create(post=post, reporter=self.reporter, reason=PostReport.REASON_SCAM)
+        additional_reporter = User.objects.create_user(phone_number="+66910000205", password="StrongPass123!")
+        other_report = PostReport.objects.create(post=post, reporter=additional_reporter, reason=PostReport.REASON_SPAM)
         request = RequestFactory().post("/admin/")
         request.user = admin_user
         PostReportAdmin(PostReport, site).take_action(request, PostReport.objects.filter(pk=report.pk))
         report.refresh_from_db()
+        other_report.refresh_from_db()
         post.refresh_from_db()
         self.assertEqual(report.status, PostReport.ACTIONED)
+        self.assertEqual(other_report.status, PostReport.ACTIONED)
         self.assertEqual(report.reviewed_by_id, admin_user.id)
+        self.assertEqual(other_report.reviewed_by_id, admin_user.id)
         self.assertIsNotNone(report.reviewed_at)
         self.assertEqual(post.moderation_status, Post.MODERATION_HIDDEN)
         self.assertGreaterEqual(LogEntry.objects.filter(user=admin_user).count(), 2)
+
+    def test_dismissing_reports_restores_post_only_after_all_open_reports_are_resolved(self):
+        from django.contrib.admin.sites import site
+        from django.test import RequestFactory
+        from apps.social.admin import PostReportAdmin
+
+        admin_user = User.objects.create_superuser(phone_number="+66910000206", password="StrongPass123!")
+        second_reporter = User.objects.create_user(phone_number="+66910000207", password="StrongPass123!")
+        post = Post.objects.create(author=self.author, text="Reviewed", visibility=Post.EVERYONE)
+        post.moderation_status = Post.MODERATION_REVIEW
+        post.save(update_fields=("moderation_status",))
+        first = PostReport.objects.create(post=post, reporter=self.reporter, reason=PostReport.REASON_SPAM)
+        second = PostReport.objects.create(post=post, reporter=second_reporter, reason=PostReport.REASON_OTHER)
+        request = RequestFactory().post("/admin/")
+        request.user = admin_user
+        report_admin = PostReportAdmin(PostReport, site)
+
+        report_admin.mark_reviewed(request, PostReport.objects.filter(pk=first.pk))
+        post.refresh_from_db()
+        self.assertEqual(post.moderation_status, Post.MODERATION_REVIEW)
+
+        report_admin.mark_reviewed(request, PostReport.objects.filter(pk=second.pk))
+        post.refresh_from_db()
+        self.assertEqual(post.moderation_status, Post.MODERATION_ACTIVE)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status, PostReport.REVIEWED)
+        self.assertEqual(second.status, PostReport.REVIEWED)
 
 
 class SocialFollowTests(TestCase):
