@@ -15,6 +15,9 @@ from .views import (
     StatusHighlightItemsAPIView,
     ReorderStatusHighlightsAPIView,
     StatusMediaAPIView,
+    ReportStatusAPIView,
+    EditStatusAPIView,
+    ShareStatusToChatAPIView,
 )
 
 app_name = "status"
@@ -69,6 +72,10 @@ urlpatterns = [
         StatusViewersAPIView.as_view(),
         name="status-viewers",
     ),
+
+    path("<int:pk>/report/", ReportStatusAPIView.as_view(), name="status-report"),
+    path("<int:pk>/edit/", EditStatusAPIView.as_view(), name="status-edit"),
+    path("<int:pk>/share/", ShareStatusToChatAPIView.as_view(), name="status-share"),
 
     path(
         "<int:pk>/privacy/",

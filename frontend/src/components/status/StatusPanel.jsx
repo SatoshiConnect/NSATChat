@@ -7,6 +7,7 @@ import { contactsByUser, displayUserName } from "../../utils/messages";
 import { Avatar, EmptyState, IconButton, Menu, MenuButton, PanelHeader, Spinner } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
 import { normalizeFiles, validateFiles } from "../../utils/files";
+import { statusApi } from "../../api/endpoints";
 import { useMediaQuery } from "../../hooks";
 import StatusComposer from "./StatusComposer";
 import StatusViewer from "./StatusViewer";
@@ -47,6 +48,7 @@ export default function StatusPanel() {
   const [composer, setComposer] = useState(null); // { mode, file }
   const [addAnchor, setAddAnchor] = useState(null);
   const fileRef = useRef(null);
+  const openingStatusId = useRef(null);
 
   useEffect(() => {
     const handler = (event) => {
@@ -56,6 +58,41 @@ export default function StatusPanel() {
     window.addEventListener("mhtalk:new-status", handler);
     return () => window.removeEventListener("mhtalk:new-status", handler);
   }, []);
+
+  useEffect(() => {
+    const focusStatus = async (event) => {
+      const detail = event?.detail || window.__mhtalkPendingStatus;
+      if (!Number(detail?.status_id)) return;
+      if (openingStatusId.current === Number(detail.status_id)) return;
+      openingStatusId.current = Number(detail.status_id);
+      try {
+        const [visibleGroups, ownStatuses] = await Promise.all([statusApi.feed(), statusApi.mine()]);
+        const groups = [...visibleGroups];
+        if (ownStatuses.some((item) => Number(item.id) === Number(detail.status_id))) {
+          groups.unshift({ user: me, statuses: ownStatuses, unseen_count: 0 });
+        }
+        groups.forEach((group) => group.statuses.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)));
+        const index = groups.findIndex((group) =>
+          (!detail.author_id || Number(group.user?.id) === Number(detail.author_id))
+          && group.statuses.some((item) => Number(item.id) === Number(detail.status_id)),
+        );
+        if (index < 0) {
+          openingStatusId.current = null;
+          toast.error("That status is no longer available.");
+          return;
+        }
+        setViewer({ groups, start: index, startStatusId: Number(detail.status_id) });
+      } catch (error) {
+        openingStatusId.current = null;
+        toast.error(error?.message || "Couldn't open that status.");
+      } finally {
+        if (window.__mhtalkPendingStatus?.status_id === Number(detail.status_id)) delete window.__mhtalkPendingStatus;
+      }
+    };
+    window.addEventListener("mhtalk:focus-status", focusStatus);
+    if (window.__mhtalkPendingStatus) focusStatus({ detail: window.__mhtalkPendingStatus });
+    return () => window.removeEventListener("mhtalk:focus-status", focusStatus);
+  }, [me]);
 
   const recent = feed.filter((group) => group.unseen_count > 0);
   const viewed = feed.filter((group) => !group.unseen_count);
@@ -164,7 +201,7 @@ export default function StatusPanel() {
       />
       {addAnchor ? <Menu anchor={addAnchor} items={addItems} onClose={() => setAddAnchor(null)} /> : null}
       {composer ? <StatusComposer mode={composer.mode} initialFile={composer.file} initialFiles={composer.files} onClose={() => setComposer(null)} /> : null}
-      {viewer ? <StatusViewer groups={viewer.groups} startGroup={viewer.start} onClose={() => setViewer(null)} /> : null}
+      {viewer ? <StatusViewer groups={viewer.groups} startGroup={viewer.start} startStatusId={viewer.startStatusId} onClose={() => { openingStatusId.current = null; setViewer(null); }} /> : null}
     </section>
   );
 }

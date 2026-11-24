@@ -9,7 +9,8 @@ from .models import (
     StatusView,
     StatusPrivacy,
     StatusHighlight,
-    
+    StatusMention,
+    StatusReport,
 )
 
 
@@ -41,6 +42,32 @@ class CreateStatusHighlightSerializer(serializers.ModelSerializer):
         if not value:
             raise serializers.ValidationError("Enter a name for this highlight.")
         return value
+
+
+class CreateStatusReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StatusReport
+        fields = ("reason", "details")
+
+    def validate_details(self, value):
+        return (value or "").strip()
+
+
+class UpdateStatusContentSerializer(serializers.ModelSerializer):
+    content = serializers.CharField(max_length=700, required=False, allow_blank=True, trim_whitespace=True)
+    background_color = serializers.RegexField(regex=r"^#[0-9A-Fa-f]{6}$", required=False)
+    text_color = serializers.RegexField(regex=r"^#[0-9A-Fa-f]{6}$", required=False)
+
+    class Meta:
+        model = Status
+        fields = ("content", "background_color", "text_color")
+
+    def validate(self, attrs):
+        content = attrs.get("content", self.instance.content).strip()
+        if self.instance.status_type == StatusType.TEXT and not content:
+            raise serializers.ValidationError({"content": "Text status cannot be empty."})
+        attrs["content"] = content
+        return attrs
 
 from .choices import (
     StatusType,
@@ -95,6 +122,7 @@ class StatusSerializer(serializers.ModelSerializer):
 
     audience_user_ids = serializers.SerializerMethodField()
     is_expired = serializers.SerializerMethodField()
+    mentions = serializers.SerializerMethodField()
 
     class Meta:
 
@@ -115,6 +143,7 @@ class StatusSerializer(serializers.ModelSerializer):
             "created_at",
             "expires_at",
             "audience_user_ids",
+            "mentions",
         )
 
         read_only_fields = fields
@@ -153,6 +182,12 @@ class StatusSerializer(serializers.ModelSerializer):
             return None
         return [rule.user_id for rule in obj.privacy_rules.all()]
 
+    def get_mentions(self, obj):
+        cached = getattr(obj, "_prefetched_objects_cache", {}).get("mentions")
+        if cached is not None:
+            return [mention.user_id for mention in cached]
+        return list(obj.mentions.values_list("user_id", flat=True))
+
 class UploadStatusSerializer(serializers.ModelSerializer):
     """Upload a new text, image, or video status.
 
@@ -172,6 +207,13 @@ class UploadStatusSerializer(serializers.ModelSerializer):
         required=False,
         write_only=True,
     )
+    background_color = serializers.RegexField(regex=r"^#[0-9A-Fa-f]{6}$", required=False)
+    text_color = serializers.RegexField(regex=r"^#[0-9A-Fa-f]{6}$", required=False)
+    mentions = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        write_only=True,
+    )
     # Video status: keep only this part (seconds), cut on the server.
     trim_start = serializers.FloatField(required=False, min_value=0, write_only=True)
     trim_end = serializers.FloatField(required=False, min_value=0, write_only=True)
@@ -186,20 +228,23 @@ class UploadStatusSerializer(serializers.ModelSerializer):
             "text_color",
             "visibility",
             "users",
+            "mentions",
             "trim_start",
             "trim_end",
         )
 
     def to_internal_value(self, data):
         # Accept users=1&users=2, users="1,2" or users="[1,2]" from multipart forms.
-        if hasattr(data, "getlist") and "users" in data:
-            raw = data.getlist("users")
+        if hasattr(data, "getlist") and ("users" in data or "mentions" in data):
             mutable = data.copy()
-            values = []
-            for item in raw:
-                text = str(item).strip().strip("[]")
-                values.extend(part.strip() for part in text.split(",") if part.strip())
-            mutable.setlist("users", values)
+            for field in ("users", "mentions"):
+                if field not in data:
+                    continue
+                values = []
+                for item in data.getlist(field):
+                    text = str(item).strip().strip("[]")
+                    values.extend(part.strip() for part in text.split(",") if part.strip())
+                mutable.setlist(field, values)
             data = mutable
         return super().to_internal_value(data)
 
@@ -253,6 +298,7 @@ class UploadStatusSerializer(serializers.ModelSerializer):
 
         visibility = attrs.get("visibility", StatusVisibility.CONTACTS)
         user_ids = list(dict.fromkeys(attrs.get("users") or []))
+        mention_ids = list(dict.fromkeys(attrs.get("mentions") or []))
         if visibility in (StatusVisibility.CONTACTS_EXCEPT, StatusVisibility.ONLY_SHARE_WITH):
             if visibility == StatusVisibility.ONLY_SHARE_WITH and not user_ids:
                 raise serializers.ValidationError({
@@ -269,13 +315,38 @@ class UploadStatusSerializer(serializers.ModelSerializer):
         else:
             user_ids = []
 
+        from .utils import status_contact_ids
+
+        owner = self.context["request"].user
+        owner_contacts = set(Contact.objects.filter(owner=owner).values_list("contact_user_id", flat=True))
+        relationship_ids = status_contact_ids(owner)
+        if visibility == StatusVisibility.CONTACTS:
+            mentionable_ids = owner_contacts & relationship_ids
+        elif visibility == StatusVisibility.CONTACTS_EXCEPT:
+            mentionable_ids = (owner_contacts & relationship_ids) - set(user_ids)
+        elif visibility == StatusVisibility.ONLY_SHARE_WITH:
+            mentionable_ids = set(user_ids)
+        elif visibility == StatusVisibility.EVERYONE:
+            mentionable_ids = status_contact_ids(owner)
+            mentionable_ids.update(Contact.objects.filter(contact_user=owner).values_list("owner_id", flat=True))
+        else:
+            mentionable_ids = set()
+        mentionable_ids.discard(owner.pk)
+        mentionable_ids = set(User.objects.filter(pk__in=mentionable_ids, is_active=True, is_deleted=False).values_list("pk", flat=True))
+        if set(mention_ids) - mentionable_ids:
+            raise serializers.ValidationError({
+                "mentions": "You can only mention people who are able to view this status."
+            })
+
         attrs["users"] = user_ids
+        attrs["mentions"] = mention_ids
         attrs["content"] = content
         return attrs
 
     def create(self, validated_data):
         request = self.context["request"]
         user_ids = validated_data.pop("users", [])
+        mention_ids = validated_data.pop("mentions", [])
         status = Status.objects.create(
             user=request.user,
             **validated_data,
@@ -283,6 +354,11 @@ class UploadStatusSerializer(serializers.ModelSerializer):
         if user_ids:
             StatusPrivacy.objects.bulk_create(
                 [StatusPrivacy(status=status, user_id=user_id) for user_id in user_ids],
+                ignore_conflicts=True,
+            )
+        if mention_ids:
+            StatusMention.objects.bulk_create(
+                [StatusMention(status=status, user_id=user_id) for user_id in mention_ids],
                 ignore_conflicts=True,
             )
         return status

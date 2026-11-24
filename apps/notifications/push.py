@@ -119,6 +119,13 @@ def notify_incoming_call(call, recipient_ids):
         _after_commit(_send_call_pushes, call.pk, recipients)
 
 
+def notify_status_mention(status_id, author_id, recipient_ids):
+    """Queue privacy-conscious pushes for people mentioned in a status."""
+    recipients = tuple(sorted({int(uid) for uid in recipient_ids if int(uid) != int(author_id)}))
+    if recipients:
+        _after_commit(_send_status_mention_pushes, int(status_id), int(author_id), recipients)
+
+
 # ------------------------------------------------------------------ helpers
 
 def _offline_user_ids(user_ids):
@@ -358,3 +365,49 @@ def _send_call_pushes(call_id, recipient_ids):
         return {**base, "title": title, "body": f"Incoming {kind} call from {caller}"}
 
     return _deliver(subscriptions, payload_for, CALL_TTL_SECONDS, urgency="high")
+
+
+def _send_status_mention_pushes(status_id, author_id, recipient_ids):
+    from apps.accounts.models import User
+    from apps.status.models import Status
+    from .models import PushSubscription
+
+    story = Status.objects.filter(
+        pk=status_id,
+        user_id=author_id,
+        is_deleted=False,
+        expires_at__gt=timezone.now(),
+        mentions__user_id__in=recipient_ids,
+    ).select_related("user__profile").first()
+    if story is None:
+        return 0
+    recipients = list(
+        User.objects.filter(pk__in=recipient_ids, is_active=True, is_deleted=False)
+        .values_list("pk", flat=True)
+    )
+    recipients = _offline_user_ids(recipients)
+    subscriptions = list(PushSubscription.objects.filter(user_id__in=recipients))
+    if not subscriptions:
+        return 0
+    names = _names_for(story.user, recipients)
+    ttl = max(1, min(MESSAGE_TTL_SECONDS, int((story.expires_at - timezone.now()).total_seconds())))
+
+    def payload_for(subscription):
+        base = {
+            "type": "status.mentioned",
+            "status_id": story.pk,
+            "author_id": story.user_id,
+            "tag": f"status-{story.pk}",
+            "url": f"/?status={story.pk}&author={story.user_id}",
+            "icon": ICON_URL,
+            "badge": BADGE_URL,
+        }
+        if not subscription.show_previews:
+            return {**base, "title": "SatoshiCore", "body": "You were mentioned in a status"}
+        return {
+            **base,
+            "title": "Status mention",
+            "body": f"{names.get(subscription.user_id, 'A contact')} mentioned you in a status",
+        }
+
+    return _deliver(subscriptions, payload_for, ttl, urgency="normal")

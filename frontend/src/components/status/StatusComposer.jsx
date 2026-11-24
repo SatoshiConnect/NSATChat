@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, CircleDashed, Crop, Palette, Send, Smile, Type, X } from "lucide-react";
+import { AtSign, ChevronRight, CircleDashed, Crop, Palette, Send, Smile, Type, X } from "lucide-react";
 import { errorMessage } from "../../api/client";
 import { statusApi } from "../../api/endpoints";
 import { useObjectUrl } from "../../hooks";
@@ -40,6 +40,9 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
   useEffect(() => () => previewUrls.forEach((previewUrl) => URL.revokeObjectURL(previewUrl)), [previewUrls]);
   const [privacy, setPrivacy] = useState(() => getStatusPrivacy(me.id));
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [mentionPeople, setMentionPeople] = useState([]);
+  const [mentionPickerOpen, setMentionPickerOpen] = useState(false);
+  const [mentions, setMentions] = useState([]);
   const isText = mode === "text" && files.length === 0;
   const isVideo = file?.type.startsWith("video/");
   // Video: pick the part to post (WhatsApp keeps status videos to 60 s).
@@ -57,6 +60,49 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
         ? `${privacy.users.length} excluded`
         : LABELS[privacy.visibility];
 
+  useEffect(() => {
+    let active = true;
+    statusApi.contacts().then((rows) => {
+      if (active) setMentionPeople(rows.map((row) => row.user).filter(Boolean));
+    }).catch(() => { if (active) setMentionPeople([]); });
+    return () => { active = false; };
+  }, []);
+
+  function addMention(person) {
+    const id = Number(person.id);
+    if (!id || mentions.includes(id)) {
+      setMentionPickerOpen(false);
+      return;
+    }
+    const name = (person.profile?.display_name || person.username || person.public_id || "Contact").trim();
+    setMentions((items) => [...items, id]);
+    const token = `@${name}`;
+    if (isText) setText((value) => `${value}${value && !value.endsWith(" ") ? " " : ""}${token} `);
+    else setCaption((value) => `${value}${value && !value.endsWith(" ") ? " " : ""}${token} `);
+    setMentionPickerOpen(false);
+  }
+
+  const mentionControls = mentionPickerOpen ? (
+    <div className="status-mention-picker" role="group" aria-label="Mention a contact">
+      {mentionPeople.filter((person) => !mentions.includes(Number(person.id))).map((person) => (
+        <button key={person.id} type="button" onClick={() => addMention(person)}>
+          {person.profile?.display_name || person.username || person.public_id || "Contact"}
+        </button>
+      ))}
+      {!mentionPeople.length ? <span>Save a contact or start a chat before mentioning them.</span> : null}
+    </div>
+  ) : null;
+  const mentionChips = mentions.length ? (
+    <div className="status-mention-chips" aria-label="Mentioned contacts">
+      {mentions.map((id) => {
+        const person = mentionPeople.find((entry) => Number(entry.id) === id);
+        return <button key={id} type="button" onClick={() => setMentions((items) => items.filter((item) => item !== id))} aria-label={`Remove mention ${person?.profile?.display_name || "contact"}`}>
+          @{person?.profile?.display_name || person?.username || person?.public_id || "Contact"} <span aria-hidden="true">×</span>
+        </button>;
+      })}
+    </div>
+  ) : null;
+
   async function publish() {
     if (isText && !text.trim()) {
       toast.error("Type a status first.");
@@ -72,7 +118,7 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
     try {
       const users = ["CONTACTS_EXCEPT", "ONLY_SHARE_WITH"].includes(privacy.visibility) ? privacy.users : undefined;
       if (isText) {
-        await statusApi.upload({ status_type: "TEXT", content: text.trim(), background_color: color, text_color: "#FFFFFF", visibility: privacy.visibility, users });
+        await statusApi.upload({ status_type: "TEXT", content: text.trim(), background_color: color, text_color: "#FFFFFF", visibility: privacy.visibility, users, mentions });
       } else {
         const totalBytes = files.reduce((sum, item) => sum + item.size, 0);
         for (let index = 0; index < files.length; index += 1) {
@@ -88,6 +134,7 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
             trim_start: itemVideo && index === fileIndex && trimmed ? trim.start.toFixed(2) : undefined,
             trim_end: itemVideo && index === fileIndex && trimmed ? trim.end.toFixed(2) : undefined,
             users,
+            mentions,
           }, (event) => {
             if (event.total) {
               const loaded = files.slice(0, index).reduce((sum, previous) => sum + previous.size, 0) + Math.min(item.size, event.loaded);
@@ -141,6 +188,7 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
         {isText ? (
           <div className="status-composer__tools">
             <span ref={emojiRef}><IconButton icon={Smile} label="Emoji" onClick={() => setEmojiOpen((value) => !value)} /></span>
+            <IconButton icon={AtSign} label="Mention a contact" onClick={() => setMentionPickerOpen((value) => !value)} />
             <IconButton icon={Type} label="Change font" onClick={() => setFont((value) => (value + 1) % FONTS.length)} />
             <IconButton icon={Palette} label="Change color" onClick={() => setColor(STATUS_COLORS[(STATUS_COLORS.indexOf(color) + 1) % STATUS_COLORS.length])} />
           </div>
@@ -199,6 +247,7 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
             <span ref={captionEmojiRef}>
               <IconButton icon={Smile} label="Emoji" onClick={() => setCaptionEmoji((value) => !value)} />
             </span>
+            <IconButton icon={AtSign} label="Mention a contact" onClick={() => setMentionPickerOpen((value) => !value)} />
             <input
               value={caption}
               onChange={(event) => setCaption(event.target.value)}
@@ -219,6 +268,8 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
         ) : (
           <span className="status-composer__count">{700 - text.length}</span>
         )}
+        {mentionChips}
+        {mentionControls}
         <div className="status-composer__send-row">
           <button type="button" className="status-composer__audience" onClick={() => setPrivacyOpen(true)} title="Choose who can see this status">
             <CircleDashed size={16} />

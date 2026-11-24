@@ -163,6 +163,30 @@ export default function MainLayout({ onLogout }) {
     return () => window.removeEventListener("mhtalk:open-room", handler);
   }, [openRoom]);
 
+  useEffect(() => {
+    const handler = (event) => {
+      const detail = event.detail || {};
+      if (!Number(detail.status_id)) return;
+      window.__mhtalkPendingStatus = { author_id: Number(detail.author_id), status_id: Number(detail.status_id) };
+      setSection("status");
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("mhtalk:focus-status", { detail })), 350);
+    };
+    window.addEventListener("mhtalk:open-status", handler);
+    return () => window.removeEventListener("mhtalk:open-status", handler);
+  }, [setSection]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const statusId = Number(params.get("status"));
+    if (!statusId) return;
+    const authorId = Number(params.get("author")) || undefined;
+    params.delete("status");
+    params.delete("author");
+    const search = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("mhtalk:open-status", { detail: { status_id: statusId, author_id: authorId } })), 0);
+  }, []);
+
   // Opened from a push notification (/?room=12): jump straight into that chat.
   useEffect(() => {
     const roomId = consumeLaunchRoom();

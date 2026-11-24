@@ -337,6 +337,16 @@ class Realtime {
       case "status.updated":
         scheduleStatusReload();
         break;
+      case "status.mentioned": {
+        const authorId = Number(data.author_id);
+        const author = getState().contacts.find((contact) => Number(contact.user?.id) === authorId)?.user;
+        const name = author?.profile?.display_name || author?.public_id || "A contact";
+        const open = () => window.dispatchEvent(new CustomEvent("mhtalk:open-status", { detail: { author_id: authorId, status_id: Number(data.status_id) } }));
+        toast(`${name} mentioned you in a status.`, { duration: 7000, action: { label: "Open", onClick: open } });
+        showDesktopNotification("Status mention", `${name} mentioned you in a status.`, open);
+        scheduleStatusReload();
+        break;
+      }
       case "calls.updated":
         loadCalls();
         window.dispatchEvent(new CustomEvent("mhtalk:call-changed", { detail: data }));

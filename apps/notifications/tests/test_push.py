@@ -18,6 +18,7 @@ from apps.calls.models import Call
 from apps.chat.choices import RoomType
 from apps.chat.models import ChatRoom, Participant
 from apps.notifications.models import PushSubscription
+from apps.status.models import Status, StatusMention
 
 # A real (test-only) key pair so py_vapid can sign the JWT.
 VAPID = dict(
@@ -366,3 +367,34 @@ class FeatureMessagePushTests(TestCase):
         self.assertEqual(payload["type"], "call")
         self.assertEqual(payload["title"], "Lunch club")
         self.assertEqual(payload["body"], "Incoming group video call from Alice")
+
+
+@override_settings(**VAPID)
+@mock.patch("pywebpush.webpush")
+class StatusMentionPushTests(TestCase):
+    def setUp(self):
+        self.alice = make_user("+923070000041", "Alice")
+        self.bob = make_user("+923070000042", "Bob")
+        self.story = Status.objects.create(user=self.alice, content="Hi @Bob")
+        StatusMention.objects.create(status=self.story, user=self.bob)
+        self.bob_sub = subscribe(self.bob, "https://fcm.googleapis.com/fcm/send/status-mention", show_previews=False)
+
+    def test_mentioned_user_receives_preview_safe_push_and_status_deep_link(self, webpush):
+        from apps.notifications.push import notify_status_mention
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_status_mention(self.story.id, self.alice.id, {self.bob.id})
+        (endpoint, payload), = sent_payloads(webpush)
+        self.assertEqual(endpoint, self.bob_sub.endpoint)
+        self.assertEqual(payload["type"], "status.mentioned")
+        self.assertEqual(payload["body"], "You were mentioned in a status")
+        self.assertEqual(payload["author_id"], self.alice.id)
+        self.assertEqual(payload["status_id"], self.story.id)
+        self.assertIn(f"status={self.story.id}", payload["url"])
+        self.assertNotIn("Hi", json.dumps(payload))
+
+    def test_unmentioned_user_is_never_sent_a_push(self, webpush):
+        from apps.notifications.push import notify_status_mention
+
+        notify_status_mention(self.story.id, self.alice.id, set())
+        webpush.assert_not_called()

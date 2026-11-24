@@ -114,6 +114,9 @@ export function registerServiceWorker() {
     if (event.data?.type === "open-room" && event.data.room_id) {
       window.dispatchEvent(new CustomEvent("mhtalk:open-room", { detail: Number(event.data.room_id) }));
     }
+    if (event.data?.type === "open-status" && event.data.status_id) {
+      window.dispatchEvent(new CustomEvent("mhtalk:open-status", { detail: { status_id: Number(event.data.status_id), author_id: Number(event.data.author_id) || undefined } }));
+    }
   });
   registrationPromise = new Promise((resolve) => {
     const register = () =>

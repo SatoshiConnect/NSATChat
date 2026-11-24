@@ -147,13 +147,13 @@ async function showPush(data) {
     requireInteraction: Boolean(data.require_interaction),
     vibrate: isCall ? [400, 200, 400, 200, 400] : [120, 60, 120],
     timestamp: Date.now(),
-    data: { url: data.url || "/", room_id: data.room_id || null, type: data.type || "message" },
+    data: { url: data.url || "/", room_id: data.room_id || null, status_id: data.status_id || null, author_id: data.author_id || null, type: data.type || "message" },
   });
 }
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const { url = "/", room_id: roomId } = event.notification.data || {};
+  const { url = "/", room_id: roomId, status_id: statusId, author_id: authorId } = event.notification.data || {};
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
@@ -161,6 +161,7 @@ self.addEventListener("notificationclick", (event) => {
       if (client) {
         await client.focus();
         if (roomId) client.postMessage({ type: "open-room", room_id: roomId });
+        else if (statusId) client.postMessage({ type: "open-status", status_id: statusId, author_id: authorId });
         return;
       }
       await self.clients.openWindow(new URL(url, self.location.origin).href);
