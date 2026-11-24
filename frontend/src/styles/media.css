@@ -354,6 +354,34 @@
   pointer-events: none;
   transform-origin: center;
 }
+
+.editor__drawings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.editor__draw-colors {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor__draw-colors button {
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+.editor__draw-colors button[aria-pressed="true"] {
+  outline: 2px solid var(--accent, #00a884);
+  outline-offset: 2px;
+}
 .editor__grid {
   position: absolute;
   inset: 0;

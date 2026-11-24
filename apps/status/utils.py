@@ -78,3 +78,29 @@ def notify_status_viewed(status_obj, viewer):
             "views_count": status_obj.views.count(),
         },
     )
+
+
+def notify_status_mentioned(status_obj, user_ids):
+    """Notify only explicitly mentioned viewers; audience checks happen before save."""
+    recipients = {int(user_id) for user_id in user_ids if int(user_id) != status_obj.user_id}
+    for user_id in recipients:
+        try:
+            _send(
+                user_id,
+                {
+                    "type": "inbox.status_mentioned",
+                    "user_id": user_id,
+                    "author_id": status_obj.user_id,
+                    "status_id": status_obj.pk,
+                },
+            )
+        except Exception:
+            # A realtime transport outage must never roll back a published status.
+            pass
+    if recipients:
+        try:
+            from apps.notifications.push import notify_status_mention
+
+            notify_status_mention(status_obj.pk, status_obj.user_id, recipients)
+        except Exception:
+            pass

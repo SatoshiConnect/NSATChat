@@ -1,17 +1,56 @@
 from datetime import timedelta
+import tempfile
 
 from django.core import signing
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.test import override_settings
 from unittest.mock import patch
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import Contact, User
 from apps.status.choices import StatusType, StatusVisibility
-from apps.status.models import Status, StatusPrivacy, StatusView, StatusHighlight, StatusHighlightItem
+from apps.status.models import Status, StatusPrivacy, StatusView, StatusHighlight, StatusHighlightItem, StatusMention, StatusReport
 from apps.status.media import status_media_url
+from apps.status.management.commands.purge_expired_statuses import purge_expired_statuses
 from apps.social.models import SocialMute
+
+
+class ExpiredStatusCleanupTests(TestCase):
+    def setUp(self):
+        self.temp_media = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_media.cleanup)
+        settings_override = override_settings(MEDIA_ROOT=self.temp_media.name)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+        self.owner = User.objects.create_user(phone_number="+66919990001", password="StrongPass123!")
+
+    def test_purge_removes_expired_story_and_file_but_preserves_highlighted_story(self):
+        from apps.status.models import StatusHighlight, StatusHighlightItem
+
+        expired = Status.objects.create(user=self.owner, content="expired", expires_at=timezone.now() - timedelta(seconds=1))
+        expired.media.save("expired.jpg", SimpleUploadedFile("expired.jpg", b"expired-bytes", content_type="image/jpeg"), save=True)
+
+        highlighted = Status.objects.create(user=self.owner, content="saved", expires_at=timezone.now() - timedelta(seconds=1))
+        highlighted.media.save("saved.jpg", SimpleUploadedFile("saved.jpg", b"saved-bytes", content_type="image/jpeg"), save=True)
+        highlight = StatusHighlight.objects.create(owner=self.owner, title="Memories")
+        StatusHighlightItem.objects.create(highlight=highlight, status=highlighted)
+
+        expired_path = expired.media.name
+        highlighted_path = highlighted.media.name
+        self.assertTrue(default_storage.exists(expired_path))
+        self.assertEqual(purge_expired_statuses(), 1)
+        self.assertFalse(Status.objects.filter(pk=expired.pk).exists())
+        self.assertFalse(default_storage.exists(expired_path))
+        self.assertTrue(Status.objects.filter(pk=highlighted.pk).exists())
+        self.assertTrue(default_storage.exists(highlighted_path))
+
+    def test_purge_keeps_unexpired_story(self):
+        current = Status.objects.create(user=self.owner, content="still active")
+        self.assertEqual(purge_expired_statuses(), 0)
+        self.assertTrue(Status.objects.filter(pk=current.pk).exists())
 
 
 class StatusFeatureAPITests(TestCase):
@@ -140,6 +179,104 @@ class StatusFeatureAPITests(TestCase):
         self.assertEqual(viewer_feed.status_code, 200)
         self.assertTrue(any(int(group["user"]["id"]) == self.owner.id for group in viewer_feed.data))
         self.assertEqual(self.other_client.post(f"/api/status/{status_id}/view/").status_code, 403)
+
+    def test_upload_mentions_only_people_in_the_status_audience_and_notifies_after_commit(self):
+        Contact.objects.create(owner=self.owner, contact_user=self.viewer)
+        Contact.objects.create(owner=self.viewer, contact_user=self.owner)
+        with patch("apps.status.views.notify_status_mentioned") as notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.owner_client.post(
+                    "/api/status/upload/",
+                    {"status_type": "TEXT", "content": "Hello @Viewer", "visibility": "CONTACTS", "mentions": [str(self.viewer.id)]},
+                    format="multipart",
+                )
+        self.assertEqual(response.status_code, 201, response.data)
+        story = Status.objects.get(pk=response.data["data"]["id"])
+        self.assertEqual(list(story.mentions.values_list("user_id", flat=True)), [self.viewer.id])
+        self.assertEqual(response.data["data"]["mentions"], [self.viewer.id])
+        notify.assert_called_once_with(story, [self.viewer.id])
+
+    def test_upload_rejects_mentions_outside_the_selected_audience(self):
+        Contact.objects.create(owner=self.owner, contact_user=self.viewer)
+        response = self.owner_client.post(
+            "/api/status/upload/",
+            {"status_type": "TEXT", "content": "Private", "visibility": "ONLY_SHARE_WITH", "users": [str(self.viewer.id)], "mentions": [str(self.other.id)]},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("mentions", response.data)
+        self.assertFalse(Status.objects.filter(user=self.owner).exists())
+
+    def test_status_report_requires_visibility_and_is_idempotent(self):
+        Contact.objects.create(owner=self.owner, contact_user=self.viewer)
+        Contact.objects.create(owner=self.viewer, contact_user=self.owner)
+        story = Status.objects.create(user=self.owner, content="Reported", visibility=StatusVisibility.CONTACTS)
+        path = f"/api/status/{story.id}/report/"
+        first = self.viewer_client.post(path, {"reason": "SPAM", "details": "Repeated links"}, format="json")
+        second = self.viewer_client.post(path, {"reason": "SCAM", "details": "Changed reason"}, format="json")
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(second.status_code, 200, second.data)
+        report = StatusReport.objects.get(status=story, reporter=self.viewer)
+        self.assertEqual(report.reason, "SPAM")
+        self.assertEqual(StatusReport.objects.filter(status=story).count(), 1)
+        self.assertEqual(self.owner_client.post(path, {"reason": "OTHER"}, format="json").status_code, 400)
+        self.assertEqual(self.other_client.post(path, {"reason": "OTHER"}, format="json").status_code, 404)
+
+    def test_owner_can_edit_active_status_but_cannot_change_audience_or_edit_another_users_story(self):
+        story = Status.objects.create(user=self.owner, content="Before", visibility=StatusVisibility.EVERYONE)
+        updated = self.owner_client.patch(f"/api/status/{story.id}/edit/", {"content": "After", "background_color": "#112233"}, format="json")
+        self.assertEqual(updated.status_code, 200, updated.data)
+        story.refresh_from_db()
+        self.assertEqual((story.content, story.background_color, story.visibility), ("After", "#112233", StatusVisibility.EVERYONE))
+        self.assertEqual(self.viewer_client.patch(f"/api/status/{story.id}/edit/", {"content": "Hijack"}, format="json").status_code, 404)
+        self.assertEqual(self.owner_client.patch(f"/api/status/{story.id}/edit/", {"content": ""}, format="json").status_code, 400)
+        self.assertEqual(self.owner_client.patch(f"/api/status/{story.id}/edit/", {"background_color": "url(https://bad.invalid)"}, format="json").status_code, 400)
+
+    def test_share_to_chat_requires_every_recipient_to_be_allowed_and_sends_non_capability_reference(self):
+        from apps.chat.choices import RoomType
+        from apps.chat.models import ChatRoom, Message, Participant
+
+        Contact.objects.create(owner=self.owner, contact_user=self.viewer)
+        Contact.objects.create(owner=self.viewer, contact_user=self.owner)
+        story = Status.objects.create(user=self.owner, content="Shared safely", visibility=StatusVisibility.CONTACTS)
+        room = ChatRoom.objects.create(created_by=self.owner, room_type=RoomType.PRIVATE)
+        Participant.objects.create(room=room, user=self.owner)
+        Participant.objects.create(room=room, user=self.viewer)
+        response = self.owner_client.post(f"/api/status/{story.id}/share/", {"room_id": room.id}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        message = Message.objects.get(room=room)
+        self.assertEqual(message.status_ref["status_id"], story.id)
+        self.assertEqual(message.status_ref["status_media"], "")
+
+        restricted = Status.objects.create(user=self.owner, content="Private", visibility=StatusVisibility.ONLY_SHARE_WITH)
+        StatusPrivacy.objects.create(status=restricted, user=self.viewer)
+        group = ChatRoom.objects.create(created_by=self.owner, room_type=RoomType.GROUP, name="Mixed audience")
+        Participant.objects.create(room=group, user=self.owner, is_admin=True)
+        Participant.objects.create(room=group, user=self.viewer)
+        Participant.objects.create(room=group, user=self.other)
+        denied = self.owner_client.post(f"/api/status/{restricted.id}/share/", {"room_id": group.id}, format="json")
+        self.assertEqual(denied.status_code, 403)
+        self.assertFalse(Message.objects.filter(room=group).exists())
+
+    def test_moderator_action_hides_reported_status_and_removes_media(self):
+        from django.contrib.admin.sites import AdminSite
+        from django.test import RequestFactory
+        from apps.status.admin import StatusReportAdmin
+
+        Contact.objects.create(owner=self.owner, contact_user=self.viewer)
+        story = Status.objects.create(user=self.owner, content="Unsafe media")
+        story.media.save("unsafe.jpg", SimpleUploadedFile("unsafe.jpg", b"unsafe", content_type="image/jpeg"), save=True)
+        media_name = story.media.name
+        report = StatusReport.objects.create(status=story, reporter=self.viewer, reason="OTHER")
+        moderator = User.objects.create_superuser(phone_number="+66919990099", password="StrongPass123!")
+        request = RequestFactory().post("/admin/apps/status/statusreport/")
+        request.user = moderator
+        StatusReportAdmin(StatusReport, AdminSite()).hide_reported_statuses(request, StatusReport.objects.filter(pk=report.pk))
+        report.refresh_from_db()
+        story.refresh_from_db()
+        self.assertEqual(report.state, StatusReport.ACTIONED)
+        self.assertTrue(story.is_deleted)
+        self.assertFalse(default_storage.exists(media_name))
 
     def test_muted_account_stories_are_hidden_from_feed_and_view_endpoint(self):
         self.add_mutual_contact(self.owner, self.viewer)

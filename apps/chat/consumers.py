@@ -1587,6 +1587,15 @@ class ChatInboxConsumer(AsyncWebsocketConsumer):
         payload = {key: value for key, value in event.items() if key != "type"}
         await self.send(text_data=json.dumps({"type": "status.updated", **payload}))
 
+    async def inbox_status_mentioned(self, event):
+        if event.get("user_id") != self.user.id:
+            return
+        await self.send(text_data=json.dumps({
+            "type": "status.mentioned",
+            "author_id": event.get("author_id"),
+            "status_id": event.get("status_id"),
+        }))
+
     async def inbox_call_changed(self, event):
         payload = {key: value for key, value in event.items() if key != "type"}
         await self.send(text_data=json.dumps({"type": "calls.updated", **payload}))

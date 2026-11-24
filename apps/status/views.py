@@ -1,6 +1,7 @@
 import json
 import uuid
 import mimetypes
+from datetime import timedelta
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -17,7 +18,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.chat.models import ChatRoom, Message, Participant
-from apps.chat.choices import RoomType
+from apps.chat.choices import MessageType, RoomType
 from apps.chat.serializers import MessageSerializer
 from apps.accounts.models import Contact, User
 from apps.accounts.serializers import UserSerializer
@@ -37,9 +38,10 @@ from .models import (
     StatusReaction,
     StatusHighlight,
     StatusHighlightItem,
+    StatusReport,
 )
 
-from .utils import status_contact_ids, notify_status_feed_changed, notify_status_viewed
+from .utils import status_contact_ids, notify_status_feed_changed, notify_status_viewed, notify_status_mentioned
 from .serializers import (
     StatusSerializer,
     UploadStatusSerializer,
@@ -49,6 +51,8 @@ from .serializers import (
     ReactToStatusSerializer,
     StatusHighlightSerializer,
     CreateStatusHighlightSerializer,
+    CreateStatusReportSerializer,
+    UpdateStatusContentSerializer,
 )
 
 
@@ -69,7 +73,7 @@ def _highlight_visible_items(request, highlight, viewer_context=None):
     if hasattr(highlight, "_prefetched_objects_cache") and "items" in highlight._prefetched_objects_cache:
         items = list(highlight.items.all())
     else:
-        items = list(highlight.items.select_related("status", "status__user", "status__user__profile").prefetch_related("status__privacy_rules", "status__views").all())
+        items = list(highlight.items.select_related("status", "status__user", "status__user__profile").prefetch_related("status__privacy_rules", "status__views", "status__mentions").all())
     if highlight.owner_id == request.user.id:
         return [item.status for item in items if not item.status.is_deleted]
     contact_ids, saved_me_ids, blocked = viewer_context or _highlight_viewer_context(request)
@@ -88,7 +92,7 @@ class StatusHighlightsAPIView(APIView):
         if owner_id is not None and (not owner_id.isdigit() or int(owner_id) <= 0):
             return Response({"detail": "Invalid owner_id."}, status=status.HTTP_400_BAD_REQUEST)
         owner_id = int(owner_id) if owner_id else request.user.id
-        item_queryset = StatusHighlightItem.objects.select_related("status", "status__user", "status__user__profile").prefetch_related("status__privacy_rules", "status__views")
+        item_queryset = StatusHighlightItem.objects.select_related("status", "status__user", "status__user__profile").prefetch_related("status__privacy_rules", "status__views", "status__mentions")
         highlights = StatusHighlight.objects.filter(
             owner_id=owner_id, owner__is_active=True, owner__is_deleted=False,
         ).prefetch_related(Prefetch("items", queryset=item_queryset)).order_by("position", "id")
@@ -295,8 +299,11 @@ class UploadStatusAPIView(APIView):
                 context={"request": request},
             )
             serializer.is_valid(raise_exception=True)
+            mention_ids = serializer.validated_data.get("mentions", [])
             status_obj = serializer.save()
             transaction.on_commit(lambda: notify_status_feed_changed(request.user, "posted"))
+            if mention_ids:
+                transaction.on_commit(lambda: notify_status_mentioned(status_obj, mention_ids))
 
             return Response(
                 {
@@ -308,6 +315,126 @@ class UploadStatusAPIView(APIView):
                 },
                 status=status.HTTP_201_CREATED,
             )
+
+
+class ReportStatusAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_scope = "status_report"
+
+    @extend_schema(
+        summary="Report a status update",
+        request=CreateStatusReportSerializer,
+        responses={201: OpenApiResponse(description="Report submitted for moderation."), 404: OpenApiResponse(description="Status not found.")},
+        tags=["Status"],
+    )
+    def post(self, request, pk):
+        story = get_object_or_404(
+            Status.objects.select_related("user"),
+            pk=pk,
+            is_deleted=False,
+            expires_at__gt=timezone.now(),
+        )
+        if story.user_id == request.user.id:
+            return Response({"detail": "You cannot report your own status."}, status=status.HTTP_400_BAD_REQUEST)
+        from apps.chat.utils import blocked_user_ids
+
+        blocked = blocked_user_ids(request.user.id)
+        if story.user_id in blocked or SocialMute.objects.filter(muter=request.user, muted_id=story.user_id).exists():
+            raise Http404
+        contact_ids = status_contact_ids(request.user)
+        if not can_view_status(story, request.user, contact_ids):
+            raise Http404
+
+        serializer = CreateStatusReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        report, created = StatusReport.objects.get_or_create(
+            status=story,
+            reporter=request.user,
+            defaults=serializer.validated_data,
+        )
+        return Response(
+            {"reported": True, "already_reported": not created, "detail": "Thanks. Your report was sent for review."},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class EditStatusAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    @extend_schema(summary="Edit a status caption or text", request=UpdateStatusContentSerializer, responses={200: StatusSerializer}, tags=["Status"])
+    def patch(self, request, pk):
+        story = get_object_or_404(Status, pk=pk, user=request.user, is_deleted=False, expires_at__gt=timezone.now())
+        serializer = UpdateStatusContentSerializer(story, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        notify_status_feed_changed(request.user, "updated")
+        return Response(StatusSerializer(story, context={"request": request}).data)
+
+
+class ShareStatusToChatAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_scope = "status_share"
+
+    @extend_schema(summary="Share a status to a chat", request=None, responses={201: OpenApiResponse(description="Status shared."), 403: OpenApiResponse(description="Chat audience cannot view this status.")}, tags=["Status"])
+    def post(self, request, pk):
+        story = get_object_or_404(Status.objects.select_related("user"), pk=pk, is_deleted=False, expires_at__gt=timezone.now())
+        if story.user_id != request.user.id and not can_view_status(story, request.user, status_contact_ids(request.user)):
+            raise Http404
+        try:
+            room_id = int(request.data.get("room_id"))
+        except (TypeError, ValueError):
+            return Response({"detail": "Choose a chat first."}, status=status.HTTP_400_BAD_REQUEST)
+        room = get_object_or_404(ChatRoom, pk=room_id, is_active=True)
+        from apps.chat.permissions import send_message_error
+        from apps.chat.utils import sender_has_blocked_peer, blocked_user_ids, broadcast_message, get_message_with_relations
+
+        denied = send_message_error(request.user, room)
+        if denied:
+            return Response({"detail": denied}, status=status.HTTP_403_FORBIDDEN)
+        if sender_has_blocked_peer(room, request.user):
+            return Response({"detail": "Unblock this contact to send a message."}, status=status.HTTP_403_FORBIDDEN)
+
+        recipient_ids = list(
+            Participant.objects.filter(room=room, joined_at__lte=timezone.now(), user__is_active=True, user__is_deleted=False)
+            .exclude(user=request.user).values_list("user_id", flat=True).distinct()
+        )
+        if not recipient_ids:
+            return Response({"detail": "Choose a chat with at least one other member."}, status=status.HTTP_400_BAD_REQUEST)
+        blocked_by_author = blocked_user_ids(story.user_id)
+        from apps.social.models import SocialMute
+
+        for recipient_id in recipient_ids:
+            recipient = User.objects.filter(pk=recipient_id, is_active=True, is_deleted=False).first()
+            if recipient is None:
+                return Response({"detail": "Everyone in this chat must be able to view the status."}, status=status.HTTP_403_FORBIDDEN)
+            if recipient.id != story.user_id:
+                if recipient.id in blocked_by_author or story.user_id in blocked_user_ids(recipient.id):
+                    return Response({"detail": "Everyone in this chat must be able to view the status."}, status=status.HTTP_403_FORBIDDEN)
+                if SocialMute.objects.filter(muter=recipient, muted=story.user).exists():
+                    return Response({"detail": "Everyone in this chat must be able to view the status."}, status=status.HTTP_403_FORBIDDEN)
+                if not can_view_status(story, recipient, status_contact_ids(recipient)):
+                    return Response({"detail": "Everyone in this chat must be able to view the status."}, status=status.HTTP_403_FORBIDDEN)
+
+        from .replies import status_snapshot
+
+        snapshot = status_snapshot(story)
+        # A shared card is a link to the live, permission-checked story. Never
+        # copy an owner-bound media capability into a multi-member chat.
+        snapshot["status_media"] = ""
+        snapshot["status_text"] = ""
+        expires_at = timezone.now() + timedelta(seconds=room.disappearing_seconds) if room.disappearing_seconds else None
+        message = Message.objects.create(
+            room=room,
+            sender=request.user,
+            message_type=MessageType.TEXT,
+            content="Shared a status update",
+            client_message_id=f"status-share-{story.pk}-{request.user.pk}-{uuid.uuid4().hex[:12]}",
+            status_ref=snapshot,
+            expires_at=expires_at,
+        )
+        message = get_message_with_relations(message.pk)
+        broadcast_message(message, request)
+        return Response({"message": "Status shared to chat.", "data": MessageSerializer(message, context={"request": request}).data}, status=status.HTTP_201_CREATED)
 
     
 
@@ -343,6 +470,7 @@ class MyStatusAPIView(generics.ListAPIView):
             ).prefetch_related(
                 "views",
                 "privacy_rules",
+                "mentions",
             )
             .order_by(
                 "-created_at",
@@ -403,7 +531,7 @@ class ContactsStatusAPIView(APIView):
                 expires_at__gt=timezone.now(),
             )
             .select_related("user", "user__profile")
-            .prefetch_related("views", "privacy_rules")
+            .prefetch_related("views", "privacy_rules", "mentions")
             .order_by("user_id", "-created_at")
         )
 

@@ -79,6 +79,8 @@ class SocialPostAPITests(TestCase):
     def test_public_post_can_be_shared_to_chat_and_recipient_resolves_post(self):
         from apps.chat.choices import RoomType
         from apps.chat.models import ChatRoom, Participant, Message
+        self.author.profile.social_private = False
+        self.author.profile.save(update_fields=("social_private",))
         post = Post.objects.create(author=self.author, text="Share this", visibility=Post.EVERYONE)
         room = ChatRoom.objects.create(created_by=self.stranger, room_type=RoomType.PRIVATE)
         Participant.objects.create(room=room, user=self.stranger)

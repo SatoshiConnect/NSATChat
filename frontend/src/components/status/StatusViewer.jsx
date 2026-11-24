@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Eye, Gift, MoreVertical, Pause, Play, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Flag, Gift, MoreVertical, Pause, Pencil, Play, Send, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import { errorMessage, mediaUrl } from "../../api/client";
 import { marketplaceApi, statusApi } from "../../api/endpoints";
 import { loadStatus } from "../../store/actions";
 import { dispatch, getState, useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { detailTime, listTime } from "../../utils/format";
-import { contactsByUser, displayUserName } from "../../utils/messages";
-import { IconButton, MenuButton, Spinner } from "../common/ui";
+import { contactsByUser, displayUserName, roomTitle } from "../../utils/messages";
+import { Avatar, EmptyState, IconButton, MenuButton, Modal, Spinner } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
 import { confirmAction } from "../common/dialogs";
 import StatusReplyBar from "./StatusReplyBar";
@@ -81,6 +81,7 @@ function ViewersSheet({ statusId, count, onClose }) {
 export default function StatusViewer({ groups, startGroup = 0, startStatusId, onClose }) {
   const me = useStore((state) => state.me);
   const contacts = useStore((state) => state.contacts);
+  const rooms = useStore((state) => state.rooms);
   const contactMap = useMemo(() => contactsByUser(contacts), [contacts]);
   const [groupIndex, setGroupIndex] = useState(startGroup);
   const group = groups[groupIndex];
@@ -94,7 +95,18 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [giftItems, setGiftItems] = useState(null);
   const [giftBusy, setGiftBusy] = useState(false);
   const [giftAnimation, setGiftAnimation] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportReason, setReportReason] = useState("SPAM");
+  const [reportDetails, setReportDetails] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editContent, setEditContent] = useState("");
+  const [editBackground, setEditBackground] = useState("#075E54");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const videoRef = useRef(null);
+  const swipeStart = useRef(null);
   const status = group?.statuses[index];
   const isMine = Number(group?.user?.id) === Number(me.id);
   const liveViews = useStore((state) => (isMine && status ? state.myStatuses.find((item) => item.id === status.id)?.views_count : undefined));
@@ -127,6 +139,58 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
     finally { setGiftBusy(false); }
   };
 
+  const submitReport = async (event) => {
+    event.preventDefault();
+    if (!status || reportBusy) return;
+    setReportBusy(true);
+    try {
+      const result = await statusApi.report(status.id, { reason: reportReason, details: reportDetails.trim() });
+      setReportOpen(false);
+      setReportDetails("");
+      setPaused(false);
+      toast.success(result.already_reported ? "You already reported this status." : "Status sent to moderators for review.");
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't report this status."));
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const submitEdit = async (event) => {
+    event.preventDefault();
+    if (!status || editBusy) return;
+    setEditBusy(true);
+    try {
+      const payload = { content: editContent.trim() };
+      if (status.status_type === "TEXT") payload.background_color = editBackground;
+      await statusApi.edit(status.id, payload);
+      await loadStatus();
+      toast.success("Status updated.");
+      setEditOpen(false);
+      setPaused(false);
+      onClose();
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't update this status."));
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const shareToRoom = async (roomId) => {
+    if (!status || shareBusy) return;
+    setShareBusy(true);
+    try {
+      await statusApi.share(status.id, roomId);
+      setShareOpen(false);
+      setPaused(false);
+      toast.success("Status shared to chat.");
+    } catch (error) {
+      toast.error(errorMessage(error, "Couldn't share this status to that chat."));
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
   const next = useCallback(() => {
     setProgress(0);
     if (index < group.statuses.length - 1) setIndex(index + 1);
@@ -145,6 +209,30 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
       setIndex(0);
     }
   }, [index, groupIndex]);
+
+  const onContentPointerDown = (event) => {
+    if (event.target.closest("button, input, video, .status-viewer__reply")) return;
+    swipeStart.current = { x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setPaused(true);
+  };
+  const onContentPointerUp = (event) => {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (start && Math.abs(event.clientX - start.x) > 64 && Math.abs(event.clientX - start.x) > Math.abs(event.clientY - start.y)) {
+      setProgress(0);
+      if (event.clientX < start.x && groupIndex < groups.length - 1) {
+        const nextGroupIndex = groupIndex + 1;
+        setGroupIndex(nextGroupIndex);
+        setIndex(Math.max(0, groups[nextGroupIndex].statuses.findIndex((item) => !item.is_viewed)));
+      } else if (event.clientX > start.x && groupIndex > 0) {
+        const previousGroupIndex = groupIndex - 1;
+        setGroupIndex(previousGroupIndex);
+        setIndex(Math.max(0, groups[previousGroupIndex].statuses.findIndex((item) => !item.is_viewed)));
+      }
+    }
+    setPaused(false);
+  };
 
   // Record the view (server) and update the ring locally.
   useEffect(() => {
@@ -243,20 +331,29 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
                 label="Status options"
                 items={[
                   { label: `Viewed by ${viewsCount}`, icon: Eye, onClick: () => setViewers(status.id) },
+                  { label: "Edit status", icon: Pencil, onClick: () => { setEditContent(status.content || ""); setEditBackground(/^#[0-9a-f]{6}$/i.test(status.background_color || "") ? status.background_color : "#075E54"); setEditOpen(true); } },
                   { label: "Delete", icon: Trash2, danger: true, onClick: remove },
                 ]}
               />
             </span>
-          ) : null}
+          ) : (
+            <span onClickCapture={() => setPaused(true)}>
+              <MenuButton
+                icon={MoreVertical}
+                label="Status options"
+                items={[{ label: "Report status", icon: Flag, danger: true, onClick: () => setReportOpen(true) }]}
+              />
+            </span>
+          )}
           <IconButton icon={X} label="Close" onClick={onClose} />
         </header>
 
         <div
           className="status-viewer__content"
           style={status.status_type === "TEXT" ? { background: status.background_color, color: status.text_color } : undefined}
-          onPointerDown={() => setPaused(true)}
-          onPointerUp={() => setPaused(false)}
-          onPointerLeave={() => setPaused(false)}
+          onPointerDown={onContentPointerDown}
+          onPointerUp={onContentPointerUp}
+          onPointerCancel={onContentPointerUp}
         >
           {status.status_type === "TEXT" ? <p className="status-viewer__text">{status.content}</p> : null}
           {status.status_type === "IMAGE" ? <img src={media} alt="Status" /> : null}
@@ -283,6 +380,42 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
 
         {viewers ? <ViewersSheet statusId={viewers} count={viewsCount} onClose={() => { setViewers(null); setPaused(false); }} /> : null}
 
+        {reportOpen ? <Modal
+          title="Report status"
+          onClose={reportBusy ? undefined : () => { setReportOpen(false); setPaused(false); }}
+          footer={<><button type="button" className="btn btn--ghost" onClick={() => { setReportOpen(false); setPaused(false); }} disabled={reportBusy}>Cancel</button><button type="submit" form="status-report-form" className="btn btn--primary" disabled={reportBusy}>{reportBusy ? <Spinner size={16} /> : "Send report"}</button></>}
+        >
+          <form id="status-report-form" className="status-report-form" onSubmit={submitReport}>
+            <label>Reason<select value={reportReason} onChange={(event) => setReportReason(event.target.value)}><option value="SPAM">Spam or misleading</option><option value="HARASSMENT">Harassment</option><option value="HATE">Hate or abusive content</option><option value="SEXUAL">Sexual content</option><option value="VIOLENCE">Violence or dangerous content</option><option value="SCAM">Scam or fraud</option><option value="OTHER">Other</option></select></label>
+            <label>Details (optional)<textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} maxLength={1000} rows={3} /></label>
+          </form>
+        </Modal> : null}
+
+        {editOpen ? <Modal
+          title="Edit status"
+          onClose={editBusy ? undefined : () => { setEditOpen(false); setPaused(false); }}
+          footer={<><button type="button" className="btn btn--ghost" onClick={() => { setEditOpen(false); setPaused(false); }} disabled={editBusy}>Cancel</button><button type="submit" form="status-edit-form" className="btn btn--primary" disabled={editBusy || (status.status_type === "TEXT" && !editContent.trim())}>{editBusy ? <Spinner size={16} /> : "Save changes"}</button></>}
+        >
+          <form id="status-edit-form" className="status-report-form" onSubmit={submitEdit}>
+            <label>{status.status_type === "TEXT" ? "Text" : "Caption"}<textarea value={editContent} onChange={(event) => setEditContent(event.target.value)} maxLength={700} rows={4} autoFocus /></label>
+            {status.status_type === "TEXT" ? <label>Background color<input type="color" value={editBackground} onChange={(event) => setEditBackground(event.target.value)} /></label> : null}
+          </form>
+        </Modal> : null}
+
+        {shareOpen ? <Modal title="Share status to chat" onClose={shareBusy ? undefined : () => { setShareOpen(false); setPaused(false); }}>
+          <div className="status-share-list">
+            {Object.values(rooms).filter((room) => !room.isArchived).map((room) => (
+              <button key={room.id} type="button" className="status-share-list__room" disabled={shareBusy} onClick={() => shareToRoom(room.id)}>
+                <Avatar src={room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture} name={roomTitle(room, contactMap, me)} group={room.isGroup} size={38} />
+                <span>{roomTitle(room, contactMap, me)}</span>
+                {shareBusy ? <Spinner size={15} /> : <Send size={15} />}
+              </button>
+            ))}
+            {!Object.values(rooms).some((room) => !room.isArchived) ? <EmptyState text="No chats available." /> : null}
+          </div>
+          <p className="info-muted">The chat receives a status link only if every member can view it.</p>
+        </Modal> : null}
+
         <footer className="status-viewer__bottom" hidden={Boolean(viewers)}>
           {isMine ? (
             <button type="button" className="status-viewer__views" onClick={() => { setPaused(true); setViewers(status.id); }}>
@@ -294,6 +427,7 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
               <StatusReplyBar key={status.id} status={status} owner={owner} onPause={() => setPaused(true)} onResume={() => setPaused(false)} />
             </>
           )}
+          <button type="button" className="status-viewer__share" onClick={() => { setPaused(true); setShareOpen(true); }} aria-label="Share status to chat"><Share2 size={19} /><span>Share</span></button>
         </footer>
         {giftItems ? <div className="status-gift-picker" role="dialog" aria-label="Choose a gift">
           <div className="status-gift-picker__head"><strong>Choose a gift</strong><IconButton icon={X} label="Close gift picker" onClick={() => { setGiftItems(null); setPaused(false); }} /></div>
