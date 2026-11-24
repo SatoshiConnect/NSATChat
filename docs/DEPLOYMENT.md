@@ -80,9 +80,12 @@ Updating later: push to `main`. GitHub Actions runs the tests, then
 
 For the existing host-Caddy mode (`docker-compose.host-proxy.yml`), the deploy
 script also builds the React bundle into a staging directory and switches the
-host-served `frontend/dist` only after both builds succeed. It retains the
-previous frontend bundle until health checks pass, then restores it with the
-backend and container images on rollback.
+active checkout's `frontend/dist` only after both builds succeed. Caddy's roots
+for `/`, `/manifest.webmanifest`, and `/sw.js` must point to that same directory;
+serving a separate staging checkout can make an older frontend reappear after
+deployment. The script retains the previous bundle until health checks pass,
+then restores it with the backend and container images on rollback. See
+[Mobile navigation](MOBILE-NAVIGATION.md) for the current phone tab structure.
 
 Backups: `deploy/backup.sh` creates age-encrypted daily database dumps and
 weekly media archives, with optional offsite rclone copying. Configure the
