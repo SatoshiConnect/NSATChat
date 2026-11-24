@@ -23,6 +23,8 @@
 	@pwa path /sw.js /manifest.webmanifest
 	handle @pwa {
 		root * /Users/migssa-ngakhaonu/Desktop/nsat-messenger/mhtalk-stage/frontend/dist
+		@manifest path /manifest.webmanifest
+		header @manifest Content-Type "application/manifest+json"
 		header Cache-Control "no-cache"
 		file_server
 	}
