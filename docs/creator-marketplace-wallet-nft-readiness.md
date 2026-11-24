@@ -13,6 +13,7 @@ A purchase is now a real NSAT order:
 5. `python manage.py settle_marketplace_orders` reconciles submitted orders for buyers who closed the app, and expires abandoned ones. Run it from cron every minute or two in production.
 6. When an order becomes paid the buyer's inbox socket (`chat_inbox_<user id>`) receives `marketplace.order_paid`; the client shows a toast and reloads My library, so access unlocks even if checkout was closed. Delivery is best-effort — REST polling and the settlement command remain the source of truth.
 7. Before signing, checkout states that the payment is final (no reversal or refund by NSATChat), that a 10 NSAT network fee applies to each transfer, and that the rest goes directly to the creator.
+8. `python manage.py reconcile_marketplace` audits the ledger against the chain and writes an admin report; see “Reconciliation (chain vs ledger)”.
 
 Paid inventory is separate from the legacy demo: `MarketplaceOrder`, `OrderPayment`, `MarketplaceEntitlement`, and `CreatorSale` are new tables, and `SimulatedPurchase`/`InventoryItem` are untouched. The old no-payment endpoint is disabled unless `MARKETPLACE_ALLOW_SIMULATED_PURCHASES=true`.
 
@@ -28,6 +29,55 @@ Paid inventory is separate from the legacy demo: `MarketplaceOrder`, `OrderPayme
 - Creator must have a linked wallet and must not be the buyer; listings without the required wallets report `purchase_mode: "closed"` in the catalog.
 - Paid access is independent of the listing's sale state. Disabling a listing stops new sales but buyers keep what they bought; access ends only through the audited `services.revoke_entitlement` (the “Revoke selected entitlements” admin action), which records the reason, writes an audit event, and notifies the buyer. A mistaken revocation is undone with the matching `services.restore_entitlement` admin action; both events stay in the audit trail and the buyer is notified. Legacy simulated grants still require an approved listing.
 - `CreatorSale` outlives the buyer account: deleting a buyer removes their orders and entitlements, but the creator's sales history keeps the amounts, the on-chain hash, an `order_reference`, and a non-reversible `buyer_reference` for reconciliation.
+
+## Reconciliation (chain vs ledger)
+
+Checkout and `settle_marketplace_orders` move a payment forward while someone is
+watching. The reconciliation pass proofreads the books instead: it compares what
+the indexer reports about the chain with what the ledger recorded and leaves an
+admin-readable report for every gap it finds.
+
+```bash
+python manage.py reconcile_marketplace                  # audit and repair what is safe
+python manage.py reconcile_marketplace --dry-run        # report only
+python manage.py reconcile_marketplace --skip-chain-check
+python manage.py reconcile_marketplace --fail-on-issues # non-zero exit for cron alerting
+```
+
+Each pass writes a `MarketplaceReconciliationRun` plus one
+`MarketplaceReconciliationIssue` per finding. Both are read-only in Django admin
+(**Marketplace → Marketplace reconciliation runs**), where the changelist shows
+the scan counts, critical count and repairs, and the row shows each issue with
+its order reference and whether it was repaired. Staff can also run a pass from
+the admin action “Run a reconciliation pass now”; the run records who did it.
+
+What the pass checks:
+
+- **Submitted transfers** are handed to the normal settlement path, so a transfer
+  the chain confirmed after the buyer closed the app becomes a paid order with
+  its entitlement, sale record and realtime unlock. Reported as
+  `order_settled_late` (repaired).
+- **Paid order invariants**: transfers must total the order price, every transfer
+  must be confirmed, and the sale record must match the order snapshot. A paid
+  order missing its entitlement or sale record is repaired (`order_missing_entitlement`
+  is critical, `order_missing_sale` is a warning); amount and confirmation
+  disagreements are reported and never rewritten.
+- **Active entitlements without a paid order** are critical (`entitlement_without_paid_order`):
+  access exists but no confirmed settlement backs it.
+- **Reorg re-check**: confirmed transfers from the last
+  `MARKETPLACE_RECONCILIATION_RECHECK_DAYS` days (default 7, 0 disables) are read
+  again; one the chain no longer confirms is reported as
+  `payment_no_longer_confirmed`. Access is not revoked automatically — a human
+  decides, because a reorg can resolve itself.
+- A transfer unconfirmed for `MARKETPLACE_RECONCILIATION_STALE_MINUTES` (default
+  30) is reported as `payment_stalled`.
+
+The pass never moves money and never rewrites an amount, a payment state or a
+confirmation, so a disagreement stays visible until someone acts on it. Run it
+after settling (hourly is enough) with `--fail-on-issues` so a gap pages instead
+of waiting for the buyer who cannot open what they paid for. Repairs write an
+`order.repaired` audit event and, when access was restored, notify the buyer
+over their inbox socket.
 
 ## Wallet adapter contract
 
@@ -50,7 +100,7 @@ Operators should still, before promoting the marketplace publicly:
 2. Complete threat modeling, independent security review, key custody review, and incident/rollback procedures.
 3. Establish legally reviewed terms, creator payout rules, refund/dispute process, sanctions/tax handling, and fee disclosures for each target jurisdiction.
 4. Publish at least one real listing with `python manage.py publish_marketplace_item --creator <phone> --title ... --price <nsat> --assets <dir> --approve` and have the creator connect a wallet.
-5. Schedule `settle_marketplace_orders` (cron or a worker beat) and keep `MARKETPLACE_ORDER_TTL_SECONDS` low enough that abandoned orders clear quickly.
+5. Schedule `settle_marketplace_orders` every minute or two and `reconcile_marketplace --fail-on-issues` hourly (cron or a worker beat), and keep `MARKETPLACE_ORDER_TTL_SECONDS` low enough that abandoned orders clear quickly. Watch the reconciliation runs in admin; a critical issue means the ledger and the chain disagree.
 6. Run a staging payment end to end: pending, confirmed, failed, expired, duplicate submission, and a two-transfer (fee) order, including a two-account check that an unpaid account cannot read another buyer's order.
 
 ### Testing the concurrent path

@@ -3,6 +3,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 
 class DigitalItem(models.Model):
@@ -321,3 +322,91 @@ class CreatorSale(models.Model):
     class Meta:
         db_table = "marketplace_creator_sales"
         ordering = ("-created_at",)
+
+
+class MarketplaceReconciliationRun(models.Model):
+    """One audit pass comparing the NSAT chain with the settlement ledger.
+
+    The run is the report admins read: what was scanned, what disagreed and
+    what the pass was allowed to repair. A run is never edited after it ends.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    class Source(models.TextChoices):
+        COMMAND = "command", "Scheduled command"
+        ADMIN = "admin", "Admin action"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.RUNNING, db_index=True)
+    source = models.CharField(max_length=12, choices=Source.choices, default=Source.COMMAND)
+    dry_run = models.BooleanField(default=False)
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marketplace_reconciliation_runs",
+    )
+    started_at = models.DateTimeField(default=timezone.now, db_index=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    orders_scanned = models.PositiveIntegerField(default=0)
+    payments_scanned = models.PositiveIntegerField(default=0)
+    chain_checks = models.PositiveIntegerField(default=0)
+    issues_found = models.PositiveIntegerField(default=0)
+    critical_issues = models.PositiveIntegerField(default=0)
+    repairs_applied = models.PositiveIntegerField(default=0)
+    summary = models.CharField(max_length=300, blank=True, default="")
+    error = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "marketplace_reconciliation_runs"
+        ordering = ("-started_at",)
+
+    def __str__(self):
+        return f"reconciliation {self.started_at:%Y-%m-%d %H:%M} ({self.status})"
+
+
+class MarketplaceReconciliationIssue(models.Model):
+    """One disagreement found by a run, kept so admins can filter and follow up.
+
+    The order reference is copied because an order disappears when its buyer
+    deletes their account, and a reconciliation report must still make sense.
+    """
+
+    class Severity(models.TextChoices):
+        CRITICAL = "critical", "Critical"
+        WARNING = "warning", "Warning"
+
+    run = models.ForeignKey(MarketplaceReconciliationRun, on_delete=models.CASCADE, related_name="issues")
+    code = models.CharField(max_length=48, db_index=True)
+    severity = models.CharField(max_length=10, choices=Severity.choices, default=Severity.WARNING)
+    order = models.ForeignKey(
+        MarketplaceOrder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reconciliation_issues",
+    )
+    order_reference = models.UUIDField(null=True, blank=True, db_index=True)
+    payment = models.ForeignKey(
+        OrderPayment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reconciliation_issues",
+    )
+    detail = models.CharField(max_length=300, blank=True, default="")
+    repaired = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "marketplace_reconciliation_issues"
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=("run", "code"), name="mkt_recon_run_code")]
+
+    def __str__(self):
+        return f"{self.code} ({self.severity})"

@@ -2,6 +2,7 @@ import os
 import tempfile
 import threading
 import uuid
+from datetime import timedelta
 from io import BytesIO, StringIO
 from unittest import skipUnless
 from unittest.mock import patch
@@ -12,6 +13,7 @@ from django.db import IntegrityError
 from django.db import connection
 from django.test import RequestFactory, TransactionTestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
@@ -21,6 +23,7 @@ from apps.wallet_integration.models import WalletLink
 from apps.wallet_integration.tests.test_read import SIGNED_PAYMENT_VECTOR, VALID_DESTINATION, VALID_SOURCE
 from apps.wallet_integration.views import _encode_wallet_address
 from . import services
+from . import reconciliation
 from .models import (
     CreatorNotification,
     CreatorProfile,
@@ -32,6 +35,8 @@ from .models import (
     MarketplaceAuditEvent,
     MarketplaceEntitlement,
     MarketplaceOrder,
+    MarketplaceReconciliationIssue,
+    MarketplaceReconciliationRun,
     OrderPayment,
     SimulatedPurchase,
 )
@@ -892,3 +897,206 @@ class EnvelopeReuseConcurrencyTests(TransactionTestCase):
         self.assertEqual(errors, [])
         self.assertEqual(sorted(statuses), [status.HTTP_200_OK, status.HTTP_409_CONFLICT])
         self.assertEqual(OrderPayment.objects.exclude(tx_hash="").count(), 1)
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}},
+    MARKETPLACE_LIVE_PAYMENTS=True,
+    MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
+    MARKETPLACE_PLATFORM_FEE_BPS=0,
+    MARKETPLACE_TREASURY_ADDRESS="",
+    MARKETPLACE_RECONCILIATION_STALE_MINUTES=30,
+    MARKETPLACE_RECONCILIATION_RECHECK_DAYS=7,
+)
+class ReconciliationTests(APITestCase):
+    """A pass that compares the chain with the ledger and reports to admins."""
+
+    def setUp(self):
+        self.buyer = User.objects.create_user(phone_number="+66839935561", password="StrongPassword123")
+        self.creator = User.objects.create_user(phone_number="+66839935562", password="StrongPassword123")
+        WalletLink.objects.create(user=self.buyer, address=VALID_SOURCE)
+        WalletLink.objects.create(user=self.creator, address=VALID_DESTINATION)
+        self.item = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.STICKER_PACK,
+            title="Recon pack",
+            proposed_price_nsat=123_456_789,
+            state=DigitalItem.State.APPROVED,
+        )
+        self.client.force_authenticate(self.buyer)
+
+    def _order(self):
+        return services.create_order(buyer=self.buyer, item=self.item, idempotency_key=uuid.uuid4())
+
+    def _paid(self, order, tx_hash="a" * 64):
+        """Record the settlement the checkout path would have produced."""
+        now = timezone.now()
+        OrderPayment.objects.filter(order=order).update(
+            state=OrderPayment.State.CONFIRMED,
+            tx_hash=tx_hash,
+            submitted_at=int(now.timestamp()),
+            confirmed_at=now,
+            ledger=991,
+        )
+        order.state = MarketplaceOrder.State.PAID
+        order.paid_at = now
+        order.save(update_fields=["state", "paid_at"])
+        return order
+
+    def test_paid_order_missing_rights_is_repaired_and_reported(self):
+        order = self._paid(self._order())
+
+        run = reconciliation.run_reconciliation(check_chain=False)
+
+        self.assertEqual(run.status, MarketplaceReconciliationRun.Status.COMPLETED)
+        self.assertTrue(MarketplaceEntitlement.objects.filter(owner=self.buyer, item=self.item).exists())
+        self.assertTrue(CreatorSale.objects.filter(order=order).exists())
+        entitlement_issue = run.issues.get(code="order_missing_entitlement")
+        self.assertTrue(entitlement_issue.repaired)
+        self.assertEqual(entitlement_issue.severity, MarketplaceReconciliationIssue.Severity.CRITICAL)
+        self.assertTrue(run.issues.get(code="order_missing_sale").repaired)
+        self.assertEqual(run.repairs_applied, 2)
+        self.assertTrue(MarketplaceAuditEvent.objects.filter(action="order.repaired").exists())
+
+        # Once repaired, a second pass finds the books consistent.
+        again = reconciliation.run_reconciliation(check_chain=False)
+        self.assertEqual(again.issues_found, 0)
+        self.assertEqual(again.repairs_applied, 0)
+
+    def test_dry_run_reports_a_gap_without_changing_anything(self):
+        self._paid(self._order())
+
+        run = reconciliation.run_reconciliation(check_chain=False, dry_run=True)
+
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+        self.assertFalse(CreatorSale.objects.exists())
+        issue = run.issues.get(code="order_missing_entitlement")
+        self.assertFalse(issue.repaired)
+        self.assertIn("dry run", issue.detail)
+        self.assertEqual(run.repairs_applied, 0)
+        self.assertTrue(run.summary.startswith("Dry run"))
+
+    def test_paid_order_without_a_confirmed_transfer_is_critical_and_untouched(self):
+        order = self._order()
+        OrderPayment.objects.filter(order=order).update(
+            tx_hash="e" * 64,
+            submitted_at=int(timezone.now().timestamp()),
+        )
+        order.state = MarketplaceOrder.State.PAID
+        order.paid_at = timezone.now()
+        order.save(update_fields=["state", "paid_at"])
+        services.ensure_settlement_records(order)
+
+        run = reconciliation.run_reconciliation(check_chain=False)
+
+        issue = run.issues.get(code="paid_without_confirmed_payment")
+        self.assertEqual(issue.severity, MarketplaceReconciliationIssue.Severity.CRITICAL)
+        self.assertFalse(issue.repaired)
+        self.assertEqual(MarketplaceOrder.objects.get(pk=order.pk).state, MarketplaceOrder.State.PAID)
+
+    def test_chain_confirmed_transfer_is_settled_by_reconciliation(self):
+        order = self._order()
+        OrderPayment.objects.filter(order=order).update(
+            tx_hash="b" * 64,
+            submitted_at=int(timezone.now().timestamp()),
+        )
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": 4242}
+
+        with patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            run = reconciliation.run_reconciliation()
+
+        self.assertEqual(MarketplaceOrder.objects.get(pk=order.pk).state, MarketplaceOrder.State.PAID)
+        self.assertTrue(MarketplaceEntitlement.objects.filter(order=order).exists())
+        issue = run.issues.get(code="order_settled_late")
+        self.assertTrue(issue.repaired)
+        self.assertTrue(MarketplaceAuditEvent.objects.filter(action="order.paid").exists())
+
+    def test_stalled_transfer_is_reported_without_closing_the_order(self):
+        order = self._order()
+        OrderPayment.objects.filter(order=order).update(
+            tx_hash="c" * 64,
+            submitted_at=int((timezone.now() - timedelta(hours=3)).timestamp()),
+        )
+        pending = {"status": "pending", "success": None, "result_code": "", "ledger": None}
+
+        with patch("apps.marketplace.services.confirmation_for_hash", return_value=pending):
+            run = reconciliation.run_reconciliation()
+
+        issue = run.issues.get(code="payment_stalled")
+        self.assertFalse(issue.repaired)
+        self.assertEqual(MarketplaceOrder.objects.get(pk=order.pk).state, MarketplaceOrder.State.AWAITING_PAYMENT)
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+
+    def test_reorg_is_reported_and_granted_access_is_not_revoked(self):
+        order = self._paid(self._order(), tx_hash="d" * 64)
+        services.ensure_settlement_records(order)
+        failed = {"status": "failed", "success": False, "result_code": "tx_failed", "ledger": None}
+
+        with patch("apps.marketplace.services.confirmation_for_hash", return_value=failed):
+            run = reconciliation.run_reconciliation()
+
+        issue = run.issues.get(code="payment_no_longer_confirmed")
+        self.assertEqual(issue.severity, MarketplaceReconciliationIssue.Severity.CRITICAL)
+        self.assertFalse(issue.repaired)
+        self.assertTrue(MarketplaceEntitlement.objects.filter(order=order, revoked_at__isnull=True).exists())
+
+    def test_command_writes_a_report_and_can_fail_for_alerting(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        self._paid(self._order())
+        output = StringIO()
+        call_command("reconcile_marketplace", skip_chain_check=True, stdout=output)
+        self.assertIn("repaired", output.getvalue())
+        run = MarketplaceReconciliationRun.objects.get()
+        self.assertEqual(run.source, MarketplaceReconciliationRun.Source.COMMAND)
+
+        other = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.BADGE,
+            title="Second pack",
+            proposed_price_nsat=500,
+            state=DigitalItem.State.APPROVED,
+        )
+        second = services.create_order(buyer=self.buyer, item=other, idempotency_key=uuid.uuid4())
+        self._paid(second, tx_hash="f" * 64)
+        with self.assertRaises(CommandError):
+            call_command("reconcile_marketplace", skip_chain_check=True, fail_on_issues=True, stdout=StringIO())
+
+    def test_admin_action_runs_a_pass_and_records_the_operator(self):
+        from django.contrib.messages.storage.cookie import CookieStorage
+
+        from .admin import MarketplaceReconciliationRunAdmin
+
+        user = User.objects.create_user(
+            phone_number="+66839935563", password="StrongPassword123", is_staff=True
+        )
+        request = RequestFactory().post("/admin/marketplace/marketplacereconciliationrun/")
+        request.user = user
+        setattr(request, "_messages", CookieStorage(request))
+
+        MarketplaceReconciliationRunAdmin(MarketplaceReconciliationRun, AdminSite()).run_reconciliation_now(
+            request, MarketplaceReconciliationRun.objects.none()
+        )
+
+        run = MarketplaceReconciliationRun.objects.get()
+        self.assertEqual(run.source, MarketplaceReconciliationRun.Source.ADMIN)
+        self.assertEqual(run.triggered_by, user)
+        self.assertEqual(len(list(request._messages)), 1)
+
+    def test_admins_can_read_the_run_and_issue_reports(self):
+        operator = User.objects.create_user(
+            phone_number="+66839935564", password="StrongPassword123", is_staff=True, is_superuser=True
+        )
+        self._paid(self._order())
+        reconciliation.run_reconciliation(check_chain=False)
+        self.client.force_authenticate(None)
+        self.client.force_login(operator)
+
+        runs = self.client.get(reverse("admin:marketplace_marketplacereconciliationrun_changelist"))
+        issues = self.client.get(reverse("admin:marketplace_marketplacereconciliationissue_changelist"))
+
+        self.assertEqual(runs.status_code, status.HTTP_200_OK)
+        self.assertEqual(issues.status_code, status.HTTP_200_OK)
+        self.assertContains(runs, "Marketplace reconciliation runs")
+        self.assertContains(issues, "order_missing_entitlement")

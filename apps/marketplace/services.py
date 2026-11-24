@@ -444,22 +444,7 @@ def _fulfil(order):
             return locked
         if not locked.item.creator_id:
             raise MarketplaceError("item_unavailable", status=409)
-        creator_payment = locked.payments.filter(role=OrderPayment.Role.CREATOR).first()
-        if not MarketplaceEntitlement.objects.filter(owner=locked.buyer, item=locked.item).exists():
-            MarketplaceEntitlement.objects.create(owner=locked.buyer, item=locked.item, order=locked)
-        CreatorSale.objects.get_or_create(
-            order=locked,
-            defaults={
-                "order_reference": locked.pk,
-                "buyer_reference": buyer_reference(locked.buyer_id),
-                "creator": locked.item.creator,
-                "item": locked.item,
-                "gross_nsat": locked.unit_amount_nsat,
-                "platform_fee_nsat": locked.platform_fee_nsat,
-                "creator_proceeds_nsat": locked.creator_proceeds_nsat,
-                "tx_hash": creator_payment.tx_hash if creator_payment else "",
-            },
-        )
+        ensure_settlement_records(locked)
         locked.state = MarketplaceOrder.State.PAID
         locked.paid_at = timezone.now()
         locked.save(update_fields=["state", "paid_at"])
@@ -485,6 +470,37 @@ def _fulfil(order):
     # entitlement. Realtime delivery is best-effort and never blocks the sale.
     notify_order_paid(settled)
     return settled
+
+
+def ensure_settlement_records(order):
+    """Create the entitlement and creator sale of a confirmed order, once each.
+
+    Shared by fulfilment and reconciliation so a paid order always ends with
+    exactly one entitlement and one sale record, whether the checkout request,
+    the settling command or a later repair got there first.
+    """
+    creator_payment = order.payments.filter(role=OrderPayment.Role.CREATOR).first()
+    _, entitlement_created = MarketplaceEntitlement.objects.get_or_create(
+        owner_id=order.buyer_id,
+        item_id=order.item_id,
+        defaults={"order_id": order.pk},
+    )
+    sale_created = False
+    if order.item.creator_id:
+        _, sale_created = CreatorSale.objects.get_or_create(
+            order=order,
+            defaults={
+                "order_reference": order.pk,
+                "buyer_reference": buyer_reference(order.buyer_id),
+                "creator": order.item.creator,
+                "item": order.item,
+                "gross_nsat": order.unit_amount_nsat,
+                "platform_fee_nsat": order.platform_fee_nsat,
+                "creator_proceeds_nsat": order.creator_proceeds_nsat,
+                "tx_hash": creator_payment.tx_hash if creator_payment else "",
+            },
+        )
+    return entitlement_created, sale_created
 
 
 def sync_order(order, *, allow_terminal=True):

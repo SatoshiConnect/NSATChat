@@ -414,6 +414,13 @@ MARKETPLACE_PLATFORM_FEE_BPS = config("MARKETPLACE_PLATFORM_FEE_BPS", default=0,
 # above 0. Never a recovery key or secret.
 MARKETPLACE_TREASURY_ADDRESS = config("MARKETPLACE_TREASURY_ADDRESS", default="")
 MARKETPLACE_ORDER_TTL_SECONDS = config("MARKETPLACE_ORDER_TTL_SECONDS", default=900, cast=int)
+# A submitted transfer that the indexer has not confirmed after this many
+# minutes is reported by the reconciliation pass so admins see a stuck sale
+# instead of the buyer discovering it.
+MARKETPLACE_RECONCILIATION_STALE_MINUTES = config("MARKETPLACE_RECONCILIATION_STALE_MINUTES", default=30, cast=int)
+# Reconciliation re-reads confirmed transfers from this many recent days to
+# catch a reorg; 0 disables the re-check.
+MARKETPLACE_RECONCILIATION_RECHECK_DAYS = config("MARKETPLACE_RECONCILIATION_RECHECK_DAYS", default=7, cast=int)
 # The legacy no-payment purchase demo. Off by default so a deployment cannot
 # hand out paid inventory without a confirmed payment.
 MARKETPLACE_ALLOW_SIMULATED_PURCHASES = config("MARKETPLACE_ALLOW_SIMULATED_PURCHASES", default=False, cast=bool)
