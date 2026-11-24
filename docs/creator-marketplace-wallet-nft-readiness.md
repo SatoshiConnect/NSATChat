@@ -102,7 +102,7 @@ The Messenger wallet is the only signer:
 
 ## Live settlement decisions
 
-Live settlement is **off in code by default** (fail-closed): taking real money must be an explicit operator decision. It is enabled only through the deployment environment, by setting `MARKETPLACE_LIVE_PAYMENTS=true` in `.env.prod` (see `.env.example`). While the flag is off, order creation returns 503 and the catalog reports listings as not for sale; the buyer and creator UI is unchanged and works as soon as the flag is on.
+Live settlement is **off in code by default** (fail-closed): taking real money must be an explicit operator decision. It is enabled only through the deployment environment, by setting `MARKETPLACE_LIVE_PAYMENTS=true` in `.env.prod` (see `deploy/env.prod.example`, where the production template keeps it `false`). While the flag is off, order creation returns 503 and the catalog reports listings as not for sale; the buyer and creator UI is unchanged and works as soon as the flag is on.
 
 The platform fee is **0%**, so every sale pays the creator directly and there is no treasury address to configure. A creator cannot be paid until they connect a wallet, and the catalog reports such listings as not for sale.
 
@@ -112,7 +112,7 @@ Operators should still, before promoting the marketplace publicly:
 2. Complete threat modeling, independent security review, key custody review, and incident/rollback procedures.
 3. Establish legally reviewed terms, creator payout rules, refund/dispute process, sanctions/tax handling, and fee disclosures for each target jurisdiction.
 4. Publish at least one real listing with `python manage.py publish_marketplace_item --creator <phone> --title ... --price <nsat> --assets <dir> --approve` and have the creator connect a wallet.
-5. Schedule `settle_marketplace_orders` every minute or two and `reconcile_marketplace --fail-on-issues` hourly (cron or a worker beat), and keep `MARKETPLACE_ORDER_TTL_SECONDS` low enough that abandoned orders clear quickly. Watch the reconciliation runs in admin; a critical issue means the ledger and the chain disagree.
+5. Keep the two settlement jobs scheduled. The `scheduler` service in `docker-compose.prod.yml` runs `settle_marketplace_orders` every minute while `MARKETPLACE_LIVE_PAYMENTS` is on, and `reconcile_marketplace --fail-on-issues` hourly. Any other host (Render's free plan has no scheduler) must run the same two commands itself: a deployment that takes money without the settling command leaves confirmed transfers unfulfilled, and one without reconciliation never reports a disagreement. Keep `MARKETPLACE_ORDER_TTL_SECONDS` low enough that abandoned orders clear quickly, and watch the reconciliation runs in admin — a critical issue means the ledger and the chain disagree.
 6. Run a staging payment end to end: pending, confirmed, failed, expired, duplicate submission, and a two-transfer (fee) order, including a two-account check that an unpaid account cannot read another buyer's order.
 
 ### Testing the concurrent path
