@@ -336,11 +336,68 @@
 .tabbar {
   display: none;
 }
+.mobile-section-switcher {
+  display: none;
+}
 .fab-stack {
   display: none;
 }
 
 @media (max-width: 900px) {
+  .mobile-section-switcher {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--divider);
+    background: var(--panel-bg);
+  }
+  .mobile-section-switcher button {
+    display: inline-flex;
+    flex: 1 1 0;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-width: 0;
+    min-height: 36px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-section-switcher button.is-active {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 650;
+  }
+  .sidebar:has(.mobile-section-switcher--communications) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .sidebar:has(.mobile-section-switcher--communications) .sidebar__stack {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+  }
+  .main:has(.mobile-section-switcher--commerce) > .wallet-native,
+  .main:has(.mobile-section-switcher--commerce) > .marketplace-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+  }
+  .main:has(.mobile-section-switcher--commerce) > .marketplace-panel .marketplace__scroll {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+  }
   .tabbar {
     display: flex;
     flex-shrink: 0;
