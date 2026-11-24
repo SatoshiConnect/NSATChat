@@ -1462,3 +1462,174 @@ class MarketplaceConfigTests(APITestCase):
         response = self.client.get(reverse("marketplace:config"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.data["platform_fee_bps"])
+
+
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"}},
+    MARKETPLACE_LIVE_PAYMENTS=True,
+    MARKETPLACE_ALLOW_SIMULATED_PURCHASES=False,
+    MARKETPLACE_PLATFORM_FEE_BPS=0,
+    MARKETPLACE_TREASURY_ADDRESS="",
+)
+class GiftOrderTests(APITestCase):
+    """A Story gift is a paid order whose entitlement belongs to someone else."""
+
+    def setUp(self):
+        from apps.accounts.models import Contact, Profile
+        from apps.status.models import Status
+
+        self.buyer = User.objects.create_user(phone_number="+66839935551", password="StrongPassword123")
+        self.creator = User.objects.create_user(phone_number="+66839935552", password="StrongPassword123")
+        self.recipient = User.objects.create_user(phone_number="+66839935553", password="StrongPassword123")
+        self.stranger = User.objects.create_user(phone_number="+66839935554", password="StrongPassword123")
+        WalletLink.objects.create(user=self.buyer, address=VALID_SOURCE)
+        WalletLink.objects.create(user=self.creator, address=VALID_DESTINATION)
+        # The recipient never links a wallet: receiving a paid gift must not
+        # depend on it.
+        Profile.objects.filter(user=self.recipient).update(display_name="Ada Gift")
+        Contact.objects.create(owner=self.buyer, contact_user=self.recipient)
+        Contact.objects.create(owner=self.recipient, contact_user=self.buyer)
+        self.item = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.GIFT,
+            title="Rose",
+            proposed_price_nsat=123_456_789,
+            state=DigitalItem.State.APPROVED,
+        )
+        self.status_obj = Status.objects.create(user=self.recipient, status_type="TEXT", content="Sunset")
+        self.client.force_authenticate(self.buyer)
+
+    def _gift(self, key=None, recipient=None, status_obj=None):
+        return self.client.post(
+            reverse("marketplace:order-create", args=(self.item.pk,)),
+            {
+                "idempotency_key": key or str(uuid.uuid4()),
+                "recipient_id": (recipient or self.recipient).pk,
+                "status_id": (status_obj or self.status_obj).pk,
+            },
+            format="json",
+        )
+
+    def _pay(self, order_id):
+        verdict = {"status": "confirmed", "success": True, "result_code": "", "ledger": 9002}
+        with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
+                patch("apps.marketplace.services.confirmation_for_hash", return_value=verdict):
+            return self.client.post(
+                reverse("marketplace:order-payment", args=(order_id, "creator")),
+                {"envelope_xdr": SIGNED_PAYMENT_VECTOR},
+                format="json",
+            )
+
+    def test_gift_order_pays_the_creator_and_names_the_recipient(self):
+        response = self._gift()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["gift"]["recipient_id"], self.recipient.pk)
+        self.assertEqual(response.data["gift"]["recipient_name"], "Ada Gift")
+        self.assertEqual(response.data["gift"]["status_id"], self.status_obj.pk)
+        self.assertEqual(len(response.data["payments"]), 1)
+        # The stored wallet address of the creator is the payout address.
+        self.assertEqual(response.data["payments"][0]["payee_address"], VALID_DESTINATION)
+        self.assertEqual(response.data["payments"][0]["amount_nsat"], 123_456_789)
+        self.assertFalse(MarketplaceEntitlement.objects.exists())
+
+    def test_confirmed_gift_unlocks_the_item_for_the_recipient_only(self):
+        order = self._gift().data
+        response = self._pay(order["id"])
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["state"], "paid")
+        self.assertTrue(
+            MarketplaceEntitlement.objects.filter(owner=self.recipient, item=self.item, revoked_at__isnull=True).exists()
+        )
+        self.assertFalse(MarketplaceEntitlement.objects.filter(owner=self.buyer).exists())
+        event = GiftEvent.objects.get(order_id=order["id"])
+        self.assertEqual(event.sender_id, self.buyer.pk)
+        self.assertEqual(event.recipient_id, self.recipient.pk)
+        self.assertEqual(event.status_id, self.status_obj.pk)
+        self.assertFalse(event.simulation_only)
+        self.assertTrue(
+            CreatorNotification.objects.filter(recipient=self.recipient, event_type="gift_received").exists()
+        )
+        self.assertEqual(CreatorSale.objects.filter(creator=self.creator).count(), 1)
+        audit = MarketplaceAuditEvent.objects.get(action="order.paid")
+        self.assertEqual(audit.metadata["gift_recipient_id"], self.recipient.pk)
+        # The buyer's library stays empty: they paid, they did not own it.
+        library = self.client.get(reverse("marketplace:entitlements"))
+        self.assertEqual(library.status_code, status.HTTP_200_OK)
+
+    def test_gift_to_an_expired_story_is_refused(self):
+        Status = type(self.status_obj)
+        Status.objects.filter(pk=self.status_obj.pk).update(expires_at=timezone.now() - timedelta(minutes=1))
+        response = self._gift()
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "gift_status_expired")
+        self.assertFalse(MarketplaceOrder.objects.exists())
+
+    def test_gift_to_someone_elses_story_is_refused(self):
+        from apps.status.models import Status
+
+        other = Status.objects.create(user=self.stranger, status_type="TEXT", content="Not yours")
+        response = self._gift(status_obj=other)
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "gift_status_not_recipients")
+
+    def test_gift_requires_both_a_recipient_and_a_story(self):
+        no_story = self.client.post(
+            reverse("marketplace:order-create", args=(self.item.pk,)),
+            {"idempotency_key": str(uuid.uuid4()), "recipient_id": self.recipient.pk},
+            format="json",
+        )
+        self.assertEqual(no_story.status_code, status.HTTP_400_BAD_REQUEST)
+        no_recipient = self.client.post(
+            reverse("marketplace:order-create", args=(self.item.pk,)),
+            {"idempotency_key": str(uuid.uuid4()), "status_id": self.status_obj.pk},
+            format="json",
+        )
+        self.assertEqual(no_recipient.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_recipient_who_already_owns_the_item_is_refused(self):
+        order = self._gift().data
+        self._pay(order["id"])
+        again = self._gift()
+        self.assertEqual(again.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(again.data["code"], "recipient_already_owns")
+        self.assertEqual(MarketplaceOrder.objects.count(), 1)
+
+    def test_gift_to_self_or_to_the_creator_is_refused(self):
+        self_owned_status = self.status_obj
+        self_owned_status.user = self.buyer
+        self_owned_status.save(update_fields=["user"])
+        response = self._gift(recipient=self.buyer, status_obj=self_owned_status)
+        self.assertEqual(response.data["code"], "cannot_gift_to_self")
+        creator_status = type(self.status_obj).objects.create(user=self.creator, status_type="TEXT", content="Mine")
+        response = self._gift(recipient=self.creator, status_obj=creator_status)
+        self.assertEqual(response.data["code"], "cannot_gift_to_creator")
+
+    def test_gift_replay_returns_the_same_order_and_refuses_another_recipient(self):
+        key = str(uuid.uuid4())
+        first = self._gift(key=key)
+        replay = self._gift(key=key)
+        self.assertEqual(first.data["id"], replay.data["id"])
+        other_item = DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.GIFT,
+            title="Lily",
+            proposed_price_nsat=123_456_789,
+            state=DigitalItem.State.APPROVED,
+        )
+        reused = self.client.post(
+            reverse("marketplace:order-create", args=(other_item.pk,)),
+            {"idempotency_key": key, "recipient_id": self.recipient.pk, "status_id": self.status_obj.pk},
+            format="json",
+        )
+        self.assertEqual(reused.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(reused.data["code"], "idempotency_key_reused")
+
+    def test_simulation_gift_is_closed_once_payments_are_live(self):
+        response = self.client.post(
+            reverse("marketplace:gifts"),
+            {"item_id": self.item.pk, "recipient_id": self.recipient.pk, "status_id": self.status_obj.pk},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "gift_is_paid")
+        self.assertFalse(GiftEvent.objects.exists())

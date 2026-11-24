@@ -166,7 +166,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         setOrder(latest);
       }
       if (latest.state === "paid") {
-        toast.success("Paid. Your item is unlocked.");
+        toast.success(latest.gift ? `Paid. ${latest.gift.recipient_name} received the gift.` : "Paid. Your item is unlocked.");
         onDone?.();
         return;
       }
@@ -176,7 +176,11 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         latest = await marketplaceApi.order(order.id);
         setOrder(latest);
         if (latest.state === "paid") {
-          toast.success("Payment confirmed. Your item is unlocked.");
+          toast.success(
+            latest.gift
+              ? `Payment confirmed. ${latest.gift.recipient_name} received the gift.`
+              : "Payment confirmed. Your item is unlocked.",
+          );
           onDone?.();
           return;
         }
@@ -233,6 +237,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         <div className="wallet-checkout">
           <div className="wallet-checkout__card">
             <div className="wallet-checkout__row"><span>Item</span><strong>{order.item.title}</strong></div>
+            {order.gift ? <div className="wallet-checkout__row"><span>Gift for</span><strong>{order.gift.recipient_name}</strong></div> : null}
             <div className="wallet-checkout__row"><span>Price</span><strong>{amountLabel(order.unit_amount_nsat)} NSAT</strong></div>
             {order.platform_fee_nsat ? <div className="wallet-checkout__row"><span>Platform fee</span><strong>{amountLabel(order.platform_fee_nsat)} NSAT</strong></div> : null}
             <div className="wallet-checkout__row"><span>Creator receives</span><strong>{amountLabel(order.creator_proceeds_nsat)} NSAT</strong></div>
@@ -258,7 +263,12 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
           </div>
 
           {paid ? (
-            <p className="wallet-checkout__hint"><Check size={16} /> The creator was paid on NSAT Mainnet and the item is in your library.</p>
+            <p className="wallet-checkout__hint">
+              <Check size={16} />
+              {order.gift
+                ? ` The creator was paid on NSAT Mainnet and the gift is in ${order.gift.recipient_name}'s library.`
+                : " The creator was paid on NSAT Mainnet and the item is in your library."}
+            </p>
           ) : closed ? (
             <p className="wallet-native__error">This order is {order.state}. Start a new checkout from the marketplace.</p>
           ) : (

@@ -11,6 +11,7 @@ import { contactsByUser, displayUserName, roomTitle } from "../../utils/messages
 import { Avatar, EmptyState, IconButton, MenuButton, Modal, Spinner } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
 import { confirmAction } from "../common/dialogs";
+import { useApp } from "../layout/AppContext";
 import StatusReplyBar from "./StatusReplyBar";
 
 const IMAGE_MS = 6000;
@@ -79,6 +80,7 @@ function ViewersSheet({ statusId, count, onClose }) {
  * reactions/replies for others' statuses and viewers/delete for your own.
  */
 export default function StatusViewer({ groups, startGroup = 0, startStatusId, onClose }) {
+  const app = useApp();
   const me = useStore((state) => state.me);
   const contacts = useStore((state) => state.contacts);
   const rooms = useStore((state) => state.rooms);
@@ -93,8 +95,9 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [muted, setMuted] = useState(false);
   const [viewers, setViewers] = useState(null);
   const [giftItems, setGiftItems] = useState(null);
+  const [giftMode, setGiftMode] = useState("simulation");
   const [giftBusy, setGiftBusy] = useState(false);
-  const [giftAnimation, setGiftAnimation] = useState("");
+  const [giftAnimation, setGiftAnimation] = useState(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportBusy, setReportBusy] = useState(false);
   const [reportReason, setReportReason] = useState("SPAM");
@@ -114,28 +117,64 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const owner = group?.user;
   const ownerName = isMine ? "My status" : displayUserName(owner, contactMap);
 
+  // A live marketplace sells gifts as paid orders addressed to the Story
+  // owner; a demo deployment still records the free simulation instead.
   const openGiftPicker = async () => {
     setPaused(true);
     try {
+      const config = await marketplaceApi.config();
+      if (config?.live_payments) {
+        const catalog = await marketplaceApi.catalog({ kind: "gift" });
+        setGiftMode("paid");
+        setGiftItems(catalog.filter((item) => item.purchase_mode === "nsat"));
+        return;
+      }
       const inventory = await marketplaceApi.inventory();
-      const gifts = inventory.filter((entry) => entry.item?.kind === "gift");
-      setGiftItems(gifts);
+      setGiftMode("simulation");
+      setGiftItems(inventory.filter((entry) => entry.item?.kind === "gift"));
     } catch (error) {
       toast.error(errorMessage(error));
       setPaused(false);
     }
   };
 
+  const giftError = (error) => {
+    const messages = {
+      recipient_already_owns: `${ownerName || "They"} already owns this gift.`,
+      gift_status_expired: "This update has expired. Open a newer Story to send a gift.",
+      gift_status_not_visible: "You can only gift an update you can see.",
+      gift_status_not_recipients: "That Story does not belong to this person.",
+      cannot_gift_to_self: "You cannot send a gift to yourself.",
+      cannot_gift_to_creator: "The creator already owns this listing.",
+      wallet_not_linked: "Connect your NSAT wallet in the Wallet tab first.",
+      order_already_open: "You already have an open order for this gift. Continue it from the marketplace banner.",
+      marketplace_payments_unavailable: "Marketplace payments are paused right now.",
+      gift_is_paid: "Gifts are paid in NSAT through checkout.",
+    };
+    return messages[error?.response?.data?.code] || errorMessage(error);
+  };
+
   const sendGift = async (entry) => {
     if (!status || !owner) return;
     setGiftBusy(true);
     try {
+      if (giftMode === "paid") {
+        const order = await marketplaceApi.createOrder(entry.id, crypto.randomUUID(), {
+          recipient_id: owner.id,
+          status_id: status.id,
+        });
+        setGiftItems(null);
+        onClose();
+        toast.success(`Checkout opened. ${ownerName} gets this gift once the payment confirms.`);
+        app.openWallet({ orderId: order.id });
+        return;
+      }
       const result = await marketplaceApi.sendGift({ item_id: entry.item.id, recipient_id: owner.id, status_id: status.id });
       toast.success(result.message || "Gift simulation recorded.");
-      setGiftAnimation(entry.item.title);
+      setGiftAnimation({ title: entry.item.title, paid: false });
       setGiftItems(null);
       setPaused(false);
-    } catch (error) { toast.error(errorMessage(error)); }
+    } catch (error) { toast.error(giftError(error)); }
     finally { setGiftBusy(false); }
   };
 
@@ -431,10 +470,20 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
         </footer>
         {giftItems ? <div className="status-gift-picker" role="dialog" aria-label="Choose a gift">
           <div className="status-gift-picker__head"><strong>Choose a gift</strong><IconButton icon={X} label="Close gift picker" onClick={() => { setGiftItems(null); setPaused(false); }} /></div>
-          <p>Gift simulation only. No NSAT will be transferred.</p>
-          {giftItems.length ? giftItems.map((entry) => <button type="button" key={entry.id} disabled={giftBusy} onClick={() => sendGift(entry)}><Gift size={18} /><span>{entry.item.title}</span><small>Use from library</small></button>) : <p>Your library has no gifts yet. Get a gift from Creator marketplace first.</p>}
+          {giftMode === "paid"
+            ? <p>Pay in NSAT. {ownerName} gets it in their library once the network confirms the payment.</p>
+            : <p>Gift simulation only. No NSAT will be transferred.</p>}
+          {giftItems.length ? giftItems.map((entry) => {
+            const item = giftMode === "paid" ? entry : entry.item;
+            return (
+              <button type="button" key={giftMode === "paid" ? item.id : entry.id} disabled={giftBusy} onClick={() => sendGift(entry)}>
+                <Gift size={18} /><span>{item.title}</span>
+                <small>{giftMode === "paid" ? `${Number(item.proposed_price_nsat).toLocaleString()} NSAT` : "Use from library"}</small>
+              </button>
+            );
+          }) : <p>{giftMode === "paid" ? "No gifts are for sale right now." : "Your library has no gifts yet. Get a gift from Creator marketplace first."}</p>}
         </div> : null}
-        {giftAnimation ? <div className="status-gift-animation" aria-live="polite"><Gift size={34} /><strong>{giftAnimation}</strong><span>Gift sent · simulation only</span></div> : null}
+        {giftAnimation ? <div className="status-gift-animation" aria-live="polite"><Gift size={34} /><strong>{giftAnimation.title}</strong><span>{giftAnimation.paid ? "Gift sent · paid in NSAT" : "Gift sent · simulation only"}</span></div> : null}
       </div>
     </div>,
     document.body,

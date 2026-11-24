@@ -36,6 +36,7 @@ from .models import (
     CreatorNotification,
     CreatorSale,
     DigitalItem,
+    GiftEvent,
     MarketplaceAuditEvent,
     MarketplaceEntitlement,
     MarketplaceOrder,
@@ -133,6 +134,15 @@ def order_payload(order, now=None):
         "expires_at": order.expires_at.isoformat(),
         "seconds_remaining": max(0, int((order.expires_at - now).total_seconds())),
         "paid_at": order.paid_at.isoformat() if order.paid_at else None,
+        "gift": (
+            {
+                "recipient_id": order.gift_recipient_id,
+                "recipient_name": order.gift_recipient_name,
+                "status_id": order.gift_status_id,
+            }
+            if order.gift_recipient_id
+            else None
+        ),
         "payments": [
             {
                 "role": payment.role,
@@ -156,8 +166,41 @@ def _close_stale_orders(buyer, item, now):
     ).exclude(payments__tx_hash__gt="").update(state=MarketplaceOrder.State.EXPIRED)
 
 
-def create_order(*, buyer, item, idempotency_key):
-    """Price an item, snapshot its split and open the transfers to be signed."""
+def _validate_gift(buyer, item, recipient, gift_status, now):
+    """Refuse a gift that would pay for something the recipient cannot keep."""
+    if recipient is None:
+        raise MarketplaceError("gift_status_required")
+    if recipient.pk == buyer.pk:
+        raise MarketplaceError("cannot_gift_to_self")
+    if recipient.pk == item.creator_id:
+        raise MarketplaceError("cannot_gift_to_creator")
+    if not recipient.is_active or recipient.is_deleted:
+        raise MarketplaceError("recipient_unavailable", status=404)
+    if gift_status is None:
+        raise MarketplaceError("gift_status_required")
+    if gift_status.user_id != recipient.pk:
+        raise MarketplaceError("gift_status_not_recipients", status=409)
+    if gift_status.is_deleted or gift_status.expires_at <= now:
+        # The gift is tied to a Story that is still live, so paying for an
+        # expired one would buy an item nobody can open from that Story.
+        raise MarketplaceError("gift_status_expired", status=409)
+    from apps.accounts.models import Contact
+    from apps.status.policies import can_view_status
+
+    contact_ids = set(Contact.objects.filter(owner=buyer).values_list("contact_user_id", flat=True))
+    if not can_view_status(gift_status, buyer, contact_ids):
+        raise MarketplaceError("gift_status_not_visible", status=403)
+    if MarketplaceEntitlement.objects.filter(owner=recipient, item=item, revoked_at__isnull=True).exists():
+        raise MarketplaceError("recipient_already_owns", status=409)
+
+
+def create_order(*, buyer, item, idempotency_key, gift_recipient=None, gift_status=None):
+    """Price an item, snapshot its split and open the transfers to be signed.
+
+    With ``gift_recipient`` the buyer pays exactly the same transfers, but the
+    entitlement lands in the recipient's library tied to the Story the buyer was
+    watching when they sent it.
+    """
     if not live_payments_enabled():
         raise MarketplaceError("marketplace_payments_unavailable", status=503)
     if item.state != DigitalItem.State.APPROVED:
@@ -166,7 +209,10 @@ def create_order(*, buyer, item, idempotency_key):
         raise MarketplaceError("item_unavailable", status=404)
     if item.creator_id == buyer.id:
         raise MarketplaceError("cannot_buy_own_item")
-    if MarketplaceEntitlement.objects.filter(owner=buyer, item=item).exists():
+    is_gift = gift_recipient is not None or gift_status is not None
+    if is_gift:
+        _validate_gift(buyer, item, gift_recipient, gift_status, timezone.now())
+    elif MarketplaceEntitlement.objects.filter(owner=buyer, item=item).exists():
         # Paying twice for the same item must never be possible.
         raise MarketplaceError("already_owned", status=409)
     unit_amount = int(item.proposed_price_nsat)
@@ -193,7 +239,7 @@ def create_order(*, buyer, item, idempotency_key):
 
     existing = MarketplaceOrder.objects.filter(buyer=buyer, idempotency_key=idempotency_key).first()
     if existing:
-        if existing.item_id != item.pk:
+        if existing.item_id != item.pk or (existing.gift_recipient_id or None) != (gift_recipient.pk if gift_recipient else None):
             raise MarketplaceError("idempotency_key_reused", status=409)
         return existing
 
@@ -208,7 +254,7 @@ def create_order(*, buyer, item, idempotency_key):
             get_user_model().objects.select_for_update().only("pk").get(pk=buyer.pk)
             replay = MarketplaceOrder.objects.filter(buyer=buyer, idempotency_key=idempotency_key).first()
             if replay:
-                if replay.item_id != item.pk:
+                if replay.item_id != item.pk or (replay.gift_recipient_id or None) != (gift_recipient.pk if gift_recipient else None):
                     raise MarketplaceError("idempotency_key_reused", status=409)
                 return replay
             _close_stale_orders(buyer, item, now)
@@ -220,8 +266,16 @@ def create_order(*, buyer, item, idempotency_key):
             ).exists()
             if age:
                 raise MarketplaceError("order_already_open", status=409)
-            if MarketplaceEntitlement.objects.filter(owner_id=buyer.pk, item_id=item.pk).exists():
+            if MarketplaceEntitlement.objects.filter(owner_id=buyer.pk, item_id=item.pk).exists() and not is_gift:
                 raise MarketplaceError("already_owned", status=409)
+            if is_gift and MarketplaceEntitlement.objects.filter(
+                owner_id=gift_recipient.pk, item_id=item.pk, revoked_at__isnull=True
+            ).exists():
+                raise MarketplaceError("recipient_already_owns", status=409)
+            gift_name = ""
+            if is_gift:
+                profile = getattr(gift_recipient, "profile", None)
+                gift_name = (getattr(profile, "display_name", "") or "").strip() or f"User {gift_recipient.pk}"
             order = MarketplaceOrder.objects.create(
                 buyer=buyer,
                 item=item,
@@ -233,6 +287,9 @@ def create_order(*, buyer, item, idempotency_key):
                 network=MAINNET_ID,
                 treasury_address=treasury if platform_fee else "",
                 expires_at=now + timedelta(seconds=order_ttl_seconds()),
+                gift_recipient=gift_recipient,
+                gift_recipient_name=gift_name,
+                gift_status=gift_status,
             )
             OrderPayment.objects.create(
                 order=order,
@@ -256,6 +313,8 @@ def create_order(*, buyer, item, idempotency_key):
                     "unit_amount_nsat": unit_amount,
                     "platform_fee_bps": bps,
                     "platform_fee_nsat": platform_fee,
+                    "gift_recipient_id": gift_recipient.pk if gift_recipient else None,
+                    "gift_status_id": gift_status.pk if gift_status else None,
                 },
             )
     except IntegrityError:
@@ -453,7 +512,9 @@ def notify_order_paid(order):
         return
     try:
         async_to_sync(channel_layer.group_send)(
-            f"chat_inbox_{order.buyer_id}",
+            # A gift unlocks for the recipient, so their open tab is the one
+            # that must refresh when the payment confirms.
+            f"chat_inbox_{order.gift_recipient_id or order.buyer_id}",
             {
                 "type": "inbox.marketplace_paid",
                 "order_id": str(order.pk),
@@ -485,6 +546,7 @@ def _fulfil(order):
                 "order": str(locked.id),
                 "unit_amount_nsat": locked.unit_amount_nsat,
                 "platform_fee_nsat": locked.platform_fee_nsat,
+                "gift_recipient_id": locked.gift_recipient_id,
             },
         )
         CreatorNotification.objects.create(
@@ -494,6 +556,14 @@ def _fulfil(order):
             event_type="sale",
             message=f"Sold “{locked.item.title}” for {locked.creator_proceeds_nsat} NSAT",
         )
+        if locked.gift_recipient_id:
+            CreatorNotification.objects.create(
+                recipient_id=locked.gift_recipient_id,
+                actor=locked.buyer,
+                item=locked.item,
+                event_type="gift_received",
+                message=f"You received “{locked.item.title}” as a gift",
+            )
     settled = MarketplaceOrder.objects.select_related("item").get(pk=order.pk)
     # Commit has happened, so a client that re-reads the library now sees the
     # entitlement. Realtime delivery is best-effort and never blocks the sale.
@@ -509,11 +579,25 @@ def ensure_settlement_records(order):
     the settling command or a later repair got there first.
     """
     creator_payment = order.payments.filter(role=OrderPayment.Role.CREATOR).first()
+    # A gift opens the item for the recipient; the buyer paid for it but never
+    # owned it, so their library must not gain a second copy.
+    owner_id = order.gift_recipient_id or order.buyer_id
     _, entitlement_created = MarketplaceEntitlement.objects.get_or_create(
-        owner_id=order.buyer_id,
+        owner_id=owner_id,
         item_id=order.item_id,
         defaults={"order_id": order.pk},
     )
+    if order.gift_recipient_id:
+        GiftEvent.objects.get_or_create(
+            order=order,
+            defaults={
+                "sender": order.buyer,
+                "recipient_id": order.gift_recipient_id,
+                "item": order.item,
+                "status_id": order.gift_status_id,
+                "simulation_only": False,
+            },
+        )
     sale_created = False
     if order.item.creator_id:
         _, sale_created = CreatorSale.objects.get_or_create(
