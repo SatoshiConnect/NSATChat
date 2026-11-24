@@ -6,6 +6,7 @@ from channels.layers import get_channel_layer
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db.models import Prefetch
 
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -29,6 +30,8 @@ from .models import (
     Status,
     StatusView,
     StatusReaction,
+    StatusHighlight,
+    StatusHighlightItem,
 )
 
 from .utils import status_contact_ids, notify_status_feed_changed, notify_status_viewed
@@ -39,7 +42,141 @@ from .serializers import (
     ContactStatusSerializer,
     StatusPrivacySerializer,
     ReactToStatusSerializer,
+    StatusHighlightSerializer,
+    CreateStatusHighlightSerializer,
 )
+
+
+def _highlight_viewer_context(request):
+    contact_ids = set(Contact.objects.filter(owner=request.user).values_list("contact_user_id", flat=True))
+    contact_ids |= set(Participant.objects.filter(
+        room__room_type=RoomType.PRIVATE, room__is_active=True,
+        room__participants__user=request.user,
+    ).exclude(user=request.user).values_list("user_id", flat=True))
+    saved_me_ids = set(Contact.objects.filter(contact_user=request.user).values_list("owner_id", flat=True))
+    from apps.chat.utils import blocked_user_ids
+    return contact_ids, saved_me_ids, blocked_user_ids(request.user.id)
+
+
+def _highlight_visible_items(request, highlight, viewer_context=None):
+    """Return live source stories that this viewer is still allowed to see."""
+    if hasattr(highlight, "_prefetched_objects_cache") and "items" in highlight._prefetched_objects_cache:
+        items = list(highlight.items.all())
+    else:
+        items = list(highlight.items.select_related("status", "status__user", "status__user__profile").prefetch_related("status__privacy_rules", "status__views").all())
+    if highlight.owner_id == request.user.id:
+        return [item.status for item in items if not item.status.is_deleted]
+    contact_ids, saved_me_ids, blocked = viewer_context or _highlight_viewer_context(request)
+    if highlight.owner_id in blocked:
+        return []
+    return [item.status for item in items if can_view_status(
+        item.status, request.user, contact_ids, saved_me_ids, allow_expired=True
+    )]
+
+
+class StatusHighlightsAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request):
+        owner_id = request.query_params.get("owner_id")
+        if owner_id is not None and (not owner_id.isdigit() or int(owner_id) <= 0):
+            return Response({"detail": "Invalid owner_id."}, status=status.HTTP_400_BAD_REQUEST)
+        owner_id = int(owner_id) if owner_id else request.user.id
+        item_queryset = StatusHighlightItem.objects.select_related("status", "status__user", "status__user__profile").prefetch_related("status__privacy_rules", "status__views")
+        highlights = StatusHighlight.objects.filter(
+            owner_id=owner_id, owner__is_active=True, owner__is_deleted=False,
+        ).prefetch_related(Prefetch("items", queryset=item_queryset)).order_by("position", "id")
+        viewer_context = None if owner_id == request.user.id else _highlight_viewer_context(request)
+        visible = {}
+        result = []
+        for highlight in highlights:
+            statuses = _highlight_visible_items(request, highlight, viewer_context)
+            if statuses:
+                visible[highlight.id] = statuses
+                result.append(highlight)
+        return Response(StatusHighlightSerializer(result, many=True, context={"request": request, "visible_statuses": visible}).data)
+
+    def post(self, request):
+        serializer = CreateStatusHighlightSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if StatusHighlight.objects.filter(owner=request.user).count() >= 20:
+            return Response({"detail": "You can have up to 20 highlights."}, status=status.HTTP_400_BAD_REQUEST)
+        highlight = serializer.save(owner=request.user, position=StatusHighlight.objects.filter(owner=request.user).count())
+        return Response(StatusHighlightSerializer(highlight, context={"request": request, "visible_statuses": {highlight.id: []}}).data, status=status.HTTP_201_CREATED)
+
+
+class StatusHighlightDetailAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def _owned(self, request, pk):
+        return get_object_or_404(StatusHighlight, pk=pk, owner=request.user)
+
+    def patch(self, request, pk):
+        highlight = self._owned(request, pk)
+        if "title" in request.data:
+            serializer = CreateStatusHighlightSerializer(highlight, data={"title": request.data["title"]}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        if "cover_status_id" in request.data:
+            value = request.data.get("cover_status_id")
+            if value in (None, ""):
+                highlight.cover_status = None
+            else:
+                cover = get_object_or_404(StatusHighlightItem, highlight=highlight, status_id=value)
+                highlight.cover_status = cover.status
+            highlight.save(update_fields=("cover_status", "updated_at"))
+        visible = {highlight.id: _highlight_visible_items(request, highlight)}
+        return Response(StatusHighlightSerializer(highlight, context={"request": request, "visible_statuses": visible}).data)
+
+    def delete(self, request, pk):
+        self._owned(request, pk).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class StatusHighlightItemsAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request, pk):
+        highlight = get_object_or_404(StatusHighlight, pk=pk, owner=request.user)
+        status_id = request.data.get("status_id")
+        story = get_object_or_404(Status, pk=status_id, user=request.user, is_deleted=False, expires_at__gt=timezone.now())
+        if highlight.items.count() >= 100:
+            return Response({"detail": "A highlight can contain up to 100 stories."}, status=status.HTTP_400_BAD_REQUEST)
+        item, created = StatusHighlightItem.objects.get_or_create(
+            highlight=highlight, status=story,
+            defaults={"position": highlight.items.count()},
+        )
+        if created and not highlight.cover_status_id:
+            highlight.cover_status = story
+            highlight.save(update_fields=("cover_status", "updated_at"))
+        visible = {highlight.id: _highlight_visible_items(request, highlight)}
+        return Response(StatusHighlightSerializer(highlight, context={"request": request, "visible_statuses": visible}).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    def delete(self, request, pk, status_id):
+        highlight = get_object_or_404(StatusHighlight, pk=pk, owner=request.user)
+        item = get_object_or_404(StatusHighlightItem, highlight=highlight, status_id=status_id)
+        was_cover = highlight.cover_status_id == item.status_id
+        item.delete()
+        if was_cover:
+            highlight.cover_status = highlight.items.order_by("position", "id").values_list("status", flat=True).first()
+            highlight.save(update_fields=("cover_status", "updated_at"))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ReorderStatusHighlightsAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request):
+        ids = request.data.get("ids")
+        if not isinstance(ids, list) or any(not isinstance(value, int) for value in ids):
+            return Response({"detail": "ids must be a list of highlight IDs."}, status=status.HTTP_400_BAD_REQUEST)
+        owned = list(StatusHighlight.objects.filter(owner=request.user).order_by("position", "id").values_list("id", flat=True))
+        if len(ids) != len(set(ids)) or set(ids) != set(owned):
+            return Response({"detail": "Include each of your highlights exactly once."}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            for position, highlight_id in enumerate(ids):
+                StatusHighlight.objects.filter(pk=highlight_id, owner=request.user).update(position=position)
+        return Response({"detail": "Highlights reordered."})
 
 
 class StatusContactsAPIView(APIView):

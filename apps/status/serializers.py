@@ -8,8 +8,39 @@ from .models import (
     Status,
     StatusView,
     StatusPrivacy,
+    StatusHighlight,
     
 )
+
+
+class StatusHighlightSerializer(serializers.ModelSerializer):
+    items = serializers.SerializerMethodField()
+    item_count = serializers.SerializerMethodField()
+    cover_status_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = StatusHighlight
+        fields = ("id", "title", "cover_status_id", "position", "item_count", "items", "created_at", "updated_at")
+        read_only_fields = ("id", "position", "item_count", "items", "created_at", "updated_at")
+
+    def get_items(self, obj):
+        statuses = self.context.get("visible_statuses", {}).get(obj.id, [])
+        return StatusSerializer(statuses, many=True, context=self.context).data
+
+    def get_item_count(self, obj):
+        return len(self.context.get("visible_statuses", {}).get(obj.id, []))
+
+
+class CreateStatusHighlightSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StatusHighlight
+        fields = ("title",)
+
+    def validate_title(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Enter a name for this highlight.")
+        return value
 
 from .choices import (
     StatusType,

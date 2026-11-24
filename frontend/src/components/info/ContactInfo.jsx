@@ -3,7 +3,7 @@ import { useStarredCount } from "../../hooks";
 import { Ban, Bell, BellOff, Eraser, Heart, HeartOff, Pencil, Phone, Share2, Star, Timer, Trash2, UserPlus, Video } from "lucide-react";
 import { ForwardDialog } from "../conversation/dialogs";
 import { sendContactCard } from "../conversation/shareContact";
-import { contactsApi } from "../../api/endpoints";
+import { contactsApi, statusApi } from "../../api/endpoints";
 import { favoriteRoom, muteRoom } from "../../store/actions";
 import { useStore } from "../../store/store";
 import { lastSeenLabel } from "../../utils/format";
@@ -19,6 +19,7 @@ import { InfoRow, MediaSummary } from "./shared";
 import { DisappearingDialog } from "../conversation/FeatureDialogs";
 import { ringFor, useStatusGroup } from "../status/statusRing";
 import { openAvatarMenu } from "../status/profileOverlay";
+import StatusViewer from "../status/StatusViewer";
 
 /** Contact info drawer (1:1 chats). */
 export default function ContactInfo({ roomId }) {
@@ -37,6 +38,8 @@ export default function ContactInfo({ roomId }) {
   const [shareOpen, setShareOpen] = useState(false);
   const [viewPhoto, setViewPhoto] = useState(false);
   const [disappearingOpen, setDisappearingOpen] = useState(false);
+  const [highlights, setHighlights] = useState([]);
+  const [highlightViewer, setHighlightViewer] = useState(null);
 
   const user = room?.otherUser;
   const saved = user ? contactMap.get(Number(user.id)) : null;
@@ -46,6 +49,13 @@ export default function ContactInfo({ roomId }) {
     if (!user?.id) return;
     contactsApi.commonGroups(user.id).then(setGroups).catch(() => setGroups([]));
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || blocked) return;
+    let cancelled = false;
+    statusApi.highlights(user.id).then((items) => { if (!cancelled) setHighlights(items); }).catch(() => { if (!cancelled) setHighlights([]); });
+    return () => { cancelled = true; };
+  }, [user?.id, blocked]);
 
   if (!room || !user) return null;
   const title = roomTitle(room, contactMap, me);
@@ -95,6 +105,8 @@ export default function ContactInfo({ roomId }) {
             </>
           ) : null}
         </div>
+
+        {!blocked && highlights.length ? <div className="info-section info-highlights"><span className="info-label">Story highlights</span><div className="info-highlights__list">{highlights.map((highlight) => { const cover = highlight.items.find((story) => story.id === highlight.cover_status_id) || highlight.items[0]; return <button key={highlight.id} type="button" className="info-highlights__item" onClick={() => setHighlightViewer({ user, statuses: highlight.items.map((story) => ({ ...story, is_viewed: true })) })}><span className="info-highlights__cover">{cover?.media ? <img src={cover.media} alt="" /> : <span>✦</span>}</span><span>{highlight.title}</span><small>{highlight.item_count}</small></button>; })}</div></div> : null}
 
         <MediaSummary roomId={room.id} onOpen={() => app.openDrawer("media", { roomId: room.id })} />
 
@@ -155,6 +167,7 @@ export default function ContactInfo({ roomId }) {
           />
         </Modal>
       ) : null}
+      {highlightViewer ? <StatusViewer groups={[highlightViewer]} onClose={() => setHighlightViewer(null)} /> : null}
       {disappearingOpen ? <DisappearingDialog room={room} onClose={() => setDisappearingOpen(false)} /> : null}
       {shareOpen ? (
         <ForwardDialog

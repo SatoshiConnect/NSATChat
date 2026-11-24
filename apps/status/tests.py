@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import Contact, User
 from apps.status.choices import StatusType, StatusVisibility
-from apps.status.models import Status, StatusPrivacy, StatusView
+from apps.status.models import Status, StatusPrivacy, StatusView, StatusHighlight, StatusHighlightItem
 
 
 class StatusFeatureAPITests(TestCase):
@@ -155,6 +155,49 @@ class StatusFeatureAPITests(TestCase):
             int(group["user"]["id"]) == self.owner.id
             for group in viewer_feed.data
         ))
+
+    def test_highlight_keeps_expired_story_but_preserves_original_audience(self):
+        self.add_mutual_contact(self.owner, self.viewer)
+        story = Status.objects.create(
+            user=self.owner, status_type=StatusType.TEXT, content="Saved memory",
+            visibility=StatusVisibility.ONLY_SHARE_WITH,
+        )
+        StatusPrivacy.objects.create(status=story, user=self.viewer)
+        hidden_story = Status.objects.create(
+            user=self.owner, status_type=StatusType.TEXT, content="Not for viewer",
+            visibility=StatusVisibility.ONLY_SHARE_WITH,
+        )
+        StatusPrivacy.objects.create(status=hidden_story, user=self.other)
+        created = self.owner_client.post("/api/status/highlights/", {"title": "Summer"}, format="json")
+        self.assertEqual(created.status_code, 201, created.data)
+        highlight_id = created.data["id"]
+        self.assertEqual(self.owner_client.post(f"/api/status/highlights/{highlight_id}/items/", {"status_id": story.id}, format="json").status_code, 201)
+        self.assertEqual(self.owner_client.post(f"/api/status/highlights/{highlight_id}/items/", {"status_id": hidden_story.id}, format="json").status_code, 201)
+        Status.objects.filter(pk=story.id).update(expires_at=timezone.now() - timedelta(seconds=1))
+        Status.objects.filter(pk=hidden_story.id).update(expires_at=timezone.now() - timedelta(seconds=1))
+
+        viewer_response = self.viewer_client.get(f"/api/status/highlights/?owner_id={self.owner.id}")
+        self.assertEqual(viewer_response.status_code, 200, viewer_response.data)
+        self.assertEqual(len(viewer_response.data), 1)
+        self.assertEqual([entry["content"] for entry in viewer_response.data[0]["items"]], ["Saved memory"])
+        self.assertEqual(self.other_client.get(f"/api/status/highlights/?owner_id={self.owner.id}").data, [])
+        self.assertEqual(self.viewer_client.delete(f"/api/status/highlights/{highlight_id}/").status_code, 404)
+
+    def test_highlight_management_rejects_foreign_and_expired_stories_and_supports_delete(self):
+        highlight = self.owner_client.post("/api/status/highlights/", {"title": "Trips"}, format="json")
+        self.assertEqual(highlight.status_code, 201)
+        own_story = Status.objects.create(user=self.owner, status_type=StatusType.TEXT, content="Today")
+        foreign_story = Status.objects.create(user=self.viewer, status_type=StatusType.TEXT, content="Mine")
+        expired_story = Status.objects.create(user=self.owner, status_type=StatusType.TEXT, content="Past")
+        Status.objects.filter(pk=expired_story.pk).update(expires_at=timezone.now() - timedelta(seconds=1))
+        path = f"/api/status/highlights/{highlight.data['id']}/items/"
+        self.assertEqual(self.viewer_client.post(path, {"status_id": own_story.id}, format="json").status_code, 404)
+        self.assertEqual(self.owner_client.post(path, {"status_id": foreign_story.id}, format="json").status_code, 404)
+        self.assertEqual(self.owner_client.post(path, {"status_id": expired_story.id}, format="json").status_code, 404)
+        self.assertEqual(self.owner_client.post(path, {"status_id": own_story.id}, format="json").status_code, 201)
+        self.assertEqual(self.owner_client.patch(f"/api/status/highlights/{highlight.data['id']}/", {"title": "Travel"}, format="json").data["title"], "Travel")
+        self.assertEqual(self.owner_client.delete(f"/api/status/highlights/{highlight.data['id']}/items/{own_story.id}/").status_code, 204)
+        self.assertEqual(self.owner_client.delete(f"/api/status/highlights/{highlight.data['id']}/").status_code, 204)
 
 
 

@@ -10,11 +10,20 @@ from .views import (
     StatusViewersAPIView,
     UpdateStatusPrivacyAPIView,
     StatusReactionAPIView,
+    StatusHighlightsAPIView,
+    StatusHighlightDetailAPIView,
+    StatusHighlightItemsAPIView,
+    ReorderStatusHighlightsAPIView,
 )
 
 app_name = "status"
 
 urlpatterns = [
+    path("highlights/", StatusHighlightsAPIView.as_view(), name="status-highlights"),
+    path("highlights/reorder/", ReorderStatusHighlightsAPIView.as_view(), name="status-highlights-reorder"),
+    path("highlights/<int:pk>/", StatusHighlightDetailAPIView.as_view(), name="status-highlight-detail"),
+    path("highlights/<int:pk>/items/", StatusHighlightItemsAPIView.as_view(), name="status-highlight-items"),
+    path("highlights/<int:pk>/items/<int:status_id>/", StatusHighlightItemsAPIView.as_view(), name="status-highlight-item-detail"),
     path("contacts/", StatusContactsAPIView.as_view(), name="status-privacy-contacts"),
 
     path(

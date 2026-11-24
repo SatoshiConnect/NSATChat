@@ -176,6 +176,13 @@ export const statusApi = {
   react: (id, emoji) => api.post(`status/${id}/react/`, { emoji }).then((r) => r.data),
   reply: (id, text) => api.post(`status/${id}/react/`, { text }).then((r) => r.data),
   remove: (id) => api.delete(`status/${id}/delete/`),
+  highlights: (ownerId) => api.get("status/highlights/", { params: ownerId ? { owner_id: ownerId } : undefined }).then((r) => asList(r.data)),
+  createHighlight: (title) => api.post("status/highlights/", { title }).then((r) => r.data),
+  updateHighlight: (id, payload) => api.patch(`status/highlights/${id}/`, payload).then((r) => r.data),
+  removeHighlight: (id) => api.delete(`status/highlights/${id}/`),
+  addHighlightItem: (id, status_id) => api.post(`status/highlights/${id}/items/`, { status_id }).then((r) => r.data),
+  removeHighlightItem: (id, status_id) => api.delete(`status/highlights/${id}/items/${status_id}/`),
+  reorderHighlights: (ids) => api.post("status/highlights/reorder/", { ids }).then((r) => r.data),
 };
 
 export const socialApi = {
