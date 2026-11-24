@@ -124,6 +124,9 @@ class GiftEvent(models.Model):
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="marketplace_gifts_received")
     item = models.ForeignKey(DigitalItem, on_delete=models.PROTECT, related_name="gift_events")
     status = models.ForeignKey("status.Status", on_delete=models.SET_NULL, null=True, blank=True, related_name="creator_gifts")
+    # The paid order behind a real gift. Simulation gifts have none, and a
+    # deleted order must not erase the record that the gift was sent.
+    order = models.OneToOneField("MarketplaceOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="gift_event")
     simulation_only = models.BooleanField(default=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -224,6 +227,25 @@ class MarketplaceOrder(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     expires_at = models.DateTimeField()
     paid_at = models.DateTimeField(null=True, blank=True)
+
+    # A gifted order pays the creator exactly like a purchase; only the owner of
+    # the resulting entitlement differs. The name is snapshotted because the
+    # buyer chose that person on the Story they were watching.
+    gift_recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marketplace_gift_orders_received",
+    )
+    gift_recipient_name = models.CharField(max_length=100, blank=True, default="")
+    gift_status = models.ForeignKey(
+        "status.Status",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="marketplace_gift_orders",
+    )
 
     class Meta:
         db_table = "marketplace_orders"

@@ -259,6 +259,12 @@ class GiftAPIView(APIView):
         return Response({"received": GiftEventSerializer(received, many=True).data, "sent": GiftEventSerializer(sent, many=True).data})
 
     def post(self, request):
+        if services.live_payments_enabled():
+            # Real gifts are paid orders; a free copy here would bypass them.
+            return Response(
+                {"code": "gift_is_paid", "detail": "Gifts are paid in NSAT through checkout."},
+                status=status.HTTP_409_CONFLICT,
+            )
         item = get_object_or_404(DigitalItem, pk=request.data.get("item_id"), kind=DigitalItem.Kind.GIFT, state=DigitalItem.State.APPROVED)
         recipient_id = request.data.get("recipient_id")
         status_id = request.data.get("status_id")
@@ -410,12 +416,44 @@ class OrderCreateAPIView(APIView):
     def post(self, request, pk):
         item = get_object_or_404(DigitalItem.objects.select_related("creator"), pk=pk)
         key = _validated_key(request)
+        gift_recipient, gift_status = self._gift_targets(request)
         try:
-            order = services.create_order(buyer=request.user, item=item, idempotency_key=key)
+            order = services.create_order(
+                buyer=request.user,
+                item=item,
+                idempotency_key=key,
+                gift_recipient=gift_recipient,
+                gift_status=gift_status,
+            )
         except services.MarketplaceError as error:
             return _error_response(error)
         order = MarketplaceOrder.objects.select_related("item").prefetch_related("payments").get(pk=order.pk)
         return Response(services.order_payload(order), status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _gift_targets(request):
+        """Resolve an optional gift recipient and the Story behind it."""
+        recipient_id = request.data.get("recipient_id")
+        status_id = request.data.get("status_id")
+        if recipient_id in (None, "") and status_id in (None, ""):
+            return None, None
+        from apps.accounts.models import User
+        from apps.status.models import Status
+
+        if recipient_id in (None, ""):
+            raise ValidationError({"recipient_id": "Choose who receives this gift."})
+        if status_id in (None, ""):
+            raise ValidationError({"status_id": "Choose the Story this gift belongs to."})
+        try:
+            recipient = User.objects.filter(pk=int(recipient_id)).first()
+            target_status = Status.objects.filter(pk=int(status_id)).first()
+        except (TypeError, ValueError):
+            raise ValidationError({"recipient_id": "Choose a valid recipient."})
+        if recipient is None:
+            raise ValidationError({"recipient_id": "Choose a valid recipient."})
+        if target_status is None:
+            raise ValidationError({"status_id": "Choose a visible Story to attach this gift to."})
+        return recipient, target_status
 
 
 class OrderListAPIView(APIView):
