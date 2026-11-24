@@ -235,7 +235,7 @@ export default function MainLayout({ onLogout }) {
   let main;
   if (showWallet) main = <WalletPanel launch={walletLaunch} />;
   else if (showMarketplace) main = <MarketplacePanel />;
-  else if (section === "status") main = <StatusMain />;
+  else if (section === "status") main = compact ? null : <StatusMain />;
   else if (section === "calls") main = <CallsMain />;
   else if (section === "ai" || section === "aiChat") main = <AssistantChat />;
   else if (showChat) main = <Conversation key={activeRoomId} roomId={activeRoomId} />;
