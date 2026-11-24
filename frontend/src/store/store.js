@@ -1,5 +1,5 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import { makeOfflineSnapshot, rememberOfflineUser, writeOfflineSnapshot } from "../services/offlineCache";
+import { makeOfflineSnapshot, rememberOfflineUser, sanitizeOfflineSnapshot, writeOfflineSnapshot } from "../services/offlineCache";
 
 /**
  * Minimal external store (Redux-like) with selector subscriptions.
@@ -67,16 +67,12 @@ export function reducer(state, action) {
     case "reset":
       return { ...initialState };
     case "offline/hydrate": {
-      const snapshot = action.snapshot;
-      if (!snapshot || Number(snapshot.userId) !== Number(snapshot.me?.id)) return state;
-      const now = Date.now();
+      const snapshot = sanitizeOfflineSnapshot(action.snapshot);
+      if (!snapshot) return state;
       const rooms = Object.fromEntries((snapshot.rooms || []).map((room) => [room.id, room]));
       const messages = {};
       Object.entries(snapshot.messages || {}).forEach(([roomId, entry]) => {
-        const items = (entry.items || []).filter((message) =>
-          !message.is_view_once && (!message.expires_at || new Date(message.expires_at).getTime() > now),
-        );
-        messages[roomId] = { ...entry, items, loaded: true, loading: false, error: "" };
+        messages[roomId] = { ...entry, loaded: true, loading: false, error: "" };
       });
       return {
         ...state,

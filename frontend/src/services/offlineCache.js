@@ -189,6 +189,49 @@ function usableMessage(message, now) {
   return true;
 }
 
+function sanitizeMessage(message, now) {
+  if (!usableMessage(message, now)) return null;
+  const safe = { ...message };
+  // A regular message can quote a view-once message. The API includes that
+  // quote's text, so remove it even though the quoted message itself is absent.
+  if (safe.reply_to?.is_view_once) {
+    safe.reply_to = { ...safe.reply_to, content: "", attachment: null };
+  }
+  return safe;
+}
+
+function sanitizeRoom(room, now) {
+  const lastMessage = sanitizeMessage(room.lastMessage, now);
+  let lastReaction = room.lastReaction;
+  if (lastReaction?.message) {
+    const message = sanitizeMessage(lastReaction.message, now);
+    lastReaction = message ? { ...lastReaction, message } : null;
+  }
+  return { ...room, lastMessage, lastReaction };
+}
+
+/** Sanitize on both write and read so old snapshots cannot restore ephemeral content. */
+export function sanitizeOfflineSnapshot(snapshot, now = Date.now()) {
+  if (!snapshot?.me?.id || Number(snapshot.userId) !== Number(snapshot.me.id)) return null;
+  const rooms = (snapshot.rooms || [])
+    .filter((room) => room && !room._pinnedOpen)
+    .map((room) => sanitizeRoom(room, now))
+    .slice(0, 40);
+  const roomIds = new Set(rooms.map((room) => String(room.id)));
+  const messages = {};
+  Object.entries(snapshot.messages || {}).forEach(([roomId, entry]) => {
+    if (!roomIds.has(String(roomId)) || !entry?.loaded) return;
+    const items = (entry.items || []).map((message) => sanitizeMessage(message, now)).filter(Boolean).slice(-40);
+    if (items.length) messages[roomId] = { ...entry, items, loaded: true, hasMore: Boolean(entry.hasMore), loading: false, error: "" };
+  });
+  return {
+    ...snapshot,
+    rooms,
+    messages,
+    contacts: (snapshot.contacts || []).slice(0, 500),
+  };
+}
+
 /** Keep a bounded, account-scoped snapshot; never persist credentials or view-once content. */
 export function makeOfflineSnapshot(state) {
   const userId = Number(state.me?.id);
@@ -196,18 +239,14 @@ export function makeOfflineSnapshot(state) {
   const now = Date.now();
   const rooms = Object.values(state.rooms)
     .filter((room) => room && !room._pinnedOpen)
-    .map((room) => ({
-      ...room,
-      // A room summary duplicates the latest message, so sanitize it too.
-      lastMessage: usableMessage(room.lastMessage, now) ? room.lastMessage : null,
-    }))
+    .map((room) => sanitizeRoom(room, now))
     .sort((a, b) => new Date(b.lastMessage?.created_at || b.updated_at || 0) - new Date(a.lastMessage?.created_at || a.updated_at || 0))
     .slice(0, 40);
   const roomIds = new Set(rooms.map((room) => String(room.id)));
   const messages = {};
   Object.entries(state.messages).forEach(([roomId, entry]) => {
     if (!roomIds.has(String(roomId)) || !entry?.loaded) return;
-    const items = (entry.items || []).filter((message) => usableMessage(message, now)).slice(-40);
+    const items = (entry.items || []).map((message) => sanitizeMessage(message, now)).filter(Boolean).slice(-40);
     if (items.length) messages[roomId] = { items, loaded: true, hasMore: Boolean(entry.hasMore), loading: false, error: "" };
   });
   return {
