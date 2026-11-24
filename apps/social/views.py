@@ -197,10 +197,21 @@ class PostDetailAPIView(APIView):
 
     def post(self, request, pk):
         post = self.post_obj(request, pk)
-        like, created = PostLike.objects.get_or_create(post=post, user=request.user)
-        if not created:
+        reaction = request.data.get("reaction", "LIKE")
+        if reaction not in dict(PostLike.REACTION_CHOICES):
+            return Response({"detail": "Choose a supported reaction."}, status=status.HTTP_400_BAD_REQUEST)
+        like = PostLike.objects.filter(post=post, user=request.user).first()
+        if like and like.reaction == reaction:
             like.delete()
-        return Response({"liked": created, "likes_count": post.likes.count()})
+            selected = None
+        elif like:
+            like.reaction = reaction
+            like.save(update_fields=("reaction",))
+            selected = reaction
+        else:
+            PostLike.objects.create(post=post, user=request.user, reaction=reaction)
+            selected = reaction
+        return Response({"liked": bool(selected), "reaction": selected, "likes_count": post.likes.count()})
 
     def delete(self, request, pk):
         post = get_object_or_404(Post, pk=pk, author=request.user, deleted_at__isnull=True)

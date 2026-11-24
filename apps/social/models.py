@@ -52,8 +52,10 @@ class PostAttachment(models.Model):
 
 
 class PostLike(models.Model):
+    REACTION_CHOICES = (("LIKE", "Like"), ("LOVE", "Love"), ("HAHA", "Haha"), ("WOW", "Wow"), ("SAD", "Sad"), ("CARE", "Care"))
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="likes")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="social_post_likes")
+    reaction = models.CharField(max_length=8, choices=REACTION_CHOICES, default="LIKE")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

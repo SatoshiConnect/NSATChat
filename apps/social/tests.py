@@ -58,6 +58,15 @@ class SocialPostAPITests(TestCase):
         self.assertEqual(self.contact_client.post(f"/api/social/posts/{post.id}/").data["liked"], False)
         self.assertEqual(PostLike.objects.filter(post=post).count(), 0)
 
+    def test_post_reaction_can_change_or_be_removed_and_rejects_unknown_values(self):
+        post = Post.objects.create(author=self.author, text="React", visibility=Post.EVERYONE)
+        path = f"/api/social/posts/{post.id}/"
+        self.assertEqual(self.contact_client.post(path, {"reaction": "LOVE"}, format="json").data["reaction"], "LOVE")
+        self.assertEqual(self.contact_client.post(path, {"reaction": "HAHA"}, format="json").data["reaction"], "HAHA")
+        self.assertEqual(PostLike.objects.get(post=post, user=self.contact).reaction, "HAHA")
+        self.assertEqual(self.contact_client.post(path, {"reaction": "HAHA"}, format="json").data["reaction"], None)
+        self.assertEqual(self.contact_client.post(path, {"reaction": "HACK"}, format="json").status_code, 400)
+
     def test_comments_require_post_visibility_and_validate_nonempty_text(self):
         Contact.objects.create(owner=self.author, contact_user=self.contact)
         post = Post.objects.create(author=self.author, text="Comment me")

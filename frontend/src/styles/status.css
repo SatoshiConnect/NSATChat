@@ -614,6 +614,10 @@ button.status-composer__privacy:hover {
 .social-post__text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .social-post__image { display: block; width: 100%; max-height: 600px; object-fit: contain; border-radius: 12px; background: var(--input-bg); }
 .social-post__media { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; overflow: hidden; border-radius: 12px; }
+.social-post__reaction-picker { display: flex; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; gap: 4px; }
+.social-post__reaction-picker button { display: inline-flex; align-items: center; gap: 3px; padding: 5px 7px; border: 0; border-radius: 999px; background: transparent; cursor: pointer; font-size: 17px; }
+.social-post__reaction-picker button.is-liked { background: var(--accent-soft); }
+.social-post__reaction-picker small { color: var(--muted); font-size: 11px; }
 .social-post__media .social-post__image { width: 100%; height: min(48vw, 320px); max-height: 320px; border-radius: 0; }
 .social-post__media--1 { grid-template-columns: minmax(0, 1fr); }
 .social-post__media--1 .social-post__image { height: auto; max-height: 600px; }

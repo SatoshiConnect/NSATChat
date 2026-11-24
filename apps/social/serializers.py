@@ -1,6 +1,7 @@
 import os
 
 from django.core import signing
+from django.db.models import Count
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 from apps.accounts.serializers import UserSerializer
@@ -75,13 +76,15 @@ class PostSerializer(serializers.ModelSerializer):
     comments_count = serializers.IntegerField(read_only=True)
     is_liked = serializers.SerializerMethodField()
     is_saved = serializers.SerializerMethodField()
+    my_reaction = serializers.SerializerMethodField()
+    reactions = serializers.SerializerMethodField()
     image = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
     uploads = serializers.ListField(child=serializers.FileField(), write_only=True, required=False, max_length=9)
 
     class Meta:
         model = Post
-        fields = ("id", "author", "text", "image", "attachments", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "comments")
+        fields = ("id", "author", "text", "image", "attachments", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "my_reaction", "reactions", "comments")
         read_only_fields = ("id", "author", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "comments")
 
     def get_is_liked(self, obj):
@@ -99,6 +102,16 @@ class PostSerializer(serializers.ModelSerializer):
         if hasattr(obj, "_is_saved"):
             return obj._is_saved
         return obj.saves.filter(user=request.user).exists()
+
+    def get_my_reaction(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        return obj.likes.filter(user=request.user).values_list("reaction", flat=True).first()
+
+    def get_reactions(self, obj):
+        counts = obj.likes.values("reaction").annotate(count=Count("id"))
+        return {row["reaction"]: row["count"] for row in counts}
 
     def _media_url(self, obj, attachment=None):
         request = self.context.get("request")

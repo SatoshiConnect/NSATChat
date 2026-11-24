@@ -195,7 +195,7 @@ export const socialApi = {
   followers: (userId, params = {}) => api.get(`social/users/${userId}/followers/`, { params }).then((r) => r.data),
   following: (userId, params = {}) => api.get(`social/users/${userId}/following/`, { params }).then((r) => r.data),
   createPost: (payload) => api.post("social/posts/", payload).then((r) => r.data),
-  toggleLike: (id) => api.post(`social/posts/${id}/`).then((r) => r.data),
+  toggleLike: (id, reaction = "LIKE") => api.post(`social/posts/${id}/`, { reaction }).then((r) => r.data),
   removePost: (id) => api.delete(`social/posts/${id}/`),
   updatePost: (id, payload) => api.patch(`social/posts/${id}/`, payload).then((r) => r.data),
   savePost: (id) => api.post(`social/posts/${id}/save/`).then((r) => r.data),

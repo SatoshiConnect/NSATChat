@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Bookmark, Check, Flag, Image as ImageIcon, MessageCircle, Pencil, Send, ThumbsUp, Trash2, UserPlus, X } from "lucide-react";
+import { Bookmark, Check, Flag, Image as ImageIcon, MessageCircle, Pencil, Send, Trash2, UserPlus, X } from "lucide-react";
 import { socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
 import { useStore } from "../../store/store";
@@ -7,6 +7,8 @@ import { toast } from "../../services/toast";
 import { Avatar, EmptyState, Spinner } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
 import { detailTime } from "../../utils/format";
+
+const POST_REACTIONS = [{ key: "LIKE", emoji: "👍", label: "Like" }, { key: "LOVE", emoji: "❤️", label: "Love" }, { key: "HAHA", emoji: "😂", label: "Haha" }, { key: "WOW", emoji: "😮", label: "Wow" }, { key: "SAD", emoji: "😢", label: "Sad" }, { key: "CARE", emoji: "🤗", label: "Care" }];
 
 function PostCommentItem({ comment, postId, me, onChange, depth = 0 }) {
   const [editing, setEditing] = useState(false);
@@ -125,9 +127,9 @@ function PostCard({ post, me, onChange }) {
       </header>
       {post.text ? <p className="social-post__text">{post.text}</p> : null}
       {post.attachments?.length ? <div className={`social-post__media social-post__media--${Math.min(post.attachments.length, 4)}`}>{post.attachments.map((attachment) => attachment.kind === "VIDEO" ? <video key={attachment.id} className="social-post__image" src={mediaUrl(attachment.url)} controls playsInline preload="metadata" /> : <img key={attachment.id} className="social-post__image" src={mediaUrl(attachment.url)} alt="Post attachment" loading="lazy" />)}</div> : post.image ? <img className="social-post__image" src={mediaUrl(post.image)} alt="Post attachment" loading="lazy" /> : null}
-      <div className="social-post__counts"><span>{post.likes_count || 0} likes</span><span>{post.comments_count || comments.length} comments</span></div>
+      <div className="social-post__counts"><span>{post.likes_count || 0} reactions</span><span>{post.comments_count || comments.length} comments</span></div>
       <div className="social-post__actions">
-        <button type="button" className={post.is_liked ? "is-liked" : ""} onClick={async () => { try { await socialApi.toggleLike(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't update reaction.")); } }}><ThumbsUp size={17} /> Like</button>
+        <div className="social-post__reaction-picker" aria-label="React to post">{POST_REACTIONS.map((reaction) => <button key={reaction.key} type="button" className={post.my_reaction === reaction.key ? "is-liked" : ""} aria-label={reaction.label} aria-pressed={post.my_reaction === reaction.key} title={reaction.label} onClick={async () => { try { await socialApi.toggleLike(post.id, reaction.key); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't update reaction.")); } }}>{reaction.emoji}{post.reactions?.[reaction.key] ? <small>{post.reactions[reaction.key]}</small> : null}</button>)}</div>
         <button type="button" className={saved ? "is-liked" : ""} onClick={toggleSave} disabled={saving}><Bookmark size={17} /> {saved ? "Saved" : "Save"}</button>
         <span><MessageCircle size={17} /> Comment</span>
       </div>
