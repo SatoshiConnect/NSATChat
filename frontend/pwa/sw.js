@@ -22,6 +22,18 @@ const CACHE = CACHE_PREFIX + VERSION;
 const SHELL_URL = "/index.html";
 const OFFLINE_URL = "/offline.html";
 const BYPASS = /^\/(api|ws|media|admin|static)(\/|$)|^\/release-notes\.json$/;
+const MEDIA_CACHE = "satoshicore-chat-media-v1";
+const MEDIA_CACHE_MAX_ITEMS = 100;
+const MEDIA_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const MEDIA_CACHE_MAX_AGE = 21 * 24 * 60 * 60 * 1000;
+const MEDIA_CACHE_MAX_FILE = 2 * 1024 * 1024;
+
+function isCacheableImagePath(pathname) {
+  // Only ordinary chat attachments and profile/room photos. In particular,
+  // view-once, Stories and social media never enter this cache.
+  return /^\/media\/(?:chat\/attachments|profiles|chat_rooms)\//i.test(pathname)
+    && !/^\/media\/private\//i.test(pathname);
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -56,7 +68,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (request.method !== "GET") return;
-  if (url.origin !== self.location.origin || BYPASS.test(url.pathname)) return;
+  if (url.origin !== self.location.origin) return;
+  if (isCacheableImagePath(url.pathname) && !request.headers.get("range")) {
+    event.respondWith(handleChatImage(request));
+    return;
+  }
+  if (BYPASS.test(url.pathname)) return;
   if (request.headers.get("range")) return;
 
   if (request.mode === "navigate") {
@@ -65,6 +82,57 @@ self.addEventListener("fetch", (event) => {
   }
   event.respondWith(handleAsset(request));
 });
+
+async function handleChatImage(request) {
+  const cache = await caches.open(MEDIA_CACHE);
+  let cached = await cache.match(request);
+  if (cached) {
+    const age = Date.now() - Number(cached.headers.get("x-satoshicore-cached-at") || 0);
+    if (age <= MEDIA_CACHE_MAX_AGE) {
+      // Refresh last-used time for least-recently-used eviction.
+      const headers = new Headers(cached.headers);
+      headers.set("x-satoshicore-cached-at", String(Date.now()));
+      await cache.put(request, new Response(cached.clone().body, { status: cached.status, statusText: cached.statusText, headers }));
+      return cached;
+    }
+    await cache.delete(request);
+    cached = null;
+  }
+  try {
+    const response = await fetch(request);
+    if (!response.ok || response.type !== "basic") return response;
+    const type = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+    const size = Number(response.headers.get("content-length") || 0);
+    const policy = response.headers.get("cache-control") || "";
+    if (!type.startsWith("image/") || !size || size > MEDIA_CACHE_MAX_FILE || /no-store/i.test(policy)) return response;
+    const headers = new Headers(response.headers);
+    headers.set("x-satoshicore-cached-at", String(Date.now()));
+    await cache.put(request, new Response(response.clone().body, { status: response.status, statusText: response.statusText, headers }));
+    await trimChatImageCache(cache);
+    return response;
+  } catch {
+    return cached || Response.error();
+  }
+}
+
+async function trimChatImageCache(cache) {
+  const entries = await Promise.all((await cache.keys()).map(async (request) => {
+    const response = await cache.match(request);
+    return {
+      request,
+      at: Number(response?.headers.get("x-satoshicore-cached-at") || 0),
+      size: Number(response?.headers.get("content-length") || 0),
+    };
+  }));
+  let bytes = entries.reduce((sum, entry) => sum + entry.size, 0);
+  entries.sort((a, b) => a.at - b.at);
+  while (entries.length > MEDIA_CACHE_MAX_ITEMS || bytes > MEDIA_CACHE_MAX_BYTES) {
+    const oldest = entries.shift();
+    if (!oldest) break;
+    await cache.delete(oldest.request);
+    bytes -= oldest.size;
+  }
+}
 
 async function handleShare(request) {
   try {
@@ -93,13 +161,14 @@ async function handleShare(request) {
 
 async function handleNavigation(request) {
   const cache = await caches.open(CACHE);
-  // Offline: show the friendly page instead of a half-working app.
+  // Serve the cached app shell even offline; React can then restore the local
+  // account snapshot and present its read-only view. Use the standalone offline
+  // page only if the shell itself is unavailable.
+  const shell = await cache.match(SHELL_URL);
+  if (shell) return shell;
   if (self.navigator && self.navigator.onLine === false) {
     return (await cache.match(OFFLINE_URL)) || Response.error();
   }
-  // Fast start: the shell of this build, straight from the cache.
-  const shell = await cache.match(SHELL_URL);
-  if (shell) return shell;
   try {
     return await fetch(request);
   } catch {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Volume2, Bell, ChevronRight, CircleHelp, Download, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, ShoppingBag, SquarePlus, UserX, RefreshCw, WalletCards } from "lucide-react";
+import { Volume2, Bell, ChevronRight, CircleHelp, Download, Database, Keyboard, KeyRound, Lock, LogOut, MessageSquareText, Palette, Search, Share, ShoppingBag, SquarePlus, UserX, RefreshCw, WalletCards } from "lucide-react";
 import { useStore } from "../../store/store";
 import { loadBlocked, setBlocked } from "../../store/actions";
 import { getNotificationPrefs, requestDesktopPermission, setNotificationPrefs } from "../../services/notify";
@@ -16,6 +16,7 @@ import { useApp } from "../layout/AppContext";
 import { AccountView, PrivacyView } from "./PrivacySettings";
 import AppUpdateView from "./AppUpdateView";
 import { APP_VERSION, takeOpenUpdate, useAppUpdate } from "../../services/appUpdate";
+import { clearOfflineData } from "../../services/offlineCache";
 
 const SHORTCUTS = [
   ["New chat", "Ctrl + Alt + N"],
@@ -312,6 +313,7 @@ export default function SettingsPanel() {
     { key: "privacy", icon: Lock, title: "Privacy", subtitle: "Last seen, profile photo, read receipts, blocked contacts", onClick: () => setView("privacy") },
     { key: "chats", icon: MessageSquareText, title: "Chats", subtitle: "Theme, Enter is send", onClick: () => setView("chats") },
     { key: "wallet", icon: WalletCards, title: "Wallet", subtitle: "View NSAT balance and public transaction history", onClick: () => app.setSection("wallet") },
+    { key: "offline", icon: Database, title: "Offline data", subtitle: "Saved chats and media on this device", onClick: () => setModal("offline") },
     { key: "notifications", icon: Bell, title: "Notifications", subtitle: "Message sounds, desktop alerts", onClick: () => setView("notifications") },
     !install.installed
       ? { key: "install", icon: Download, title: "Install app", subtitle: install.ios ? "Add SatoshiCore to your Home Screen" : "Use SatoshiCore like a native app", onClick: onInstall }
@@ -372,6 +374,30 @@ export default function SettingsPanel() {
             SatoshiCore is a real-time messaging app built with Django Channels and React. Messages, receipts, typing, presence,
             statuses and calls sync live across all of your open tabs.
           </p>
+        </Modal>
+      ) : null}
+      {modal === "offline" ? (
+        <Modal title="Offline data" onClose={() => setModal(null)} width={440}>
+          <p className="modal__text">
+            Recent chats, messages and small previews of chat photos and videos are saved on this device. To keep a full clip, open it and choose “Save video offline” while connected. You can keep up to 3 clips (20 MB each, 40 MB total). Sending new messages still needs internet. Your browser may remove saved data to free space. Logging out clears this device&apos;s saved chat data.
+          </p>
+          <button
+            type="button"
+            className="btn btn--outline"
+            onClick={() => confirmAction({
+              title: "Clear saved offline data?",
+              message: "This clears local chat snapshots, cached photos and video previews from this device. It does not delete messages from your account.",
+              confirmLabel: "Clear saved data",
+              danger: true,
+              onConfirm: async () => {
+                await clearOfflineData(me.id);
+                toast.success("Saved offline data cleared from this device.");
+                setModal(null);
+              },
+            })}
+          >
+            Clear saved data
+          </button>
         </Modal>
       ) : null}
     </section>
