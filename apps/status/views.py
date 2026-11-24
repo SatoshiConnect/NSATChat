@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.db.models import Prefetch
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
-from django.http import FileResponse, Http404
+from django.http import Http404
 
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -25,6 +25,7 @@ from apps.accounts.serializers import UserSerializer
 from apps.social.models import SocialMute
 
 from apps.status.policies import can_view_status
+from config.range_media import authorized_file_response
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiRequest,
@@ -207,15 +208,16 @@ class StatusMediaAPIView(APIView):
             )
         if not allowed:
             raise Http404
-        try:
-            file_handle = story.media.open("rb")
-        except (OSError, ValueError, FileNotFoundError):
-            raise Http404
-        response = FileResponse(file_handle, content_type=mimetypes.guess_type(story.media.name)[0] or "application/octet-stream")
-        response["Cache-Control"] = "private, no-store"
-        response["X-Content-Type-Options"] = "nosniff"
-        response["Cross-Origin-Resource-Policy"] = "same-origin"
-        return response
+        return authorized_file_response(
+            request,
+            story.media,
+            mimetypes.guess_type(story.media.name)[0] or "application/octet-stream",
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Cross-Origin-Resource-Policy": "same-origin",
+            },
+        )
 
 
 class ReorderStatusHighlightsAPIView(APIView):

@@ -1,6 +1,7 @@
-import { memo, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { ArrowUpRight, Ban, ChevronDown, Download, FileText, Forward, Image as ImageIcon, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Pin, Play, Reply, RotateCw, Smile, Star, Video, Video as VideoIcon } from "lucide-react";
 import { mediaUrl } from "../../api/client";
+import LazyVideo from "../media/LazyVideo";
 import { parseWalletReceiptMessage, parseWalletRequestMessage } from "../../features/wallet/paymentRequest";
 import { emojiOnly } from "../../utils/emoji";
 import { clockTime, duration as formatDuration, fileSize } from "../../utils/format";
@@ -204,24 +205,23 @@ function StickerContent({ attachment, pending }) {
 function VideoContent({ attachment, onOpen, progress, pending }) {
   const [meta, setMeta] = useState(null);
   const [failed, setFailed] = useState(false);
+  const [offlinePosterReady, setOfflinePosterReady] = useState(false);
+  const onPosterAvailable = useCallback(() => setOfflinePosterReady(true), []);
   const style = mediaBox(meta?.w, meta?.h);
   return (
     <button type="button" className="media media--video" style={style} onClick={(event) => { event.stopPropagation(); onOpen(); }} aria-label="Play video">
-      {failed ? (
-        <span className="media__error">Video preview unavailable</span>
-      ) : (
-        <video
-          src={`${mediaUrl(attachment.file)}#t=0.1`}
-          preload="metadata"
-          muted
-          playsInline
-          onLoadedMetadata={(event) => {
-            const video = event.currentTarget;
-            setMeta({ w: video.videoWidth, h: video.videoHeight, duration: Number.isFinite(video.duration) ? video.duration : null });
-          }}
-          onError={() => setFailed(true)}
-        />
-      )}
+      <LazyVideo
+        src={`${mediaUrl(attachment.file)}#t=0.1`}
+        muted
+        playsInline
+        onPosterAvailable={onPosterAvailable}
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget;
+          setMeta({ w: video.videoWidth, h: video.videoHeight, duration: Number.isFinite(video.duration) ? video.duration : null });
+        }}
+        onError={() => setFailed(true)}
+      />
+      {failed && !offlinePosterReady ? <span className="media__error">Video preview unavailable</span> : null}
       {pending ? (
         <UploadOverlay progress={progress} />
       ) : (
@@ -347,7 +347,7 @@ function StatusPreview({ payload, ownerName, onOpen }) {
   const type = payload.status_type;
   let thumb;
   if (media && type === "IMAGE") thumb = <img src={media} alt="" />;
-  else if (media && type === "VIDEO") thumb = <video src={`${media}#t=0.5`} preload="metadata" muted playsInline />;
+  else if (media && type === "VIDEO") thumb = <LazyVideo src={`${media}#t=0.5`} muted playsInline />;
   else
     thumb = (
       <span className="status-reaction__text-thumb" style={{ background: payload.status_bg || "var(--accent)", color: payload.status_fg || "#fff" }}>

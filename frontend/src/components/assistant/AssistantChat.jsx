@@ -13,6 +13,7 @@ import { askAssistant, loadAssistantStatus, useAssistant } from "./assistantStor
 import { ForwardDialog } from "../conversation/dialogs";
 import { sendFile } from "../../store/actions";
 import { installViewportBottomAnchor } from "../../utils/visibleViewport";
+import { useStore } from "../../store/store";
 
 /** Tiny safe formatter: **bold**, `code`, and "- " bullet lines. */
 function Formatted({ text }) {
@@ -42,6 +43,7 @@ export default function AssistantChat() {
   const app = useApp();
   const compact = useMediaQuery("(max-width: 900px)");
   const { messages, sending, status } = useAssistant();
+  const offline = useStore((state) => state.connection === "offline");
   const [text, setText] = useState("");
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [listening, setListening] = useState(false);
@@ -67,7 +69,7 @@ export default function AssistantChat() {
     if (node) node.scrollTop = node.scrollHeight;
   }, [messages.length, sending]);
 
-  const disabled = status ? !status.enabled : false;
+  const disabled = offline || (status ? !status.enabled : false);
 
   function insertText(value) {
     const node = inputRef.current;

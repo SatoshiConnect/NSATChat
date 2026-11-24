@@ -7,7 +7,7 @@ from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
-from django.http import FileResponse, Http404
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
@@ -22,6 +22,7 @@ from apps.chat.choices import MessageType
 from apps.chat.models import ChatRoom, Message, Participant
 from apps.chat.permissions import send_message_error
 from apps.chat.utils import blocked_user_ids, broadcast_message, get_message_with_relations, sender_has_blocked_peer
+from config.range_media import authorized_file_response
 from .models import Post, PostAttachment, PostComment, PostLike, PostReport, PostSave, SocialFollow, SocialMute
 from .policies import can_view_post, visible_posts_for
 from .serializers import CreateCommentSerializer, CreatePostReportSerializer, PostCommentSerializer, PostSerializer
@@ -56,19 +57,20 @@ class PostMediaAPIView(APIView):
             raise Http404
         return file_field
 
-    def _response(self, file_field):
-        try:
-            handle = file_field.open("rb")
-        except (OSError, ValueError, FileNotFoundError):
-            raise Http404
-        response = FileResponse(handle, content_type=mimetypes.guess_type(file_field.name)[0] or "application/octet-stream")
-        response["Cache-Control"] = "private, no-store"
-        response["X-Content-Type-Options"] = "nosniff"
-        response["Cross-Origin-Resource-Policy"] = "same-origin"
-        return response
+    def _response(self, request, file_field):
+        return authorized_file_response(
+            request,
+            file_field,
+            mimetypes.guess_type(file_field.name)[0] or "application/octet-stream",
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Cross-Origin-Resource-Policy": "same-origin",
+            },
+        )
 
     def get(self, request, pk, attachment_id=None):
-        return self._response(self._authorized_claims(request, pk, attachment_id))
+        return self._response(request, self._authorized_claims(request, pk, attachment_id))
 
 
 class SocialFollowAPIView(APIView):
@@ -218,7 +220,7 @@ class PostFeedAPIView(generics.ListCreateAPIView):
             queryset = queryset.filter(text__icontains=f"#{hashtag}")
         return queryset.select_related("author", "author__profile").annotate(
             likes_count=Count("likes", distinct=True), comments_count=Count("comments", filter=Q(comments__deleted_at__isnull=True), distinct=True), _is_liked=Exists(liked), _is_saved=Exists(saved)
-        )
+        ).order_by("-created_at", "-id")
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)

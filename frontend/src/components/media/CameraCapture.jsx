@@ -37,7 +37,7 @@ export default function CameraCapture({ onCapture, onClose, onGallery }) {
         stopStream();
         // Ask for exactly the front or back camera first (phones), then fall
         // back to "whichever is closest" for laptops with one camera.
-        const size = { width: { ideal: 1280 }, height: { ideal: 720 } };
+        const size = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } };
         let stream;
         try {
           stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: facing }, ...size }, audio: true });
@@ -110,7 +110,14 @@ export default function CameraCapture({ onCapture, onClose, onGallery }) {
       return;
     }
     const type = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"].find((item) => MediaRecorder.isTypeSupported?.(item)) || "";
-    const recorder = new MediaRecorder(streamRef.current, type ? { mimeType: type } : undefined);
+    // Keep in-app recordings mobile-friendly without re-encoding files selected
+    // from the gallery. Browsers may choose a nearby supported bitrate.
+    const recorderOptions = {
+      videoBitsPerSecond: 1_500_000,
+      audioBitsPerSecond: 96_000,
+      ...(type ? { mimeType: type } : {}),
+    };
+    const recorder = new MediaRecorder(streamRef.current, recorderOptions);
     recorderRef.current = recorder;
     chunksRef.current = [];
     recorder.ondataavailable = (event) => event.data.size && chunksRef.current.push(event.data);

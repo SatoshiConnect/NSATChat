@@ -9,6 +9,7 @@ import { fileSize, listTime } from "../../utils/format";
 import { contactsByUser, displayUserName, roomTitle } from "../../utils/messages";
 import { EmptyState, IconButton, Spinner } from "../common/ui";
 import Lightbox from "./Lightbox";
+import LazyVideo from "./LazyVideo";
 
 const TABS = [
   { id: "media", label: "Media" },
@@ -128,7 +129,7 @@ export default function AllMediaDialog({ onClose, onOpenRoom }) {
                 <button key={item.id} type="button" className="all-media__tile" onClick={() => setViewer(index)} title={chatName(item.room_id)}>
                   {item.mime_type?.startsWith("video/") ? (
                     <>
-                      <video src={`${mediaUrl(item.file)}#t=0.1`} muted preload="metadata" />
+                      <LazyVideo src={`${mediaUrl(item.file)}#t=0.1`} muted />
                       <span className="media-thumb__play"><Play size={18} fill="currentColor" /></span>
                     </>
                   ) : (

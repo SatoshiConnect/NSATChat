@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Download, Forward, Maximize2, MessageSquareReply, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Download, Forward, Maximize2, MessageSquareReply, X } from "lucide-react";
 import { mediaUrl } from "../../api/client";
 import { detailTime } from "../../utils/format";
 import { attachmentKind } from "../../utils/messages";
+import { OFFLINE_VIDEO_MAX_FILE, readOfflineVideo, writeOfflineVideo } from "../../services/offlineCache";
+import { toast } from "../../services/toast";
+import { useStore } from "../../store/store";
 import { Avatar, IconButton } from "../common/ui";
 
 /**
@@ -13,9 +16,16 @@ import { Avatar, IconButton } from "../common/ui";
  */
 export default function Lightbox({ items, startIndex = 0, nameOf, onClose, onForward, onGoTo }) {
   const [index, setIndex] = useState(startIndex);
+  const userId = useStore((state) => state.me?.id);
+  const [offlineVideo, setOfflineVideo] = useState(null);
+  const [savingOffline, setSavingOffline] = useState(false);
+  const localObjectUrl = useRef("");
   const videoRef = useRef(null);
   const stripRef = useRef(null);
   const current = items[index];
+  const kind = attachmentKind(current?.attachment);
+  const url = current?.attachment ? mediaUrl(current.attachment.file) : "";
+  const mediaKey = `${userId || 0}:${url}`;
   // Swipe left / right to see the next or previous photo (phones and touchpads).
   const swipe = useRef(null);
   const [dragX, setDragX] = useState(0);
@@ -36,10 +46,72 @@ export default function Lightbox({ items, startIndex = 0, nameOf, onClose, onFor
     stripRef.current?.querySelector(".is-active")?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
   }, [index]);
 
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    if (kind === "video" && userId && url) {
+      readOfflineVideo(userId, url).then((blob) => {
+        if (!active || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setOfflineVideo({ key: mediaKey, url: objectUrl });
+      });
+    }
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (localObjectUrl.current) {
+        URL.revokeObjectURL(localObjectUrl.current);
+        localObjectUrl.current = "";
+      }
+    };
+  }, [kind, mediaKey, url, userId]);
+
   if (!current) return null;
-  const kind = attachmentKind(current.attachment);
-  const url = mediaUrl(current.attachment.file);
+  const localVideoUrl = offlineVideo?.key === mediaKey ? offlineVideo.url : "";
+  const videoUrl = localVideoUrl || url;
   const sender = current.message.sender;
+
+  const saveVideoOffline = async () => {
+    if (savingOffline || localVideoUrl) return;
+    setSavingOffline(true);
+    try {
+      const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok) throw new Error("Couldn't download this video for offline viewing.");
+      const type = (response.headers.get("content-type") || "").split(";")[0].trim();
+      if (!type.startsWith("video/")) throw new Error("This file is not a supported video.");
+      const statedSize = Number(response.headers.get("content-length") || 0);
+      if (statedSize > OFFLINE_VIDEO_MAX_FILE) throw new Error("Videos over 20 MB can't be saved offline.");
+      let blob;
+      if (response.body?.getReader) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let size = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > OFFLINE_VIDEO_MAX_FILE) {
+            await reader.cancel();
+            throw new Error("Videos over 20 MB can't be saved offline.");
+          }
+          chunks.push(value);
+        }
+        blob = new Blob(chunks, { type });
+      } else {
+        blob = await response.blob();
+      }
+      if (blob.size > OFFLINE_VIDEO_MAX_FILE) throw new Error("Videos over 20 MB can't be saved offline.");
+      if (!await writeOfflineVideo(userId, url, blob)) throw new Error("This browser couldn't save the video on this device.");
+      const objectUrl = URL.createObjectURL(blob);
+      localObjectUrl.current = objectUrl;
+      setOfflineVideo({ key: mediaKey, url: objectUrl });
+      toast.success("Video saved for offline viewing on this device.");
+    } catch (error) {
+      toast.error(error.message || "Couldn't save the video for offline viewing.");
+    } finally {
+      setSavingOffline(false);
+    }
+  };
 
   return createPortal(
     <div className="lightbox" role="dialog" aria-label="Media viewer">
@@ -52,6 +124,7 @@ export default function Lightbox({ items, startIndex = 0, nameOf, onClose, onFor
         <div className="lightbox__actions">
           {onGoTo ? <IconButton icon={MessageSquareReply} label="Go to message" onClick={() => { onGoTo(current.message); onClose(); }} /> : null}
           {onForward ? <IconButton icon={Forward} label="Forward" onClick={() => onForward(current.message)} /> : null}
+          {kind === "video" ? <IconButton icon={localVideoUrl ? Check : Download} label={localVideoUrl ? "Saved for offline" : savingOffline ? "Saving video offline" : "Save video offline"} disabled={savingOffline || Boolean(localVideoUrl)} onClick={saveVideoOffline} /> : null}
           <a className="icon-btn" href={url} download={current.attachment.file_name || true} target="_blank" rel="noopener noreferrer" aria-label="Download" data-tooltip="Download">
             <Download size={20} />
           </a>
@@ -97,7 +170,7 @@ export default function Lightbox({ items, startIndex = 0, nameOf, onClose, onFor
           </button>
         ) : null}
         {kind === "video" ? (
-          <video key={url} ref={videoRef} src={url} controls autoPlay playsInline />
+          <video key={videoUrl} ref={videoRef} src={videoUrl} controls autoPlay playsInline />
         ) : (
           <img
             key={url}

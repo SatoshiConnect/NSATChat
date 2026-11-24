@@ -1,10 +1,12 @@
 import tempfile
+from datetime import timedelta
 from io import BytesIO
 
 from django.core import signing
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.test import override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 from apps.accounts.models import Contact, User
@@ -42,6 +44,21 @@ class SocialPostAPITests(TestCase):
         ids = self.ids(self.stranger_client.get("/api/social/posts/"))
         self.assertIn(public.id, ids)
         self.assertNotIn(private.id, ids)
+
+    def test_feed_orders_newest_post_first_with_stable_ties(self):
+        now = timezone.now()
+        older = Post.objects.create(author=self.author, text="Older")
+        newer = Post.objects.create(author=self.author, text="Newer")
+        tied = Post.objects.create(author=self.author, text="Same timestamp")
+        Post.objects.filter(pk=older.pk).update(created_at=now - timedelta(minutes=2))
+        Post.objects.filter(pk=newer.pk).update(created_at=now - timedelta(minutes=1))
+        Post.objects.filter(pk=tied.pk).update(created_at=now - timedelta(minutes=1))
+
+        response = self.author_client.get("/api/social/posts/?limit=20")
+
+        self.assertEqual(response.status_code, 200)
+        ids = [post["id"] for post in response.data["results"]]
+        self.assertEqual(ids[:3], [tied.id, newer.id, older.id])
 
     def test_hashtag_filter_is_case_insensitive_and_rejects_invalid_input(self):
         tagged = Post.objects.create(author=self.author, text="Summer #Travel #ไทย", visibility=Post.EVERYONE)
@@ -174,6 +191,12 @@ class SocialPostAPITests(TestCase):
                 self.assertEqual(attachment["kind"], "IMAGE")
                 media_path = attachment["url"].split("testserver", 1)[-1]
                 self.assertEqual(self.author_client.get(media_path).status_code, 200)
+                partial = self.author_client.get(media_path, HTTP_RANGE="bytes=0-3")
+                self.assertEqual(partial.status_code, 206)
+                from apps.social.models import PostAttachment
+                stored = PostAttachment.objects.get(pk=attachment["id"]).file
+                self.assertEqual(partial["Content-Range"], f"bytes 0-3/{stored.size}")
+                self.assertEqual(b"".join(partial.streaming_content), b"\xff\xd8\xff\xe0")
                 self.assertEqual(self.stranger_client.get(f"/api/social/posts/{response.data['id']}/media/attachments/{attachment['id']}/").status_code, 404)
                 unauthorized_token = signing.dumps({"post": response.data["id"], "attachment": attachment["id"], "viewer": self.stranger.id}, salt="social.media.v1", compress=True)
                 self.assertEqual(self.stranger_client.get(f"/api/social/posts/{response.data['id']}/media/attachments/{attachment['id']}/?token={unauthorized_token}").status_code, 404)
@@ -233,16 +256,49 @@ class SocialPostModerationTests(TestCase):
         admin_user = User.objects.create_superuser(phone_number="+66910000204", password="StrongPass123!")
         post = Post.objects.create(author=self.author, text="Actioned", visibility=Post.EVERYONE)
         report = PostReport.objects.create(post=post, reporter=self.reporter, reason=PostReport.REASON_SCAM)
+        additional_reporter = User.objects.create_user(phone_number="+66910000205", password="StrongPass123!")
+        other_report = PostReport.objects.create(post=post, reporter=additional_reporter, reason=PostReport.REASON_SPAM)
         request = RequestFactory().post("/admin/")
         request.user = admin_user
         PostReportAdmin(PostReport, site).take_action(request, PostReport.objects.filter(pk=report.pk))
         report.refresh_from_db()
+        other_report.refresh_from_db()
         post.refresh_from_db()
         self.assertEqual(report.status, PostReport.ACTIONED)
+        self.assertEqual(other_report.status, PostReport.ACTIONED)
         self.assertEqual(report.reviewed_by_id, admin_user.id)
+        self.assertEqual(other_report.reviewed_by_id, admin_user.id)
         self.assertIsNotNone(report.reviewed_at)
         self.assertEqual(post.moderation_status, Post.MODERATION_HIDDEN)
         self.assertGreaterEqual(LogEntry.objects.filter(user=admin_user).count(), 2)
+
+    def test_dismissing_reports_restores_post_only_after_all_open_reports_are_resolved(self):
+        from django.contrib.admin.sites import site
+        from django.test import RequestFactory
+        from apps.social.admin import PostReportAdmin
+
+        admin_user = User.objects.create_superuser(phone_number="+66910000206", password="StrongPass123!")
+        second_reporter = User.objects.create_user(phone_number="+66910000207", password="StrongPass123!")
+        post = Post.objects.create(author=self.author, text="Reviewed", visibility=Post.EVERYONE)
+        post.moderation_status = Post.MODERATION_REVIEW
+        post.save(update_fields=("moderation_status",))
+        first = PostReport.objects.create(post=post, reporter=self.reporter, reason=PostReport.REASON_SPAM)
+        second = PostReport.objects.create(post=post, reporter=second_reporter, reason=PostReport.REASON_OTHER)
+        request = RequestFactory().post("/admin/")
+        request.user = admin_user
+        report_admin = PostReportAdmin(PostReport, site)
+
+        report_admin.mark_reviewed(request, PostReport.objects.filter(pk=first.pk))
+        post.refresh_from_db()
+        self.assertEqual(post.moderation_status, Post.MODERATION_REVIEW)
+
+        report_admin.mark_reviewed(request, PostReport.objects.filter(pk=second.pk))
+        post.refresh_from_db()
+        self.assertEqual(post.moderation_status, Post.MODERATION_ACTIVE)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status, PostReport.REVIEWED)
+        self.assertEqual(second.status, PostReport.REVIEWED)
 
 
 class SocialFollowTests(TestCase):

@@ -66,6 +66,7 @@ export default function Composer({ room, replyTo, editing, onClearReply, onClear
   const inputId = useId();
   const fileIds = { media: `${inputId}-media`, doc: `${inputId}-doc`, audio: `${inputId}-audio` };
   const me = useStore((state) => state.me);
+  const offline = useStore((state) => state.connection === "offline");
 
   // ---- @mentions (groups only) ------------------------------------------
   const canMention = Boolean(room.isGroup);
@@ -380,8 +381,9 @@ export default function Composer({ room, replyTo, editing, onClearReply, onClear
     await sendVoice(room.id, blob, seconds, waveform, viewOnce);
   }
 
-  if (blocked || disabledReason) {
-    return <div className="composer composer--disabled">{disabledReason || "You blocked this contact. Unblock to send a message."}</div>;
+  if (blocked || disabledReason || offline) {
+    const reason = disabledReason || (blocked ? "You blocked this contact. Unblock to send a message." : "Offline — reconnect to send messages.");
+    return <div className="composer composer--disabled">{reason}</div>;
   }
 
   async function pasteFromClipboard() {

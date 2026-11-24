@@ -201,7 +201,7 @@ export default function ChatListPanel() {
 
       {connection === "offline" ? (
         <div className="connection-banner" role="status">
-          <span className="connection-banner__dot" /> Connecting… Messages will sync automatically.
+          <span className="connection-banner__dot" /> Offline — showing saved chats. Updates refresh when you reconnect.
         </div>
       ) : null}
 

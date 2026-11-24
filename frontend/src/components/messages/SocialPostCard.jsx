@@ -3,6 +3,7 @@ import { ArrowUpRight } from "lucide-react";
 import { socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
 import { Spinner } from "../common/ui";
+import LazyVideo from "../media/LazyVideo";
 
 export default function SocialPostCard({ postId, onOpen }) {
   const [state, setState] = useState({ loading: true, post: null, error: "" });
@@ -27,7 +28,7 @@ export default function SocialPostCard({ postId, onOpen }) {
     <article className="chat-shared-post">
       <strong>{author} · SatoshiCore post</strong>
       {post.text ? <p>{post.text}</p> : null}
-      {post.image ? <img src={mediaUrl(post.image)} alt="Shared post attachment" loading="lazy" /> : attachment?.kind === "VIDEO" ? <video src={mediaUrl(attachment.url)} controls playsInline preload="metadata" /> : attachment ? <img src={mediaUrl(attachment.url)} alt="Shared post attachment" loading="lazy" /> : null}
+      {post.image ? <img src={mediaUrl(post.image)} alt="Shared post attachment" loading="lazy" decoding="async" /> : attachment?.kind === "VIDEO" ? <LazyVideo className="chat-shared-post__video" src={mediaUrl(attachment.url)} controls playsInline /> : attachment ? <img src={mediaUrl(attachment.url)} alt="Shared post attachment" loading="lazy" decoding="async" /> : null}
       <button type="button" onClick={onOpen}>Open in Updates <ArrowUpRight size={15} /></button>
     </article>
   );

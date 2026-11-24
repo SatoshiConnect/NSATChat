@@ -33,7 +33,7 @@ export const authApi = {
     api.post("accounts/login/", { phone_number, password }).then((r) => r.data),
   register: (payload) => api.post("accounts/register/", payload).then((r) => r.data),
   logout: (refresh) => api.post("accounts/logout/", { refresh }),
-  me: () => api.get("accounts/me/").then((r) => r.data),
+  me: () => api.get("accounts/me/", { timeout: 8000 }).then((r) => r.data),
   updateProfile: (fields) =>
     api.patch("accounts/profile/update/", form(fields)).then((r) => r.data),
   setPublicId: (public_id) => api.post("accounts/profile/public-id/", { public_id }).then((r) => r.data),
