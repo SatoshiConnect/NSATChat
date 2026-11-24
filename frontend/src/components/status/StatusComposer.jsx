@@ -11,6 +11,7 @@ import { IconButton, Modal, Spinner } from "../common/ui";
 import EmojiPicker from "../conversation/EmojiPicker";
 import ImageEditor from "../media/ImageEditor";
 import { getStatusPrivacy, setStatusPrivacy, STATUS_COLORS } from "./statusPrefs";
+import { optimizeStatusImage } from "../../utils/statusImageOptimization";
 import StatusPrivacyEditor from "./StatusPrivacyEditor";
 import VideoTrimmer from "../media/VideoTrimmer";
 import { useTrimLoop } from "../media/useTrimLoop";
@@ -29,9 +30,11 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
   const captionEmojiRef = useRef(null);
   const [text, setText] = useState("");
   const [caption, setCaption] = useState("");
+  const [optimizePhotos, setOptimizePhotos] = useState(true);
   const [color, setColor] = useState(STATUS_COLORS[0]);
   const [font, setFont] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [preparingPhotos, setPreparingPhotos] = useState(false);
   const [progress, setProgress] = useState(0);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const emojiRef = useRef(null);
@@ -113,6 +116,7 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
       return;
     }
     setBusy(true);
+    setPreparingPhotos(!isText && optimizePhotos && files.some((item) => item.type.startsWith("image/")));
     setProgress(0);
     let completed = 0;
     try {
@@ -120,9 +124,16 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
       if (isText) {
         await statusApi.upload({ status_type: "TEXT", content: text.trim(), background_color: color, text_color: "#FFFFFF", visibility: privacy.visibility, users, mentions });
       } else {
-        const totalBytes = files.reduce((sum, item) => sum + item.size, 0);
+        // Prepare camera photos locally so upload time and downstream story
+        // loading are closer to the compressed-media path users expect.
+        const uploadFiles = [];
+        for (const item of files) {
+          uploadFiles.push(optimizePhotos && item.type.startsWith("image/") ? await optimizeStatusImage(item) : item);
+        }
+        setPreparingPhotos(false);
+        const totalBytes = uploadFiles.reduce((sum, item) => sum + item.size, 0);
         for (let index = 0; index < files.length; index += 1) {
-          const item = files[index];
+          const item = uploadFiles[index];
           const itemVideo = item.type.startsWith("video/");
           await statusApi.upload({
             status_type: itemVideo ? "VIDEO" : "IMAGE",
@@ -161,6 +172,7 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
         setTrim(null);
       }
       setBusy(false);
+      setPreparingPhotos(false);
     }
   }
 
@@ -268,8 +280,15 @@ export default function StatusComposer({ initialFile, initialFiles = [], mode = 
         ) : (
           <span className="status-composer__count">{700 - text.length}</span>
         )}
+        {!isText && files.some((item) => item.type.startsWith("image/") && item.type !== "image/gif") ? (
+          <label className="status-optimization-toggle">
+            <input type="checkbox" checked={optimizePhotos} onChange={(event) => setOptimizePhotos(event.target.checked)} />
+            <span>Optimize large photos for faster posting</span>
+          </label>
+        ) : null}
         {mentionChips}
         {mentionControls}
+        {busy && preparingPhotos ? <p className="status-optimization-progress" role="status">Preparing photos for faster posting…</p> : null}
         <div className="status-composer__send-row">
           <button type="button" className="status-composer__audience" onClick={() => setPrivacyOpen(true)} title="Choose who can see this status">
             <CircleDashed size={16} />
