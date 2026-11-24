@@ -811,11 +811,15 @@ button.status-composer__privacy:hover {
 .social-post__media .social-post__image { width: 100%; height: min(48vw, 320px); max-height: 320px; border-radius: 0; }
 .social-post__media--1 { grid-template-columns: minmax(0, 1fr); }
 .social-post__media--1 .social-post__image { height: auto; max-height: 600px; }
+.social-post__media--1 .social-post__image--video { aspect-ratio: 16 / 9; object-fit: contain; }
 .social-compose__files { display: grid; gap: 2px; }
 .social-compose__optimize { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
 .social-compose__optimize input { accent-color: var(--accent); }
 .social-compose__progress { display: grid; grid-template-columns: 1fr; gap: 6px; padding-top: 10px; color: var(--muted); font-size: var(--fs-sm); }
 .social-compose__progress progress { width: 100%; height: 6px; accent-color: var(--accent); }
+.status-mobile-tabs { display: none; }
+.status-mobile-posts { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.status-mobile-posts .social-feed { max-width: none; padding-top: 16px; }
 .social-share-overlay { position: fixed; inset: 0; z-index: var(--z-modal, 60); display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 45%); }
 .social-share-dialog { display: flex; flex-direction: column; width: min(100%, 440px); max-height: min(80dvh, 620px); overflow: hidden; border: 1px solid var(--divider); border-radius: 18px; background: var(--panel-bg); box-shadow: 0 16px 48px rgb(0 0 0 / 24%); }
 .social-share-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--divider); }
@@ -829,6 +833,7 @@ button.status-composer__privacy:hover {
 .chat-shared-post { display: grid; gap: 8px; min-width: min(260px, 72vw); max-width: min(360px, 76vw); padding: 10px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-raised); }
 .chat-shared-post p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .chat-shared-post img, .chat-shared-post video { display: block; width: 100%; max-height: 220px; border-radius: 8px; object-fit: cover; }
+.chat-shared-post__video { aspect-ratio: 16 / 9; object-fit: contain !important; background: #111; }
 .chat-shared-post button { display: inline-flex; align-items: center; gap: 6px; justify-self: start; border: 0; background: transparent; color: var(--accent); }
 .chat-shared-post--loading { display: flex; align-items: center; color: var(--muted); }
 .chat-shared-post--unavailable { color: var(--muted); }
@@ -863,4 +868,9 @@ button.status-composer__privacy:hover {
 .social-follow-requests__row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .social-follow-requests__row button { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--divider); border-radius: 50%; background: transparent; color: var(--accent); cursor: pointer; }
 .social-follow-requests__row button:last-child { color: var(--muted); }
+@media (max-width: 900px) {
+  .status-mobile-tabs { display: flex; flex: 0 0 auto; gap: 8px; padding: 8px 14px 0; border-bottom: 1px solid var(--divider); background: var(--panel-bg); }
+  .status-mobile-tabs button { flex: 1; min-width: 0; padding: 10px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+  .status-mobile-tabs button.is-active { border-bottom-color: var(--accent); color: var(--accent); }
+}
 @media (max-width: 520px) { .social-feed { padding: 16px 12px 28px; } .social-compose, .social-post { border-radius: 12px; padding: 12px; } .social-compose footer { flex-wrap: wrap; } .social-compose footer select { max-width: 48%; } }

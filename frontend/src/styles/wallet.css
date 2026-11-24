@@ -168,7 +168,10 @@
 .wallet-checkout { display: grid; gap: 14px; width: min(100%, 540px); margin: 24px auto 40px; }
 .wallet-checkout__card { display: grid; gap: 11px; padding: 18px; border: 1px solid var(--divider); border-radius: 16px; background: var(--panel-raised); }
 .wallet-checkout__row { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; color: var(--text-secondary); font-size: 13px; }
-.wallet-checkout__row strong { color: var(--text-strong); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+/* The label keeps one line on phones; the value takes the remaining width and
+   wraps instead of squeezing "Creator share" into two words. */
+.wallet-checkout__row > span { flex: none; white-space: nowrap; }
+.wallet-checkout__row strong { flex: 1 1 auto; min-width: 0; color: var(--text-strong); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
 .wallet-checkout__hint { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .wallet-checkout__hint svg { flex: none; margin-top: 1px; color: var(--accent); }
 .wallet-checkout .wallet-native__key-form h2 { font-size: 16px; }

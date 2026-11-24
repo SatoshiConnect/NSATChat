@@ -40,7 +40,11 @@
 .marketplace__form input, .marketplace__form select, .marketplace__form textarea { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--divider); border-radius: 9px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; }
 .marketplace__form input[type="file"] { font-size: 12px; }
 .marketplace__form small { font-size: 11px; }
-.marketplace__submission { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--divider); font-size: 13px; }
+.marketplace__submission { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 0; border-bottom: 1px solid var(--divider); font-size: 13px; }
+/* A row and its action button share the line on desktop and stack on phones
+   instead of squeezing the meta text into a narrow column. */
+.marketplace__submission > div { flex: 1 1 200px; min-width: 0; }
+.marketplace__submission button { flex: none; white-space: nowrap; }
 .marketplace__submission span { color: var(--text-muted); text-align: right; }
 .marketplace__history-meta { display: block; margin-top: 3px; text-align: left !important; }
 .marketplace__purchase-history { display: grid; gap: 10px; margin-top: 24px; padding: 16px; border: 1px solid var(--divider); border-radius: 15px; background: var(--panel-raised); }
@@ -78,6 +82,15 @@
   .marketplace__form input, .marketplace__form select, .marketplace__form textarea, .marketplace__search input { font-size: 16px; }
 }
 
+@media (max-width: 560px) {
+  /* Four tabs never fit one phone row: a 2x2 grid keeps every section, including
+     Creator studio, on screen instead of hiding it behind a horizontal scroll. */
+  .marketplace__tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; overflow: visible; margin: 18px 0 14px; border-bottom: 0; }
+  .marketplace__tabs button { min-width: 0; min-height: 40px; padding: 0 10px; border: 1px solid var(--divider); border-radius: 10px; background: var(--panel-raised); font-size: 12.5px; }
+  .marketplace__tabs button svg { flex: none; }
+  .marketplace__tabs button.is-active { border-color: color-mix(in srgb, var(--accent) 45%, var(--divider)); background: color-mix(in srgb, var(--accent) 12%, var(--panel-raised)); box-shadow: none; }
+}
+
 .marketplace__sales-totals { display: grid; gap: 4px; margin-bottom: 10px; padding: 12px 14px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-raised); }
 .marketplace__sales-totals strong { color: var(--text-strong); font-size: 15px; }
 .marketplace__sales-totals span { color: var(--text-muted); font-size: 12px; }
@@ -85,10 +98,11 @@
 .marketplace__purchase-history button:hover { background: var(--hover-bg); }
 
 /* Pinned open order: a buyer who leaves checkout keeps one tap to resume. */
-.marketplace__open-order { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--divider)); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--panel-raised)); }
-.marketplace__open-order strong { display: block; color: var(--text-strong); font-size: 14px; }
+.marketplace__open-order { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--divider)); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--panel-raised)); }
+.marketplace__open-order > div { flex: 1 1 220px; min-width: 0; }
+.marketplace__open-order strong { display: block; color: var(--text-strong); font-size: 14px; overflow-wrap: anywhere; }
 .marketplace__open-order span { color: var(--text-muted); font-size: 12px; }
-.marketplace__open-order button { flex: none; min-height: 36px; padding: 0 13px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.marketplace__open-order button { flex: none; min-height: 36px; padding: 0 13px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
 .marketplace__more { display: flex; justify-content: center; margin-top: 18px; }
 .marketplace__more button { min-height: 40px; padding: 0 18px; border: 1px solid var(--divider-strong); border-radius: 12px; background: var(--panel-raised); color: var(--text-strong); font: inherit; font-size: 13px; cursor: pointer; }
 .marketplace__more button:disabled { opacity: .6; cursor: wait; }

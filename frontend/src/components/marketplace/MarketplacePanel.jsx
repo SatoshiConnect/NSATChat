@@ -217,7 +217,7 @@ export default function MarketplacePanel() {
 
   return (
     <section className="panel marketplace-panel">
-      <PanelHeader title="Creator marketplace" />
+      <PanelHeader title="Creator marketplace" onBack={app.compact ? () => app.setSection("settings") : undefined} />
       <div className="marketplace__scroll">
         <div className="marketplace__hero">
           <span className="marketplace__eyebrow"><Sparkles size={15} /> SATOSHICORE CREATORS</span>
@@ -225,6 +225,16 @@ export default function MarketplacePanel() {
           <p>Gifts, stickers and creator collections for your SatoshiCore profile.</p>
           <div className="marketplace__notice">Prices in NSAT · Items unlock only after an on-chain payment is confirmed</div>
         </div>
+
+        {/* Shown above the tabs so an unpaid order is one tap away from every
+            marketplace section, not only from Explore. */}
+        {openOrder ? <div className="marketplace__open-order" role="status">
+          <div>
+            <strong>You have an open order for {openOrder.item.title}</strong>
+            <span>{Number(openOrder.total_due_nsat).toLocaleString()} NSAT · {openOrder.state === "partially_paid" ? "partly paid" : "waiting for payment"}</span>
+          </div>
+          <button type="button" onClick={() => app.openWallet({ orderId: openOrder.id })}>Continue payment</button>
+        </div> : null}
 
         <div className="marketplace__tabs" role="tablist" aria-label="Marketplace sections">
           <button type="button" className={tab === "catalog" ? "is-active" : ""} onClick={() => setTab("catalog")}><Store size={17} /> Explore</button>
@@ -234,13 +244,6 @@ export default function MarketplacePanel() {
         </div>
 
         {tab === "catalog" ? <>
-          {openOrder ? <div className="marketplace__open-order" role="status">
-            <div>
-              <strong>You have an open order for {openOrder.item.title}</strong>
-              <span>{Number(openOrder.total_due_nsat).toLocaleString()} NSAT · {openOrder.state === "partially_paid" ? "partly paid" : "waiting for payment"}</span>
-            </div>
-            <button type="button" onClick={() => app.openWallet({ orderId: openOrder.id })}>Continue payment</button>
-          </div> : null}
           <label className="marketplace__search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search items" aria-label="Search marketplace items" /></label>
           <div className="marketplace__categories">{CATEGORIES.map((value) => <button type="button" key={value} className={kind === value ? "is-active" : ""} onClick={() => setKind(value)}>{LABELS[value]}</button>)}</div>
           {busy ? <div className="marketplace__loading"><Spinner /></div> : rows.length ? <div className="marketplace__grid">{rows.map((item) => (
