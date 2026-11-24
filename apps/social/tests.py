@@ -174,6 +174,12 @@ class SocialPostAPITests(TestCase):
                 self.assertEqual(attachment["kind"], "IMAGE")
                 media_path = attachment["url"].split("testserver", 1)[-1]
                 self.assertEqual(self.author_client.get(media_path).status_code, 200)
+                partial = self.author_client.get(media_path, HTTP_RANGE="bytes=0-3")
+                self.assertEqual(partial.status_code, 206)
+                from apps.social.models import PostAttachment
+                stored = PostAttachment.objects.get(pk=attachment["id"]).file
+                self.assertEqual(partial["Content-Range"], f"bytes 0-3/{stored.size}")
+                self.assertEqual(b"".join(partial.streaming_content), b"\xff\xd8\xff\xe0")
                 self.assertEqual(self.stranger_client.get(f"/api/social/posts/{response.data['id']}/media/attachments/{attachment['id']}/").status_code, 404)
                 unauthorized_token = signing.dumps({"post": response.data["id"], "attachment": attachment["id"], "viewer": self.stranger.id}, salt="social.media.v1", compress=True)
                 self.assertEqual(self.stranger_client.get(f"/api/social/posts/{response.data['id']}/media/attachments/{attachment['id']}/?token={unauthorized_token}").status_code, 404)

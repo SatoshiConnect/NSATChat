@@ -27,7 +27,7 @@ export default function SocialPostCard({ postId, onOpen }) {
     <article className="chat-shared-post">
       <strong>{author} · SatoshiCore post</strong>
       {post.text ? <p>{post.text}</p> : null}
-      {post.image ? <img src={mediaUrl(post.image)} alt="Shared post attachment" loading="lazy" /> : attachment?.kind === "VIDEO" ? <video src={mediaUrl(attachment.url)} controls playsInline preload="metadata" /> : attachment ? <img src={mediaUrl(attachment.url)} alt="Shared post attachment" loading="lazy" /> : null}
+      {post.image ? <img src={mediaUrl(post.image)} alt="Shared post attachment" loading="lazy" decoding="async" /> : attachment?.kind === "VIDEO" ? <video src={mediaUrl(attachment.url)} controls playsInline preload="none" /> : attachment ? <img src={mediaUrl(attachment.url)} alt="Shared post attachment" loading="lazy" decoding="async" /> : null}
       <button type="button" onClick={onOpen}>Open in Updates <ArrowUpRight size={15} /></button>
     </article>
   );

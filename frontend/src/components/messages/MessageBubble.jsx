@@ -212,7 +212,7 @@ function VideoContent({ attachment, onOpen, progress, pending }) {
       ) : (
         <video
           src={`${mediaUrl(attachment.file)}#t=0.1`}
-          preload="metadata"
+          preload="none"
           muted
           playsInline
           onLoadedMetadata={(event) => {

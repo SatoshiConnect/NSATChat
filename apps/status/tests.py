@@ -379,6 +379,11 @@ class StatusMediaPrivacyTests(TestCase):
         allowed = self.viewer_client.get(viewer_url)
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(b"".join(allowed.streaming_content), b"story-bytes")
+        partial = self.viewer_client.get(viewer_url, HTTP_RANGE="bytes=0-4")
+        self.assertEqual(partial.status_code, 206)
+        self.assertEqual(partial["Content-Range"], "bytes 0-4/11")
+        self.assertEqual(b"".join(partial.streaming_content), b"story")
+        self.assertEqual(partial["Cache-Control"], "private, no-store")
         self.assertEqual(self.stranger_client.get(self.token_url(self.stranger)).status_code, 404)
         self.assertEqual(self.owner_client.get("/api/status/%s/media/?token=broken" % self.story.id).status_code, 404)
 
