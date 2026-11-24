@@ -8,8 +8,39 @@ from .models import (
     Status,
     StatusView,
     StatusPrivacy,
+    StatusHighlight,
     
 )
+
+
+class StatusHighlightSerializer(serializers.ModelSerializer):
+    items = serializers.SerializerMethodField()
+    item_count = serializers.SerializerMethodField()
+    cover_status_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = StatusHighlight
+        fields = ("id", "title", "cover_status_id", "position", "item_count", "items", "created_at", "updated_at")
+        read_only_fields = ("id", "position", "item_count", "items", "created_at", "updated_at")
+
+    def get_items(self, obj):
+        statuses = self.context.get("visible_statuses", {}).get(obj.id, [])
+        return StatusSerializer(statuses, many=True, context=self.context).data
+
+    def get_item_count(self, obj):
+        return len(self.context.get("visible_statuses", {}).get(obj.id, []))
+
+
+class CreateStatusHighlightSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StatusHighlight
+        fields = ("title",)
+
+    def validate_title(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Enter a name for this highlight.")
+        return value
 
 from .choices import (
     StatusType,
@@ -56,6 +87,8 @@ class StatusSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    media = serializers.SerializerMethodField()
+
     views_count = serializers.SerializerMethodField()
 
     is_viewed = serializers.SerializerMethodField()
@@ -92,6 +125,13 @@ class StatusSerializer(serializers.ModelSerializer):
         if not request or request.user.id != obj.user_id:
             return None
         return obj.views.count()
+
+    def get_media(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated or not obj.media:
+            return None
+        from .media import status_media_url
+        return status_media_url(obj, request.user.pk)
 
     def get_is_viewed(self, obj):
         request = self.context.get("request")

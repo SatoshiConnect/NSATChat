@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
-import { Camera, Check, ChevronRight, ContactRound, Eye, Image as ImageIcon, Info, Mail, Pencil, Phone, Smile, Trash2, User } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Check, ChevronDown, ChevronRight, ChevronUp, ContactRound, Eye, Image as ImageIcon, Info, Mail, Pencil, Phone, Plus, Smile, Sparkles, Trash2, User, X } from "lucide-react";
 import { errorMessage } from "../../api/client";
-import { authApi } from "../../api/endpoints";
+import { authApi, statusApi } from "../../api/endpoints";
 import { scheduleRoomsReload } from "../../store/actions";
 import { dispatch, useStore } from "../../store/store";
 import { toast } from "../../services/toast";
@@ -99,6 +99,42 @@ function EditableField({ icon: Icon, label, value, maxLength, onSave, hint, pres
         ) : null}
       </div>
     </div>
+  );
+}
+
+function ProfileHighlights() {
+  const [highlights, setHighlights] = useState([]);
+  const [stories, setStories] = useState([]);
+  const [title, setTitle] = useState("");
+  const [selected, setSelected] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const reload = async () => {
+    try {
+      const [nextHighlights, nextStories] = await Promise.all([statusApi.highlights(), statusApi.mine()]);
+      setHighlights(nextHighlights);
+      setStories(nextStories);
+      setError("");
+    } catch (cause) { setError(errorMessage(cause, "Couldn't load story highlights.")); }
+  };
+  useEffect(() => { const timer = window.setTimeout(reload, 0); return () => window.clearTimeout(timer); }, []);
+  async function perform(action, fallback) {
+    setBusy(true);
+    try { await action(); await reload(); }
+    catch (cause) { toast.error(errorMessage(cause, fallback)); }
+    finally { setBusy(false); }
+  }
+  return (
+    <section className="profile-highlights" aria-labelledby="profile-highlights-title">
+      <div className="profile-highlights__heading"><div><Sparkles size={19} /><h2 id="profile-highlights-title">Story highlights</h2></div><span>{highlights.length}/20</span></div>
+      <form className="profile-highlights__create" onSubmit={(event) => { event.preventDefault(); const value = title.trim(); if (!value || busy) return; perform(async () => { await statusApi.createHighlight(value); setTitle(""); }, "Couldn't create highlight."); }}>
+        <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={40} placeholder="Name a highlight" aria-label="Highlight name" />
+        <button className="btn btn--primary" type="submit" disabled={busy || !title.trim() || highlights.length >= 20}><Plus size={16} /> Create</button>
+      </form>
+      {stories.length ? <div className="profile-highlights__add-story"><label htmlFor="highlight-story-select">Add a current story</label><select id="highlight-story-select" value={selected.highlight || ""} onChange={(event) => setSelected((value) => ({ ...value, highlight: event.target.value }))}><option value="">Choose a highlight</option>{highlights.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select><select aria-label="Choose a story" value={selected.story || ""} onChange={(event) => setSelected((value) => ({ ...value, story: event.target.value }))}><option value="">Choose your story</option>{stories.map((story) => <option key={story.id} value={story.id}>{story.content?.slice(0, 42) || `${story.status_type} · ${new Date(story.created_at).toLocaleString()}`}</option>)}</select><button type="button" className="btn" disabled={busy || !selected.highlight || !selected.story} onClick={() => perform(() => statusApi.addHighlightItem(selected.highlight, Number(selected.story)), "Couldn't add this story.")}><Plus size={16} /> Add</button></div> : null}
+      {error ? <p className="profile-highlights__empty">{error} <button type="button" onClick={reload}>Retry</button></p> : null}
+      {highlights.length ? <div className="profile-highlights__list">{highlights.map((highlight, index) => <article key={highlight.id} className="profile-highlights__card"><div className="profile-highlights__card-heading"><strong>{highlight.title}</strong><span>{highlight.item_count} stories</span><button type="button" className="icon-btn" aria-label={`Move ${highlight.title} up`} disabled={busy || index === 0} onClick={() => perform(() => statusApi.reorderHighlights(highlights.map((item, i) => i === index ? highlights[index - 1].id : i === index - 1 ? highlight.id : item.id)), "Couldn't reorder highlights.")}><ChevronUp size={16} /></button><button type="button" className="icon-btn" aria-label={`Move ${highlight.title} down`} disabled={busy || index === highlights.length - 1} onClick={() => perform(() => statusApi.reorderHighlights(highlights.map((item, i) => i === index ? highlights[index + 1].id : i === index + 1 ? highlight.id : item.id)), "Couldn't reorder highlights.")}><ChevronDown size={16} /></button><button type="button" className="icon-btn" aria-label={`Rename ${highlight.title}`} disabled={busy} onClick={() => { const next = window.prompt("Rename highlight", highlight.title); if (next?.trim()) perform(() => statusApi.updateHighlight(highlight.id, { title: next.trim() }), "Couldn't rename highlight."); }}><Pencil size={16} /></button><button type="button" className="icon-btn" aria-label={`Delete ${highlight.title}`} disabled={busy} onClick={() => { if (window.confirm(`Delete the “${highlight.title}” highlight? Stories themselves won't be deleted.`)) perform(() => statusApi.removeHighlight(highlight.id), "Couldn't delete highlight."); }}><Trash2 size={16} /></button></div>{highlight.items?.length ? <label className="profile-highlights__cover-select">Cover<select aria-label={`Cover image for ${highlight.title}`} value={highlight.cover_status_id || ""} onChange={(event) => perform(() => statusApi.updateHighlight(highlight.id, { cover_status_id: event.target.value || null }), "Couldn't update highlight cover.")}><option value="">First story</option>{highlight.items.map((story) => <option key={story.id} value={story.id}>{story.content?.slice(0, 36) || `${story.status_type} story`}</option>)}</select></label> : null}<div className="profile-highlights__story-list">{(highlight.items || []).map((story) => <div key={story.id}><span>{story.content?.slice(0, 56) || `${story.status_type} story`}</span><button type="button" aria-label="Remove story from highlight" className="icon-btn" disabled={busy} onClick={() => perform(() => statusApi.removeHighlightItem(highlight.id, story.id), "Couldn't remove story.")}><X size={15} /></button></div>)}</div></article>)}</div> : !error ? <p className="profile-highlights__empty">Save stories here to keep them on your profile after the 24-hour story expires.</p> : null}
+    </section>
   );
 }
 
@@ -220,6 +256,7 @@ export default function ProfilePanel() {
         </div>
 
         <div className="profile-section-label">Profile information</div>
+        <ProfileHighlights />
         <EditableField
           icon={User}
           label="Name"

@@ -67,6 +67,7 @@ class PrivacySettingsTests(TestCase):
             "about": "everyone", "read_receipts": True,
             "allow_id_search": True, "allow_phone_search": True,
             "allow_contact_discovery": False,
+            "social_private": False,
         })
         response = self.as_user(self.alice).patch(
             "/api/accounts/privacy/", {

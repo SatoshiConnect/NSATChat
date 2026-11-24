@@ -52,10 +52,10 @@ export function MediaSummary({ roomId, onOpen }) {
   );
 }
 
-export function InfoRow({ icon: Icon, title, subtitle, onClick, danger, trailing }) {
+export function InfoRow({ icon: Icon, title, subtitle, onClick, danger, trailing, disabled = false }) {
   const Tag = onClick ? "button" : "div";
   return (
-    <Tag type={onClick ? "button" : undefined} className={`info-action ${danger ? "is-danger" : ""}`} onClick={onClick}>
+    <Tag type={onClick ? "button" : undefined} className={`info-action ${danger ? "is-danger" : ""}`} onClick={onClick} disabled={onClick ? disabled : undefined}>
       {Icon ? <Icon size={20} /> : null}
       <span className="info-action__body">
         <span className="info-action__title">{title}</span>

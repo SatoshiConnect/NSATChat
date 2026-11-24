@@ -1,10 +1,31 @@
 from django.urls import path
-from .views import PostCommentDetailAPIView, PostCommentsAPIView, PostDetailAPIView, PostFeedAPIView, PostReportAPIView
+from .views import (
+    PostCommentDetailAPIView,
+    PostCommentsAPIView,
+    PostDetailAPIView,
+    PostFeedAPIView,
+    PostReportAPIView,
+    SocialFollowAPIView,
+    SocialFollowListAPIView,
+    SocialFollowRequestsAPIView,
+    PostSaveAPIView,
+    PostMediaAPIView,
+    SocialMuteAPIView,
+    SharePostToChatAPIView,
+)
 
 app_name = "social"
 urlpatterns = [
+    path("follow-requests/", SocialFollowRequestsAPIView.as_view(), name="follow-requests"),
+    path("users/<int:user_id>/follow/", SocialFollowAPIView.as_view(), name="user-follow"),
+    path("users/<int:user_id>/mute/", SocialMuteAPIView.as_view(), name="user-mute"),
+    path("users/<int:user_id>/<str:direction>/", SocialFollowListAPIView.as_view(), name="user-follow-list"),
     path("posts/", PostFeedAPIView.as_view(), name="post-feed"),
     path("posts/<int:pk>/", PostDetailAPIView.as_view(), name="post-detail"),
+    path("posts/<int:pk>/save/", PostSaveAPIView.as_view(), name="post-save"),
+    path("posts/<int:pk>/share/", SharePostToChatAPIView.as_view(), name="post-share"),
+    path("posts/<int:pk>/media/image/", PostMediaAPIView.as_view(), name="post-image-media"),
+    path("posts/<int:pk>/media/attachments/<int:attachment_id>/", PostMediaAPIView.as_view(), name="post-attachment-media"),
     path("posts/<int:pk>/comments/", PostCommentsAPIView.as_view(), name="post-comments"),
     path("posts/<int:post_pk>/comments/<int:comment_pk>/", PostCommentDetailAPIView.as_view(), name="post-comment-detail"),
     path("posts/<int:pk>/report/", PostReportAPIView.as_view(), name="post-report"),

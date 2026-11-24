@@ -125,6 +125,10 @@ class Profile(models.Model):
         default=False,
         help_text="Let verified accounts find this user through Google Contacts sync.",
     )
+    social_private = models.BooleanField(
+        default=False,
+        help_text="Require approval before new people can follow and view social posts.",
+    )
     ONLINE_EVERYONE = "everyone"
     ONLINE_SAME_AS_LAST_SEEN = "same_as_last_seen"
     ONLINE_CHOICES = (

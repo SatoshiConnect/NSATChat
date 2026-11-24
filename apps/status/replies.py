@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.accounts.models import Contact
+from apps.social.models import SocialMute
 from apps.chat.choices import RoomType
 from apps.chat.models import Participant
 
@@ -19,10 +20,8 @@ from .policies import can_view_status
 def status_snapshot(status_obj):
     media_url = ""
     if status_obj.media:
-        try:
-            media_url = status_obj.media.url
-        except (ValueError, AttributeError):
-            media_url = ""
+        from .media import status_media_url
+        media_url = status_media_url(status_obj, status_obj.user_id)
     return {
         "status_id": status_obj.id,
         "status_type": status_obj.status_type,
@@ -36,6 +35,8 @@ def status_snapshot(status_obj):
 
 
 def viewer_can_see(status_obj, user):
+    if SocialMute.objects.filter(muter=user, muted_id=status_obj.user_id).exists():
+        return False
     contact_ids = set(Contact.objects.filter(owner=user).values_list("contact_user_id", flat=True))
     contact_ids.update(
         Participant.objects.filter(

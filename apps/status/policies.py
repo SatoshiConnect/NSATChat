@@ -6,7 +6,7 @@ from apps.accounts.models import Contact
 from .choices import StatusVisibility
 
 
-def can_view_status(status_obj, user, contact_ids, saved_me_ids=None, chat_partner_ids=None):
+def can_view_status(status_obj, user, contact_ids, saved_me_ids=None, chat_partner_ids=None, allow_expired=False):
     """Return whether ``user`` may view a status under its privacy rules.
 
     Callers supply the viewer's known contacts and may provide a precomputed
@@ -17,7 +17,7 @@ def can_view_status(status_obj, user, contact_ids, saved_me_ids=None, chat_partn
     if status_obj.user_id == user.id:
         return False
 
-    if status_obj.is_deleted or status_obj.expires_at <= timezone.now():
+    if status_obj.is_deleted or (not allow_expired and status_obj.expires_at <= timezone.now()):
         return False
 
     visibility = status_obj.visibility

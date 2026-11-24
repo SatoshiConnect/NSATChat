@@ -613,6 +613,33 @@ button.status-composer__privacy:hover {
 .social-post__report-form > div { display: flex; justify-content: flex-end; gap: 8px; }
 .social-post__text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .social-post__image { display: block; width: 100%; max-height: 600px; object-fit: contain; border-radius: 12px; background: var(--input-bg); }
+.social-post__media { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; overflow: hidden; border-radius: 12px; }
+.social-post__reaction-picker { display: flex; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; gap: 4px; }
+.social-post__hashtags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.social-post__hashtags button { padding: 0; border: 0; background: transparent; color: var(--link); cursor: pointer; }
+.social-post__reaction-picker button { display: inline-flex; align-items: center; gap: 3px; padding: 5px 7px; border: 0; border-radius: 999px; background: transparent; cursor: pointer; font-size: 17px; }
+.social-post__reaction-picker button.is-liked { background: var(--accent-soft); }
+.social-post__reaction-picker small { color: var(--muted); font-size: 11px; }
+.social-post__media .social-post__image { width: 100%; height: min(48vw, 320px); max-height: 320px; border-radius: 0; }
+.social-post__media--1 { grid-template-columns: minmax(0, 1fr); }
+.social-post__media--1 .social-post__image { height: auto; max-height: 600px; }
+.social-compose__files { display: grid; gap: 2px; }
+.social-share-overlay { position: fixed; inset: 0; z-index: var(--z-modal, 60); display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 45%); }
+.social-share-dialog { display: flex; flex-direction: column; width: min(100%, 440px); max-height: min(80dvh, 620px); overflow: hidden; border: 1px solid var(--divider); border-radius: 18px; background: var(--panel-bg); box-shadow: 0 16px 48px rgb(0 0 0 / 24%); }
+.social-share-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--divider); }
+.social-share-dialog h3 { margin: 0; }
+.social-share-dialog > header button { display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 50%; background: transparent; color: var(--text); }
+.social-share-dialog > div { overflow: auto; padding: 8px; }
+.social-share-dialog__room { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text); text-align: start; }
+.social-share-dialog__room:hover { background: var(--hover-bg); }
+.social-share-dialog__room span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-share-dialog > p { margin: 0; padding: 12px 16px; color: var(--muted); font-size: var(--fs-sm); }
+.chat-shared-post { display: grid; gap: 8px; min-width: min(260px, 72vw); max-width: min(360px, 76vw); padding: 10px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-raised); }
+.chat-shared-post p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.chat-shared-post img, .chat-shared-post video { display: block; width: 100%; max-height: 220px; border-radius: 8px; object-fit: cover; }
+.chat-shared-post button { display: inline-flex; align-items: center; gap: 6px; justify-self: start; border: 0; background: transparent; color: var(--accent); }
+.chat-shared-post--loading { display: flex; align-items: center; color: var(--muted); }
+.chat-shared-post--unavailable { color: var(--muted); }
 .social-post__counts { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 10px 2px; }
 .social-post__actions { display: flex; gap: 14px; border-top: 1px solid var(--divider); border-bottom: 1px solid var(--divider); padding: 9px 2px; color: var(--muted); }
 .social-post__actions button, .social-post__actions span { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: 1; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
@@ -634,4 +661,14 @@ button.status-composer__privacy:hover {
 .social-post__comment-form button:disabled { opacity: .5; }
 .social-feed__error { padding: 20px; color: var(--danger, #d43); text-align: center; }
 .social-feed__more { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin: 14px 0 0; padding: 12px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-bg); color: var(--accent); cursor: pointer; }
+.social-feed__tabs { display: flex; gap: 8px; margin: 0 0 14px; border-bottom: 1px solid var(--divider); }
+.social-feed__tabs button { padding: 10px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.social-feed__tabs button.is-active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.social-follow-requests { margin: 0 0 14px; padding: 12px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-bg); }
+.social-follow-requests h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: var(--fs-sm); }
+.social-follow-requests h3 span { margin-left: auto; color: var(--muted); }
+.social-follow-requests__row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 0; }
+.social-follow-requests__row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.social-follow-requests__row button { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--divider); border-radius: 50%; background: transparent; color: var(--accent); cursor: pointer; }
+.social-follow-requests__row button:last-child { color: var(--muted); }
 @media (max-width: 520px) { .social-feed { padding: 16px 12px 28px; } .social-compose, .social-post { border-radius: 12px; padding: 12px; } .social-compose footer { flex-wrap: wrap; } .social-compose footer select { max-width: 48%; } }
