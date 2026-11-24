@@ -11,10 +11,14 @@ const PURCHASE_ERRORS = {
   wallet_not_linked: "Connect your NSAT wallet in the Wallet tab before buying.",
   creator_wallet_unavailable: "This creator has not connected an NSAT wallet yet.",
   already_owned: "You already own this item.",
-  order_already_open: "You already have an open order for this item. Continue it from My library.",
+  order_already_open: "You already have an open order for this item. Continue it from the banner at the top of Explore.",
   cannot_buy_own_item: "This is your own listing.",
   marketplace_payments_unavailable: "Marketplace payments are paused right now.",
+  item_not_for_sale: "This listing has no sale price, so there is nothing to pay.",
+  item_unavailable: "This listing is no longer for sale.",
+  marketplace_misconfigured: "Checkout is paused while the marketplace is being configured.",
 };
+const OPEN_ORDER_STATES = ["awaiting_payment", "partially_paid"];
 const LABELS = { all: "Explore", gift: "Gifts", sticker_pack: "Stickers", profile_frame: "Frames", badge: "Badges", theme: "Themes", avatar: "Avatar", pixel_world: "Pixel World" };
 
 export default function MarketplacePanel() {
@@ -30,24 +34,33 @@ export default function MarketplacePanel() {
   const [creators, setCreators] = useState([]);
   const [giftHistory, setGiftHistory] = useState({ received: [], sent: [] });
   const [busy, setBusy] = useState(true);
+  const [nextCursor, setNextCursor] = useState("");
+  const [loadingMore, setLoadingMore] = useState(false);
   const [acting, setActing] = useState(null);
   const [submissionKind, setSubmissionKind] = useState("gift");
   const purchaseKeys = useRef(new Map());
+  const openOrder = orders.find((order) => OPEN_ORDER_STATES.includes(order.state));
   const giftRows = [
     ...(giftHistory.received || []).map((gift) => ({ ...gift, direction: "Received" })),
     ...(giftHistory.sent || []).map((gift) => ({ ...gift, direction: "Sent" })),
   ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+  const catalogParams = useCallback(
+    () => ({ ...(kind !== "all" ? { kind } : {}), ...(query.trim() ? { q: query.trim() } : {}) }),
+    [kind, query],
+  );
+
   const refresh = useCallback(async () => {
     try {
-      const [catalog, inventory, history, entitlements, orderHistory] = await Promise.all([
-        marketplaceApi.catalog({ ...(kind !== "all" ? { kind } : {}), ...(query.trim() ? { q: query.trim() } : {}) }),
+      const [page, inventory, history, entitlements, orderHistory] = await Promise.all([
+        marketplaceApi.catalogPage(catalogParams()),
         marketplaceApi.inventory(),
         marketplaceApi.purchases(),
         marketplaceApi.entitlements(),
         marketplaceApi.orders(),
       ]);
-      setRows(catalog);
+      setRows(page.items);
+      setNextCursor(page.nextCursor);
       setOrders(orderHistory);
       setLibrary([
         ...entitlements.map((entry) => ({ id: `entitlement-${entry.id}`, item: entry.item, acquired_at: entry.acquired_at, on_chain: true })),
@@ -62,22 +75,23 @@ export default function MarketplacePanel() {
     } finally {
       setBusy(false);
     }
-  }, [kind, query, tab]);
+  }, [catalogParams, tab]);
 
   useEffect(() => {
     let active = true;
     Promise.all([
-      marketplaceApi.catalog({ ...(kind !== "all" ? { kind } : {}), ...(query.trim() ? { q: query.trim() } : {}) }),
+      marketplaceApi.catalogPage(catalogParams()),
       marketplaceApi.inventory(),
       marketplaceApi.purchases(),
       marketplaceApi.entitlements(),
       marketplaceApi.orders(),
-    ]).then(async ([catalog, inventory, history, entitlements, orderHistory]) => {
+    ]).then(async ([page, inventory, history, entitlements, orderHistory]) => {
       const creatorData = tab === "creator" ? await marketplaceApi.creatorDashboard() : null;
       const creatorRows = tab === "creators" ? await marketplaceApi.creators() : null;
       const gifts = tab === "creator" ? await marketplaceApi.gifts() : null;
       if (!active) return;
-      setRows(catalog);
+      setRows(page.items);
+      setNextCursor(page.nextCursor);
       setLibrary([
         ...entitlements.map((entry) => ({ id: `entitlement-${entry.id}`, item: entry.item, acquired_at: entry.acquired_at, on_chain: true })),
         ...inventory,
@@ -93,7 +107,26 @@ export default function MarketplacePanel() {
       if (active) setBusy(false);
     });
     return () => { active = false; };
-  }, [kind, query, tab]);
+  }, [catalogParams, tab]);
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await marketplaceApi.catalogPage({ ...catalogParams(), cursor: nextCursor });
+      // Cursor pages never overlap, but a listing can be edited between two
+      // requests; keep the newest copy of each row once.
+      setRows((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        return [...current, ...page.items.filter((item) => !seen.has(item.id))];
+      });
+      setNextCursor(page.nextCursor);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     // A confirmed payment may arrive while checkout is closed; the inbox
@@ -127,6 +160,9 @@ export default function MarketplacePanel() {
     } catch (error) {
       const code = error?.response?.data?.code;
       toast.error(PURCHASE_ERRORS[code] || errorMessage(error));
+      // An order that is already open is payable from the pinned banner, so
+      // reload the order list instead of leaving the buyer to hunt for it.
+      if (code === "order_already_open") await refresh();
     } finally {
       setActing(null);
     }
@@ -198,6 +234,13 @@ export default function MarketplacePanel() {
         </div>
 
         {tab === "catalog" ? <>
+          {openOrder ? <div className="marketplace__open-order" role="status">
+            <div>
+              <strong>You have an open order for {openOrder.item.title}</strong>
+              <span>{Number(openOrder.total_due_nsat).toLocaleString()} NSAT · {openOrder.state === "partially_paid" ? "partly paid" : "waiting for payment"}</span>
+            </div>
+            <button type="button" onClick={() => app.openWallet({ orderId: openOrder.id })}>Continue payment</button>
+          </div> : null}
           <label className="marketplace__search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search items" aria-label="Search marketplace items" /></label>
           <div className="marketplace__categories">{CATEGORIES.map((value) => <button type="button" key={value} className={kind === value ? "is-active" : ""} onClick={() => setKind(value)}>{LABELS[value]}</button>)}</div>
           {busy ? <div className="marketplace__loading"><Spinner /></div> : rows.length ? <div className="marketplace__grid">{rows.map((item) => (
@@ -206,6 +249,7 @@ export default function MarketplacePanel() {
               <div className="market-item__body"><span className="market-item__kind">{LABELS[item.kind] || item.kind}</span><h2>{item.title}</h2><p>{item.description}</p><small>By {item.creator_name}</small><div className="market-item__foot"><strong>{item.price_label}</strong><button type="button" disabled={acting === item.id || item.purchase_mode === "closed" || item.purchase_mode === "owned"} onClick={() => purchase(item)}>{acting === item.id ? "Working…" : item.purchase_mode === "nsat" ? "Buy with NSAT" : item.purchase_mode === "simulation" ? "Try simulation" : item.purchase_mode === "owned" ? "In library" : "Not for sale"}</button></div><details className="market-item__report"><summary>Report item</summary><form onSubmit={(event) => reportItem(event, item)}><select name="reason" defaultValue="copyright"><option value="copyright">Copyright</option><option value="unsafe">Unsafe</option><option value="spam">Spam</option><option value="other">Other</option></select><input name="details" maxLength="1000" placeholder="Details (optional)" /><button type="submit">Send report</button></form></details></div>
             </article>
           ))}</div> : <EmptyState icon={Store} text="No approved items yet" />}
+          {!busy && nextCursor ? <div className="marketplace__more"><button type="button" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "Loading…" : "Load more"}</button></div> : null}
         </> : null}
 
         {tab === "creators" ? (busy ? <div className="marketplace__loading"><Spinner /></div> : creators.length ? <div className="marketplace__creator-directory">{creators.map((creator) => <article key={creator.user_id}><span className="marketplace__creator-avatar">{creator.display_name.slice(0, 1).toUpperCase()}</span><div><h2>{creator.display_name}</h2><p>{creator.bio}</p><div className="marketplace__creator-items">{creator.approved_items.map((item) => <span key={item.id}>{item.title}</span>)}</div></div></article>)}</div> : <EmptyState icon={Sparkles} text="Creator collections will appear here after items are approved." />) : null}
@@ -222,7 +266,7 @@ export default function MarketplacePanel() {
             <label>Type<select name="kind" value={submissionKind} onChange={(event) => setSubmissionKind(event.target.value)} required>{CATEGORIES.filter((value) => value !== "all").map((value) => <option value={value} key={value}>{LABELS[value]}</option>)}</select></label>
             <label>Title<input name="title" maxLength="100" required /></label>
             <label>Description<textarea name="description" maxLength="1000" rows="3" /></label>
-            <label>Proposed price (NSAT)<input name="price" type="number" min="0" max="1000000000" defaultValue="0" required /><small>Charged in NSAT from your wallet when a buyer checks out.</small></label>
+            <label>Proposed price (NSAT)<input name="price" type="number" min="0" max="1000000000" defaultValue="0" required /><small>1–1,000,000,000 NSAT, charged when a buyer checks out. Leave 0 to publish without a sale price: the item shows as “Not for sale” and cannot be ordered.</small></label>
             <label>Usage rights<input name="rights" maxLength="500" placeholder="Personal in-app use" /></label>
             <label>Preview image<input name="preview" type="file" accept="image/jpeg,image/png,image/webp,image/gif" /></label>
             {submissionKind === "sticker_pack" ? <label>Sticker images<input name="assets" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple required /><small>Upload 1–30 images, up to 2 MB each. Pack content is reviewed before it appears in chat.</small></label> : null}

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Check, Copy, RefreshCw, ShieldCheck } from "lucide-react";
 import { errorMessage } from "../../api/client";
 import { marketplaceApi } from "../../api/endpoints";
 import { toast } from "../../services/toast";
 import { unlockEncryptedWallet } from "./keystore";
 import { walletApi } from "./api";
 import { NSAT_BASE_FEE_POLICY, buildSignedPayment, paymentPreflight } from "./transaction";
+import { formatNsat, transferRequirement, transferShortfall } from "./checkoutMath";
 
 const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const ROLE_LABEL = { creator: "Creator share", platform: "Platform fee" };
@@ -91,6 +92,15 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     }
   };
 
+  const copyAddress = async (address) => {
+    try {
+      await navigator.clipboard.writeText(address);
+      toast.success("Payee address copied.");
+    } catch {
+      toast.error("Could not copy the address. Select it instead.");
+    }
+  };
+
   const pay = async (event) => {
     if (event?.preventDefault) event.preventDefault();
     if (!order) return;
@@ -103,12 +113,38 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     }
     setBusy(true);
     let latest = order;
+    // Filled from the live Mainnet account before each signature, so a balance
+    // refusal can state the exact deficit instead of a generic failure.
+    let shortfall = 0n;
+    let requirement = 0n;
+    let available = "0";
+    let payingLabel = "";
     try {
       for (const payment of order.payments || []) {
         if (payment.state === "confirmed") continue;
         if (!ADDRESS_RE.test(payment.payee_address)) throw new Error("invalid_payee");
-        setStage(`Signing ${ROLE_LABEL[payment.role] || payment.role}…`);
+        payingLabel = ROLE_LABEL[payment.role] || payment.role;
+        setStage(`Signing ${payingLabel}…`);
         const facts = await walletApi.preflight(order.buyer_address, payment.payee_address);
+        available = facts.balance;
+        try {
+          requirement = transferRequirement({
+            amount: payment.amount_nsat,
+            fee: facts.fee,
+            reserve: facts.base_reserve,
+          });
+          shortfall = transferShortfall({
+            amount: payment.amount_nsat,
+            balance: facts.balance,
+            fee: facts.fee,
+            reserve: facts.base_reserve,
+          });
+        } catch {
+          // Malformed account facts are paymentPreflight's call to refuse; the
+          // pre-sign arithmetic must never block it with a different error.
+          requirement = 0n;
+          shortfall = 0n;
+        }
         const preflight = paymentPreflight({
           sourceAddress: order.buyer_address,
           destinationAddress: payment.payee_address,
@@ -162,7 +198,15 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         payment_failed: "The network rejected the payment. Nothing was delivered.",
         wallet_address_mismatch: "This device holds a different wallet than your account.",
       };
-      setError(messages[code] || errorMessage(failure));
+      if (code === "insufficient_balance_or_reserve" && shortfall > 0n) {
+        setError(
+          `This wallet holds ${formatNsat(available)} NSAT. The ${payingLabel || "payment"} transfer needs `
+          + `${formatNsat(requirement)} NSAT (amount + ${NETWORK_FEE_NSAT} NSAT network fee + the account reserve), `
+          + `so it is ${formatNsat(shortfall)} NSAT short. Add NSAT and try again.`,
+        );
+      } else {
+        setError(messages[code] || errorMessage(failure));
+      }
     } finally {
       setBusy(false);
       setStage("");
@@ -197,9 +241,16 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
 
           <div className="wallet-checkout__card">
             {(order.payments || []).map((payment) => (
-              <div className="wallet-checkout__row" key={payment.role}>
-                <span>{ROLE_LABEL[payment.role] || payment.role}</span>
-                <strong>{amountLabel(payment.amount_nsat)} NSAT · {payment.state}</strong>
+              <div className="wallet-checkout__payment" key={payment.role}>
+                <div className="wallet-checkout__row">
+                  <span>{ROLE_LABEL[payment.role] || payment.role}</span>
+                  <strong>{amountLabel(payment.amount_nsat)} NSAT · {payment.state}</strong>
+                </div>
+                <div className="wallet-checkout__payee">
+                  <code title={payment.payee_address}>{payment.payee_address}</code>
+                  <button type="button" onClick={() => copyAddress(payment.payee_address)} aria-label={`Copy ${ROLE_LABEL[payment.role] || payment.role} address`}><Copy size={13} /></button>
+                </div>
+                {payment.tx_hash ? <small className="wallet-checkout__hash">Transaction {payment.tx_hash.slice(0, 16)}…</small> : null}
               </div>
             ))}
             <div className="wallet-checkout__row"><span>Status</span><strong>{order.state.replace("_", " ")}</strong></div>

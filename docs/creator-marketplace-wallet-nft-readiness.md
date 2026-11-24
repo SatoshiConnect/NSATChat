@@ -31,6 +31,36 @@ Paid inventory is separate from the legacy demo: `MarketplaceOrder`, `OrderPayme
 - Paid access is independent of the listing's sale state. Disabling a listing stops new sales but buyers keep what they bought; access ends only through the audited `services.revoke_entitlement` (the “Revoke selected entitlements” admin action), which records the reason, writes an audit event, and notifies the buyer. A mistaken revocation is undone with the matching `services.restore_entitlement` admin action; both events stay in the audit trail and the buyer is notified. Legacy simulated grants still require an approved listing.
 - `CreatorSale` outlives the buyer account: deleting a buyer removes their orders and entitlements, but the creator's sales history keeps the amounts, the on-chain hash, an `order_reference`, and a non-reversible `buyer_reference` for reconciliation.
 
+## Catalog paging and listing prices
+
+The catalog is the screen every buyer sees first, so it is bounded and cheap to
+revisit on a phone:
+
+- `GET /api/marketplace/items/` pages by **cursor**, not offset (48 rows, up to
+  96 with `page_size`), newest first. A listing approved between two requests
+  cannot make a shopper see one row twice or skip one; the client keeps the
+  cursor and appends the next page from the “Load more” button.
+- Every response carries a viewer-specific `ETag` with `Cache-Control: private,
+  max-age=30` and `Vary: Authorization`. The tag covers the catalog rows, the
+  newest `updated_at`, how many creators have a wallet connected, and this
+  viewer’s entitlements (including revocations), so paying for an item or losing
+  access always changes the page instead of serving a stale “for sale” card. A
+  matching `If-None-Match` returns `304` without serialising the page.
+- A sale price is **1 to 1,000,000,000 NSAT**, enforced in the submit serializer
+  and again in `DigitalItem.clean()` because admin edits bypass the serializer.
+  One listing settles as exactly one transfer, so a larger price is not what a
+  buyer would approve in their wallet.
+- **0 means “Not for sale”, never “Free”.** A zero transfer is not a payment; a
+  free item would confirm nothing and could not be reconciled. Such a listing is
+  shown as “Not for sale”, reports `purchase_mode: "closed"`, and ordering it
+  fails closed with `409 item_not_for_sale` instead of creating an unpayable
+  order.
+- Checkout lists the exact payee address and amount of every transfer with a
+  copy button, and a signature that would exceed the balance is refused before
+  signing with the exact deficit in NSAT (amount + network fee + reserve), all in
+  integer arithmetic. No QR code or payment URI is generated: NSAT publishes no
+  URI/deep-link standard, and inventing one would be an unproven flow.
+
 ## Reconciliation (chain vs ledger)
 
 Checkout and `settle_marketplace_orders` move a payment forward while someone is
@@ -129,7 +159,17 @@ python manage.py test apps.marketplace apps.wallet_integration
 CI runs the same suite against its PostgreSQL service, where the threaded test
 asserts exactly one `200` and one `409 payment_already_used`.
 
-If a fee is introduced later, `MARKETPLACE_PLATFORM_FEE_BPS` and `MARKETPLACE_TREASURY_ADDRESS` must be set together; a fee without a treasury intentionally blocks all sales rather than guessing a destination. Buyers can reopen an unpaid order from My library, and creators see confirmed sales totals in Creator studio.
+Latest local run on this branch: `apps.marketplace` — **69 tests, OK** with 2
+skipped on SQLite (the two threaded transfer races, which need PostgreSQL), plus
+`node --test src/features/wallet/checkoutMath.test.js` (4 tests), ESLint on the
+changed frontend files and `npm run build`. These tests exercise the Django API,
+ledger and client arithmetic only: **no transfer has been broadcast to NSAT
+Mainnet and the gateway/indexer were exercised through mocks**, so the live
+payment path, confirmation polling and reconciliation against real chain data
+remain unverified until a staging payment is run with real keys and a funded
+account.
+
+If a fee is introduced later, `MARKETPLACE_PLATFORM_FEE_BPS` and `MARKETPLACE_TREASURY_ADDRESS` must be set together; a fee without a treasury intentionally blocks all sales rather than guessing a destination. Buyers can reopen an unpaid order from the pinned banner in Explore or from My library, and creators see confirmed sales totals in Creator studio.
 
 ## NFT / on-chain item status
 

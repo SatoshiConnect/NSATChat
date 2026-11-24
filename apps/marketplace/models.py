@@ -5,6 +5,12 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+# A paid listing settles as exactly one NSAT transfer, so its price must be
+# positive and small enough to fit the signed envelope. 0 is reserved for
+# "not for sale": the catalog shows it as closed and no order can be opened.
+MIN_SALE_PRICE_NSAT = 1
+MAX_SALE_PRICE_NSAT = 1_000_000_000
+
 
 class DigitalItem(models.Model):
     class Kind(models.TextChoices):
@@ -43,6 +49,18 @@ class DigitalItem(models.Model):
         super().clean()
         if self.preview and self.preview.size > 5 * 1024 * 1024:
             raise ValidationError({"preview": "Preview must be 5 MB or smaller."})
+        # Admin edits bypass the API serializer, so the settleable range is
+        # enforced on the model too. A price outside it would create an order
+        # that can never be paid.
+        if self.proposed_price_nsat and not (
+            MIN_SALE_PRICE_NSAT <= self.proposed_price_nsat <= MAX_SALE_PRICE_NSAT
+        ):
+            raise ValidationError({
+                "proposed_price_nsat": (
+                    f"A sale price must be between {MIN_SALE_PRICE_NSAT:,} and "
+                    f"{MAX_SALE_PRICE_NSAT:,} NSAT."
+                )
+            })
 
     def __str__(self):
         return self.title

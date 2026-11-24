@@ -2,6 +2,8 @@ from rest_framework import serializers
 
 from . import services
 from .models import (
+    MAX_SALE_PRICE_NSAT,
+    MIN_SALE_PRICE_NSAT,
     CreatorProfile,
     DigitalItem,
     DigitalItemAsset,
@@ -55,7 +57,9 @@ class DigitalItemSerializer(serializers.ModelSerializer):
             return "SatoshiCore creator"
 
     def get_price_label(self, obj):
-        return "Free" if not obj.proposed_price_nsat else f"{obj.proposed_price_nsat:,} NSAT"
+        # 0 means the listing has no sale price yet, not that it is free: a free
+        # item would settle as a zero transfer, which the chain cannot carry.
+        return "Not for sale" if not obj.proposed_price_nsat else f"{obj.proposed_price_nsat:,} NSAT"
 
     def get_sticker_count(self, obj):
         return obj.assets.count() if obj.kind == DigitalItem.Kind.STICKER_PACK else 0
@@ -100,8 +104,10 @@ class SubmitItemSerializer(serializers.ModelSerializer):
         return value
 
     def validate_proposed_price_nsat(self, value):
-        if value > 1_000_000_000:
-            raise serializers.ValidationError("The proposed price cannot exceed 1,000,000,000 NSAT.")
+        if value and not (MIN_SALE_PRICE_NSAT <= value <= MAX_SALE_PRICE_NSAT):
+            raise serializers.ValidationError(
+                f"The proposed price must be between {MIN_SALE_PRICE_NSAT:,} and {MAX_SALE_PRICE_NSAT:,} NSAT."
+            )
         return value
 
     def validate_preview(self, value):

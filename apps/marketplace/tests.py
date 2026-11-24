@@ -8,6 +8,7 @@ from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.db import connection
@@ -25,6 +26,7 @@ from apps.wallet_integration.views import _encode_wallet_address
 from . import services
 from . import reconciliation
 from .models import (
+    MAX_SALE_PRICE_NSAT,
     CreatorNotification,
     CreatorProfile,
     CreatorSale,
@@ -74,15 +76,102 @@ class MarketplaceAPITests(APITestCase):
     def test_pending_items_are_not_public(self):
         pending = DigitalItem.objects.create(creator=self.creator, kind=DigitalItem.Kind.BADGE, title="Hidden", state=DigitalItem.State.PENDING)
         response = self.client.get(reverse("marketplace:catalog"))
-        returned_ids = {row["id"] for row in response.data}
+        returned_ids = {row["id"] for row in response.data["results"]}
         self.assertIn(self.item.pk, returned_ids)
         self.assertNotIn(pending.pk, returned_ids)
 
     def test_catalog_uses_marketplace_creator_profile_name(self):
         CreatorProfile.objects.create(user=self.creator, display_name="Studio Name")
         response = self.client.get(reverse("marketplace:catalog"))
-        row = next(item for item in response.data if item["id"] == self.item.pk)
+        row = next(item for item in response.data["results"] if item["id"] == self.item.pk)
         self.assertEqual(row["creator_name"], "Studio Name")
+
+    def test_catalog_returns_bounded_pages_with_a_next_cursor(self):
+        for index in range(60):
+            DigitalItem.objects.create(
+                creator=self.creator,
+                kind=DigitalItem.Kind.BADGE,
+                title=f"Filler {index}",
+                proposed_price_nsat=10,
+                state=DigitalItem.State.APPROVED,
+            )
+        # Seeded catalogs ship with their own approved listings, so the bound
+        # is asserted on the page size, not on a hand-counted total.
+        approved = DigitalItem.objects.filter(state=DigitalItem.State.APPROVED).count()
+        self.assertGreater(approved, 48)
+        response = self.client.get(reverse("marketplace:catalog"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 48)
+        self.assertIsNone(response.data["previous"])
+        self.assertIsNotNone(response.data["next"])
+        first_ids = {row["id"] for row in response.data["results"]}
+        # The cursor must continue where the first page stopped, so the whole
+        # catalog is covered exactly once even while listings are added.
+        second = self.client.get(response.data["next"])
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        second_ids = {row["id"] for row in second.data["results"]}
+        self.assertEqual(len(first_ids | second_ids), approved)
+        self.assertFalse(first_ids & second_ids)
+        smaller = self.client.get(reverse("marketplace:catalog"), {"page_size": 5})
+        self.assertEqual(len(smaller.data["results"]), 5)
+
+    def test_catalog_etag_tracks_ownership_of_this_viewer(self):
+        url = reverse("marketplace:catalog")
+        first = self.client.get(url)
+        order = MarketplaceOrder.objects.create(
+            buyer=self.buyer,
+            item=self.item,
+            idempotency_key=uuid.uuid4(),
+            unit_amount_nsat=250,
+            platform_fee_bps=0,
+            platform_fee_nsat=0,
+            creator_proceeds_nsat=250,
+            network="NSAT Mainnet ; October 2026 ; bc3098829fffc717",
+            expires_at=timezone.now() + timedelta(seconds=900),
+        )
+        MarketplaceEntitlement.objects.create(owner=self.buyer, item=self.item, order=order)
+        second = self.client.get(url, HTTP_IF_NONE_MATCH=first["ETag"])
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertNotEqual(second["ETag"], first["ETag"])
+        row = next(entry for entry in second.data["results"] if entry["id"] == self.item.pk)
+        self.assertEqual(row["purchase_mode"], "owned")
+
+    def test_a_listing_without_a_price_is_labelled_not_for_sale(self):
+        DigitalItem.objects.filter(pk=self.item.pk).update(proposed_price_nsat=0)
+        response = self.client.get(reverse("marketplace:catalog"))
+        row = next(entry for entry in response.data["results"] if entry["id"] == self.item.pk)
+        self.assertEqual(row["price_label"], "Not for sale")
+        self.assertEqual(row["purchase_mode"], "closed")
+
+    def test_catalog_etag_allows_a_cheap_not_modified_reply(self):
+        url = reverse("marketplace:catalog")
+        first = self.client.get(url)
+        self.assertTrue(first["ETag"])
+        self.assertEqual(first["Cache-Control"], "private, max-age=30")
+        second = self.client.get(url, HTTP_IF_NONE_MATCH=first["ETag"])
+        self.assertEqual(second.status_code, status.HTTP_304_NOT_MODIFIED)
+        DigitalItem.objects.create(
+            creator=self.creator,
+            kind=DigitalItem.Kind.BADGE,
+            title="Fresh badge",
+            proposed_price_nsat=10,
+            state=DigitalItem.State.APPROVED,
+        )
+        changed = self.client.get(url, HTTP_IF_NONE_MATCH=first["ETag"])
+        self.assertEqual(changed.status_code, status.HTTP_200_OK)
+        self.assertNotEqual(changed["ETag"], first["ETag"])
+
+    def test_listing_price_must_fit_a_single_transfer(self):
+        item = DigitalItem(
+            creator=self.creator,
+            kind=DigitalItem.Kind.BADGE,
+            title="Too dear",
+            proposed_price_nsat=MAX_SALE_PRICE_NSAT + 1,
+        )
+        with self.assertRaises(ValidationError):
+            item.full_clean()
+        item.proposed_price_nsat = MAX_SALE_PRICE_NSAT
+        item.full_clean()
 
     def test_purchase_is_simulated_idempotent_and_grants_user_owned_inventory(self):
         key = str(uuid.uuid4())
@@ -294,6 +383,19 @@ class OrderSettlementTests(APITestCase):
         with self.assertRaises(services.MarketplaceError):
             services.split_amounts(0, 0)
 
+    def test_listing_without_a_settleable_price_cannot_be_ordered(self):
+        self.item.proposed_price_nsat = 0
+        self.item.save(update_fields=["proposed_price_nsat"])
+        response = self._create_order()
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "item_not_for_sale")
+        DigitalItem.objects.filter(pk=self.item.pk).update(
+            proposed_price_nsat=MAX_SALE_PRICE_NSAT + 1
+        )
+        self.item.refresh_from_db()
+        self.assertEqual(self._create_order().data["code"], "item_not_for_sale")
+        self.assertEqual(MarketplaceOrder.objects.filter(buyer=self.buyer).count(), 0)
+
     def test_signed_envelope_is_recorded_with_its_on_chain_hash(self):
         order = self._create_order().data
         url = reverse("marketplace:order-payment", args=(order["id"], "creator"))
@@ -392,7 +494,7 @@ class OrderSettlementTests(APITestCase):
         response = self._create_order()
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.data["code"], "already_owned")
-        row = next(entry for entry in self.client.get(reverse("marketplace:catalog")).data if entry["id"] == self.item.pk)
+        row = next(entry for entry in self.client.get(reverse("marketplace:catalog")).data["results"] if entry["id"] == self.item.pk)
         self.assertEqual(row["purchase_mode"], "owned")
 
     def test_a_duplicate_order_for_an_owned_item_cannot_take_money(self):
@@ -843,7 +945,7 @@ class PublishItemCommandTests(APITestCase):
         WalletLink.objects.create(user=buyer, address=VALID_SOURCE)
         self.client.force_authenticate(buyer)
         catalog = self.client.get(reverse("marketplace:catalog"))
-        row = next(entry for entry in catalog.data if entry["id"] == item.pk)
+        row = next(entry for entry in catalog.data["results"] if entry["id"] == item.pk)
         self.assertEqual(row["purchase_mode"], "nsat")
         self.assertEqual(row["price_label"], "250 NSAT")
 

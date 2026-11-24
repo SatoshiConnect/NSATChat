@@ -173,3 +173,11 @@
 .wallet-checkout__hint svg { flex: none; margin-top: 1px; color: var(--accent); }
 .wallet-checkout .wallet-native__key-form h2 { font-size: 16px; }
 .wallet-checkout__disclosure { margin: 0; padding: 11px 13px; border: 1px solid var(--divider-strong); border-radius: 10px; background: var(--panel-bg); color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+
+/* One signed transfer per block, with the exact payee the buyer is paying. */
+.wallet-checkout__payment { display: grid; gap: 6px; padding: 11px 0; border-top: 1px solid var(--divider); }
+.wallet-checkout__payment:first-child { padding-top: 0; border-top: 0; }
+.wallet-checkout__payee { display: flex; align-items: center; gap: 8px; }
+.wallet-checkout__payee code { flex: 1; min-width: 0; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.wallet-checkout__payee button { display: inline-grid; flex: none; width: 26px; height: 26px; border: 1px solid var(--divider-strong); border-radius: 8px; background: transparent; color: var(--text-strong); cursor: pointer; place-items: center; }
+.wallet-checkout__hash { color: var(--text-muted); font-size: 11px; }

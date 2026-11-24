@@ -215,8 +215,25 @@ export const socialApi = {
   removeComment: (postId, commentId) => api.delete(`social/posts/${postId}/comments/${commentId}/`),
 };
 
+/** The catalog pages by cursor, so only the cursor is reused, never a row offset. */
+function cursorFrom(next) {
+  if (!next) return "";
+  try {
+    const base = globalThis.location?.origin || "http://localhost";
+    return new URL(next, base).searchParams.get("cursor") || "";
+  } catch {
+    return "";
+  }
+}
+
 export const marketplaceApi = {
-  catalog: (params = {}) => api.get("marketplace/items/", { params }).then((r) => asList(r.data)),
+  /** One bounded page of the catalog plus the cursor for the next one. */
+  catalogPage: (params = {}) =>
+    api.get("marketplace/items/", { params }).then((r) => ({
+      items: asList(r.data),
+      nextCursor: cursorFrom(r.data?.next),
+    })),
+  catalog: (params = {}) => marketplaceApi.catalogPage(params).then((page) => page.items),
   inventory: () => api.get("marketplace/inventory/").then((r) => asList(r.data)),
   stickerPacks: () => api.get("marketplace/stickers/mine/").then((r) => asList(r.data)),
   purchases: () => api.get("marketplace/purchases/").then((r) => asList(r.data)),

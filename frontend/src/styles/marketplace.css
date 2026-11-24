@@ -83,3 +83,12 @@
 .marketplace__sales-totals span { color: var(--text-muted); font-size: 12px; }
 .marketplace__purchase-history button { padding: 8px 12px; border: 1px solid var(--divider-strong); border-radius: 10px; background: transparent; color: var(--text-strong); font: inherit; font-size: 12px; cursor: pointer; }
 .marketplace__purchase-history button:hover { background: var(--hover-bg); }
+
+/* Pinned open order: a buyer who leaves checkout keeps one tap to resume. */
+.marketplace__open-order { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--divider)); border-radius: 14px; background: color-mix(in srgb, var(--accent) 10%, var(--panel-raised)); }
+.marketplace__open-order strong { display: block; color: var(--text-strong); font-size: 14px; }
+.marketplace__open-order span { color: var(--text-muted); font-size: 12px; }
+.marketplace__open-order button { flex: none; min-height: 36px; padding: 0 13px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.marketplace__more { display: flex; justify-content: center; margin-top: 18px; }
+.marketplace__more button { min-height: 40px; padding: 0 18px; border: 1px solid var(--divider-strong); border-radius: 12px; background: var(--panel-raised); color: var(--text-strong); font: inherit; font-size: 13px; cursor: pointer; }
+.marketplace__more button:disabled { opacity: .6; cursor: wait; }

@@ -31,6 +31,8 @@ from apps.wallet_integration.views import (
 )
 
 from .models import (
+    MAX_SALE_PRICE_NSAT,
+    MIN_SALE_PRICE_NSAT,
     CreatorNotification,
     CreatorSale,
     DigitalItem,
@@ -168,6 +170,12 @@ def create_order(*, buyer, item, idempotency_key):
         # Paying twice for the same item must never be possible.
         raise MarketplaceError("already_owned", status=409)
     unit_amount = int(item.proposed_price_nsat)
+    if not MIN_SALE_PRICE_NSAT <= unit_amount <= MAX_SALE_PRICE_NSAT:
+        # A listing without a settleable price cannot become an order: a zero
+        # amount is not a transfer, and an oversized one is not what the human
+        # approved in their wallet. The catalog already shows it as closed, so
+        # the API answers with the same meaning instead of a generic refusal.
+        raise MarketplaceError("item_not_for_sale", status=409)
     bps = platform_fee_bps()
     platform_fee, creator_proceeds = split_amounts(unit_amount, bps)
     treasury = treasury_address()

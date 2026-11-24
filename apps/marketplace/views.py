@@ -1,11 +1,14 @@
+import hashlib
 import uuid
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Max, Q, Sum
 from django.db.models.functions import Coalesce
+from django.http import HttpResponseNotModified
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import CursorPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -40,9 +43,76 @@ from .serializers import (
 )
 
 
+class CatalogCursorPagination(CursorPagination):
+    """Newest-first pages that stay correct while creators publish.
+
+    Cursor paging carries the position instead of a row offset, so an item
+    approved between two requests cannot make a shopper see one row twice or
+    skip one. A fixed page size also bounds the response a slow phone downloads.
+    """
+
+    page_size = 48
+    page_size_query_param = "page_size"
+    max_page_size = 96
+    ordering = ("-created_at", "-pk")
+
+
 class CatalogAPIView(generics.ListAPIView):
     permission_classes = (permissions.IsAuthenticated,)
     serializer_class = DigitalItemSerializer
+    pagination_class = CatalogCursorPagination
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        etag = self._etag(queryset)
+        if request.headers.get("If-None-Match") == etag:
+            response = HttpResponseNotModified()
+        else:
+            serializer = self.get_serializer(self.paginate_queryset(queryset), many=True)
+            response = self.get_paginated_response(serializer.data)
+        response["ETag"] = etag
+        # The body carries this viewer's ownership flags, so it must never be
+        # stored by a shared cache. A short private window removes most repeat
+        # reads while still refreshing an item the buyer just paid for.
+        response["Cache-Control"] = "private, max-age=30"
+        response["Vary"] = "Authorization"
+        return response
+
+    def _etag(self, queryset):
+        """Cheap validator for everything this viewer's catalog depends on.
+
+        The body carries per-viewer ownership flags and a listing turns from
+        payable to closed when its creator connects a wallet, so counting the
+        catalog rows alone is not enough: a buyer who just paid, or whose
+        access was revoked, must never be handed a cached page that still says
+        the item is for sale. Both aggregates are indexed one-row-per-item
+        lookups, far cheaper than serialising a page.
+        """
+        catalog = queryset.aggregate(
+            rows=Count("pk", distinct=True),
+            newest=Max("updated_at"),
+            sellers_with_wallet=Count("creator__nsat_wallet_link", distinct=True),
+        )
+        owned = MarketplaceEntitlement.objects.filter(owner=self.request.user).aggregate(
+            rows=Count("pk"),
+            newest=Max("acquired_at"),
+            revoked=Max("revoked_at"),
+        )
+
+        def stamp(value):
+            return value.isoformat() if value else "0"
+
+        parts = [
+            str(self.request.user.pk),
+            str(catalog["rows"]),
+            stamp(catalog["newest"]),
+            str(catalog["sellers_with_wallet"]),
+            str(owned["rows"]),
+            stamp(owned["newest"]),
+            stamp(owned["revoked"]),
+            self.request.get_full_path(),
+        ]
+        return f'"{hashlib.sha256(":".join(parts).encode("utf-8")).hexdigest()[:32]}"'
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
