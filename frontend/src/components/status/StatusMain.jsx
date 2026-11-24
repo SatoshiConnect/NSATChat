@@ -210,7 +210,10 @@ export default function StatusMain() {
     if (!scrollToNewestRef.current || !posts.length) return;
     scrollToNewestRef.current = false;
     const list = feedListRef.current;
-    const scroller = list?.closest(".status-mobile-posts, .panel__scroll");
+    // On phones, StatusPanel owns the scroll via .panel__scroll; the
+    // .status-mobile-posts wrapper is only a layout container. On desktop,
+    // MainLayout gives the Status main pane its own scroll area.
+    const scroller = list?.closest(".panel__scroll") || list?.closest(".main--status");
     if (!list || !scroller) return;
     const top = list.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
     scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });

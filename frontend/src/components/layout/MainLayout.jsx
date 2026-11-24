@@ -297,7 +297,7 @@ export default function MainLayout({ onLogout }) {
               </div>
             </aside>
           ) : null}
-          <main className={`main ${showWallet ? "main--wallet" : ""}`}>
+          <main className={`main ${showWallet ? "main--wallet" : ""} ${section === "status" && !compact ? "main--status" : ""}`}>
             {compact && (showWallet || showMarketplace) ? <MobileSectionSwitcher type="commerce" section={showMarketplace ? "marketplace" : "wallet"} onChange={setSection} /> : null}
             <Suspense fallback={fallback}>{main}</Suspense>
           </main>

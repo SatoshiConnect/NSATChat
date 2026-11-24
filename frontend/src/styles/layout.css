@@ -133,6 +133,11 @@
   background: var(--chat-bg);
 }
 
+.main--status {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
 /* ---------------------------------------------------------------- drawer */
 .drawer {
   width: var(--drawer-width);

@@ -135,7 +135,7 @@ export default function StatusPanel() {
             </button>
             <button type="button" className="row__body status-row__body" onClick={() => (myGroup ? openGroup([myGroup], 0) : fileRef.current?.click())}>
               <span className="row__title">My status</span>
-              <span className="row__subtitle">{myGroup ? `${mine.length} update${mine.length > 1 ? "s" : ""} · ${detailTime(mine[0]?.created_at)}` : "Click to add status update"}</span>
+              <span className="row__subtitle">{myGroup ? `${mine.length} update${mine.length > 1 ? "s" : ""} · ${detailTime(myGroup.statuses.at(-1)?.created_at)}` : "Click to add status update"}</span>
             </button>
           </div>
         </div>
