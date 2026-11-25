@@ -287,7 +287,7 @@ export default function MainLayout({ onLogout }) {
   // Phones show one pane: a panel opened from inside a chat (e.g. "Add to
   // contacts") brings the side pane forward; closing it returns to the chat.
   const panelOnTop = Boolean(top && top.name !== "archived");
-  const mobileShowsMain = compact && (showChat || section === "ai" || section === "aiChat") && !panelOnTop;
+  const mobileShowsMain = compact && (showChat || section === "ai" || section === "aiChat" || section === "today") && !panelOnTop;
 
   return (
     <AppContext.Provider value={app}>
