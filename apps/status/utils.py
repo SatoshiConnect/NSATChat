@@ -6,6 +6,7 @@ from channels.layers import get_channel_layer
 from apps.accounts.models import Contact
 from apps.chat.choices import RoomType
 from apps.chat.models import Participant
+from apps.social.models import SocialFollow
 
 
 def status_contact_ids(user):
@@ -26,6 +27,20 @@ def status_contact_ids(user):
         .values_list("user_id", flat=True)
     )
     ids.discard(user.pk)
+    return ids - _blocked(user.pk)
+
+
+def status_viewer_ids(user):
+    """Relationships allowed to see EVERYONE statuses, including accepted follows.
+
+    Keep this separate from ``status_contact_ids``: contact selectors and privacy
+    rules still use actual contacts, while accepted followers only widen the
+    explicitly public-to-followers (EVERYONE) audience.
+    """
+    ids = status_contact_ids(user)
+    ids.update(SocialFollow.objects.filter(
+        follower=user, status=SocialFollow.ACCEPTED,
+    ).values_list("following_id", flat=True))
     return ids - _blocked(user.pk)
 
 
@@ -59,6 +74,10 @@ def _send(user_id, payload):
 def notify_status_feed_changed(owner, action="posted", everyone=False):
     """Nudge the owner's audience (and the owner's own tabs) to refresh statuses."""
     recipients = status_audience_ids(owner)
+    if everyone:
+        recipients.update(SocialFollow.objects.filter(
+            following=owner, status=SocialFollow.ACCEPTED,
+        ).values_list("follower_id", flat=True))
     recipients.add(owner.pk)
     payload = {"type": "inbox.status_changed", "user_id": owner.pk, "action": action}
     for user_id in recipients:

@@ -2,7 +2,7 @@ import os
 import re
 
 from django.core import signing
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 from apps.accounts.serializers import UserSerializer
@@ -82,11 +82,13 @@ class PostSerializer(serializers.ModelSerializer):
     image = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
     hashtags = serializers.SerializerMethodField()
+    author_following = serializers.SerializerMethodField()
+    author_follow_request_pending = serializers.SerializerMethodField()
     uploads = serializers.ListField(child=serializers.FileField(), write_only=True, required=False, max_length=9)
 
     class Meta:
         model = Post
-        fields = ("id", "author", "text", "image", "attachments", "hashtags", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "my_reaction", "reactions", "comments")
+        fields = ("id", "author", "text", "image", "attachments", "hashtags", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "my_reaction", "reactions", "comments", "author_following", "author_follow_request_pending")
         read_only_fields = ("id", "author", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "comments")
 
     def get_is_liked(self, obj):
@@ -114,6 +116,24 @@ class PostSerializer(serializers.ModelSerializer):
     def get_reactions(self, obj):
         counts = obj.likes.values("reaction").annotate(count=Count("id"))
         return {row["reaction"]: row["count"] for row in counts}
+
+    def get_author_following(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated or obj.author_id == request.user.id:
+            return False
+        if hasattr(obj, "_author_following"):
+            return obj._author_following
+        from .models import SocialFollow
+        return SocialFollow.objects.filter(follower=request.user, following_id=obj.author_id, status=SocialFollow.ACCEPTED).exists()
+
+    def get_author_follow_request_pending(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated or obj.author_id == request.user.id:
+            return False
+        if hasattr(obj, "_author_follow_request_pending"):
+            return obj._author_follow_request_pending
+        from .models import SocialFollow
+        return SocialFollow.objects.filter(follower=request.user, following_id=obj.author_id, status=SocialFollow.PENDING).exists()
 
     def _media_url(self, obj, attachment=None):
         request = self.context.get("request")

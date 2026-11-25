@@ -207,6 +207,8 @@ class PostFeedAPIView(generics.ListCreateAPIView):
     def get_queryset(self):
         liked = PostLike.objects.filter(post_id=OuterRef("pk"), user=self.request.user)
         saved = PostSave.objects.filter(post_id=OuterRef("pk"), user=self.request.user)
+        following = SocialFollow.objects.filter(follower=self.request.user, following_id=OuterRef("author_id"), status=SocialFollow.ACCEPTED)
+        follow_pending = SocialFollow.objects.filter(follower=self.request.user, following_id=OuterRef("author_id"), status=SocialFollow.PENDING)
         queryset = visible_posts_for(self.request.user)
         if self.request.query_params.get("scope") == "following":
             following_ids = SocialFollow.objects.filter(follower=self.request.user, status=SocialFollow.ACCEPTED).values("following_id")
@@ -219,7 +221,7 @@ class PostFeedAPIView(generics.ListCreateAPIView):
                 return queryset.none()
             queryset = queryset.filter(text__icontains=f"#{hashtag}")
         return queryset.select_related("author", "author__profile").annotate(
-            likes_count=Count("likes", distinct=True), comments_count=Count("comments", filter=Q(comments__deleted_at__isnull=True), distinct=True), _is_liked=Exists(liked), _is_saved=Exists(saved)
+            likes_count=Count("likes", distinct=True), comments_count=Count("comments", filter=Q(comments__deleted_at__isnull=True), distinct=True), _is_liked=Exists(liked), _is_saved=Exists(saved), _author_following=Exists(following), _author_follow_request_pending=Exists(follow_pending)
         ).order_by("-created_at", "-id")
 
     def perform_create(self, serializer):

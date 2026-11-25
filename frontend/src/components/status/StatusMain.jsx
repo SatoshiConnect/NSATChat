@@ -109,8 +109,27 @@ function PostCard({ post, me, onChange, onHashtag }) {
   const [reportBusy, setReportBusy] = useState(false);
   const [saved, setSaved] = useState(Boolean(post.is_saved));
   const [saving, setSaving] = useState(false);
+  const [followState, setFollowState] = useState({ following: Boolean(post.author_following), pending: Boolean(post.author_follow_request_pending) });
+  const [followBusy, setFollowBusy] = useState(false);
   const author = post.author?.profile?.display_name || post.author?.public_id || "SatoshiCore member";
   const comments = (post.comments || []).filter((item) => item.text);
+  const toggleFollow = async () => {
+    if (followBusy) return;
+    setFollowBusy(true);
+    try {
+      if (followState.following || followState.pending) {
+        await socialApi.unfollow(post.author.id);
+        setFollowState({ following: false, pending: false });
+        toast.success("Follow removed.");
+      } else {
+        const result = await socialApi.follow(post.author.id);
+        setFollowState({ following: Boolean(result.following), pending: Boolean(result.request_pending) });
+        toast.success(result.request_pending ? "Follow request sent." : "Following this account.");
+      }
+      await onChange();
+    } catch (error) { toast.error(errorMessage(error, "Couldn't update this follow.")); }
+    finally { setFollowBusy(false); }
+  };
   const submitComment = async (event) => {
     event.preventDefault();
     const text = comment.trim();
@@ -146,7 +165,7 @@ function PostCard({ post, me, onChange, onHashtag }) {
       <header className="social-post__author">
         <PresenceAvatar user={post.author} src={post.author?.profile?.profile_picture} name={author} size={42} />
         <div><strong>{author}</strong><span>{detailTime(post.created_at)} · {post.visibility === "EVERYONE" ? "Public" : post.visibility === "FOLLOWERS" ? "Followers" : "Contacts"}</span></div>
-        {Number(post.author?.id) === Number(me?.id) ? <><button type="button" className="social-post__delete" aria-label="Edit post" onClick={async () => { const text = window.prompt("Edit your post", post.text); if (text === null) return; try { await socialApi.updatePost(post.id, { text }); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't edit post.")); } }}><Pencil size={16} /></button><button type="button" className="social-post__delete" aria-label="Delete post" onClick={async () => { if (!window.confirm("Delete this post?")) return; try { await socialApi.removePost(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't delete post.")); } }}><Trash2 size={17} /></button></> : <button type="button" className="social-post__report-toggle" onClick={() => setReportOpen((open) => !open)} aria-expanded={reportOpen}><Flag size={16} /> Report</button>}
+        {Number(post.author?.id) === Number(me?.id) ? <><button type="button" className="social-post__delete" aria-label="Edit post" onClick={async () => { const text = window.prompt("Edit your post", post.text); if (text === null) return; try { await socialApi.updatePost(post.id, { text }); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't edit post.")); } }}><Pencil size={16} /></button><button type="button" className="social-post__delete" aria-label="Delete post" onClick={async () => { if (!window.confirm("Delete this post?")) return; try { await socialApi.removePost(post.id); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't delete post.")); } }}><Trash2 size={17} /></button></> : <><button type="button" className={`social-post__follow${followState.following ? " is-following" : ""}`} onClick={toggleFollow} disabled={followBusy} aria-label={followState.following ? `Unfollow ${author}` : followState.pending ? `Cancel follow request to ${author}` : `Follow ${author}`}>{followBusy ? <Spinner size={14} /> : <>{followState.following ? <Check size={15} /> : <UserPlus size={15} />} {followState.following ? "Following" : followState.pending ? "Requested" : "Follow"}</>}</button><button type="button" className="social-post__report-toggle" onClick={() => setReportOpen((open) => !open)} aria-expanded={reportOpen}><Flag size={16} /> Report</button></>}
       </header>
       {post.text ? <p className="social-post__text">{post.text}</p> : null}
       {post.hashtags?.length ? <div className="social-post__hashtags">{post.hashtags.map((tag) => <button type="button" key={tag} onClick={() => onHashtag(tag)}>#{tag}</button>)}</div> : null}
@@ -294,7 +313,7 @@ export default function StatusMain({ storiesSlot = null }) {
     finally { setShareBusy(false); }
   };
 
-  const feedHeading = <header className="social-feed__heading"><div><h2>Posts</h2><p>Updates from people you know. Stories disappear after 24 hours.</p></div></header>;
+  const feedHeading = <header className="social-feed__heading"><div><h2>Posts</h2><p>Share updates and follow posts and public statuses from people.</p></div></header>;
   const feedTabs = <nav className="social-feed__tabs" aria-label="Post feed"><button type="button" className={scope === "all" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("all"); }}>All posts</button><button type="button" className={scope === "following" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("following"); }}>Following</button><button type="button" className={scope === "saved" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("saved"); }}>Saved</button>{hashtagFilter ? <button type="button" className="is-active" onClick={() => setHashtagFilter("")}>#{hashtagFilter} <X size={14} /></button> : null}</nav>;
 
   return (

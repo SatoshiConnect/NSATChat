@@ -839,7 +839,10 @@ button.status-composer__privacy:hover {
 .social-post__author strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .social-post__author span { color: var(--muted); font-size: 12px; }
 .social-post__delete { margin-left: auto; padding: 8px; }
-.social-post__report-toggle { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 8px; font: inherit; font-size: var(--fs-sm); }
+.social-post__report-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: var(--fs-sm); }
+.social-post__follow { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex: 0 0 auto; margin-left: auto; padding: 7px 10px; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent-soft); color: var(--accent); cursor: pointer; font: inherit; font-size: var(--fs-xs); font-weight: 650; white-space: nowrap; }
+.social-post__follow.is-following { border-color: var(--divider); background: transparent; color: var(--text-secondary); }
+.social-post__follow:disabled { opacity: .65; cursor: wait; }
 .social-post__report-form { display: grid; gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid var(--divider); border-radius: 12px; background: var(--input-bg); }
 .social-post__report-form label { display: grid; gap: 5px; color: var(--muted); font-size: var(--fs-sm); }
 .social-post__report-form select, .social-post__report-form textarea { width: 100%; min-width: 0; border: 1px solid var(--divider); border-radius: 9px; padding: 9px 11px; background: var(--panel-bg); color: var(--text); font: inherit; }

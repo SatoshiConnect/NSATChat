@@ -8,13 +8,11 @@ which the chat shows as a "Name · Status" card above it, like WhatsApp.
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from apps.accounts.models import Contact
 from apps.social.models import SocialMute
-from apps.chat.choices import RoomType
-from apps.chat.models import Participant
 
 from .models import Status
 from .policies import can_view_status
+from .utils import status_viewer_ids
 
 
 def status_snapshot(status_obj):
@@ -37,17 +35,7 @@ def status_snapshot(status_obj):
 def viewer_can_see(status_obj, user):
     if SocialMute.objects.filter(muter=user, muted_id=status_obj.user_id).exists():
         return False
-    contact_ids = set(Contact.objects.filter(owner=user).values_list("contact_user_id", flat=True))
-    contact_ids.update(
-        Participant.objects.filter(
-            room__room_type=RoomType.PRIVATE,
-            room__is_active=True,
-            room__participants__user=user,
-        )
-        .exclude(user=user)
-        .values_list("user_id", flat=True)
-    )
-    return can_view_status(status_obj, user, contact_ids)
+    return can_view_status(status_obj, user, status_viewer_ids(user))
 
 
 def status_ref_for(request, room):

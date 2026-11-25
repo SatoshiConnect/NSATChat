@@ -41,8 +41,9 @@ from .models import (
     StatusHighlightItem,
     StatusReport,
 )
+from .choices import StatusVisibility
 
-from .utils import status_contact_ids, notify_status_feed_changed, notify_status_viewed, notify_status_mentioned
+from .utils import status_contact_ids, status_viewer_ids, notify_status_feed_changed, notify_status_viewed, notify_status_mentioned
 from .serializers import (
     StatusSerializer,
     UploadStatusSerializer,
@@ -58,11 +59,7 @@ from .serializers import (
 
 
 def _highlight_viewer_context(request):
-    contact_ids = set(Contact.objects.filter(owner=request.user).values_list("contact_user_id", flat=True))
-    contact_ids |= set(Participant.objects.filter(
-        room__room_type=RoomType.PRIVATE, room__is_active=True,
-        room__participants__user=request.user,
-    ).exclude(user=request.user).values_list("user_id", flat=True))
+    contact_ids = status_viewer_ids(request.user)
     saved_me_ids = set(Contact.objects.filter(contact_user=request.user).values_list("owner_id", flat=True))
     from apps.chat.utils import blocked_user_ids
     muted_ids = set(SocialMute.objects.filter(muter=request.user).values_list("muted_id", flat=True))
@@ -196,11 +193,7 @@ class StatusMediaAPIView(APIView):
         if viewer.id == story.user_id:
             allowed = active or highlighted
         else:
-            contact_ids = set(Contact.objects.filter(owner=viewer).values_list("contact_user_id", flat=True))
-            contact_ids |= set(Participant.objects.filter(
-                room__room_type=RoomType.PRIVATE, room__is_active=True,
-                room__participants__user=viewer,
-            ).exclude(user=viewer).values_list("user_id", flat=True))
+            contact_ids = status_viewer_ids(viewer)
             from apps.chat.utils import blocked_user_ids
             blocked = blocked_user_ids(viewer.id) | set(SocialMute.objects.filter(muter=viewer).values_list("muted_id", flat=True))
             allowed = story.user_id not in blocked and (active or highlighted) and can_view_status(
@@ -303,7 +296,8 @@ class UploadStatusAPIView(APIView):
             serializer.is_valid(raise_exception=True)
             mention_ids = serializer.validated_data.get("mentions", [])
             status_obj = serializer.save()
-            transaction.on_commit(lambda: notify_status_feed_changed(request.user, "posted"))
+            is_public = status_obj.visibility == StatusVisibility.EVERYONE
+            transaction.on_commit(lambda: notify_status_feed_changed(request.user, "posted", everyone=is_public))
             if mention_ids:
                 transaction.on_commit(lambda: notify_status_mentioned(status_obj, mention_ids))
 
@@ -343,7 +337,7 @@ class ReportStatusAPIView(APIView):
         blocked = blocked_user_ids(request.user.id)
         if story.user_id in blocked or SocialMute.objects.filter(muter=request.user, muted_id=story.user_id).exists():
             raise Http404
-        contact_ids = status_contact_ids(request.user)
+        contact_ids = status_viewer_ids(request.user)
         if not can_view_status(story, request.user, contact_ids):
             raise Http404
 
@@ -369,7 +363,7 @@ class EditStatusAPIView(APIView):
         serializer = UpdateStatusContentSerializer(story, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        notify_status_feed_changed(request.user, "updated")
+        notify_status_feed_changed(request.user, "updated", everyone=story.visibility == StatusVisibility.EVERYONE)
         return Response(StatusSerializer(story, context={"request": request}).data)
 
 
@@ -380,7 +374,7 @@ class ShareStatusToChatAPIView(APIView):
     @extend_schema(summary="Share a status to a chat", request=None, responses={201: OpenApiResponse(description="Status shared."), 403: OpenApiResponse(description="Chat audience cannot view this status.")}, tags=["Status"])
     def post(self, request, pk):
         story = get_object_or_404(Status.objects.select_related("user"), pk=pk, is_deleted=False, expires_at__gt=timezone.now())
-        if story.user_id != request.user.id and not can_view_status(story, request.user, status_contact_ids(request.user)):
+        if story.user_id != request.user.id and not can_view_status(story, request.user, status_viewer_ids(request.user)):
             raise Http404
         try:
             room_id = int(request.data.get("room_id"))
@@ -414,7 +408,7 @@ class ShareStatusToChatAPIView(APIView):
                     return Response({"detail": "Everyone in this chat must be able to view the status."}, status=status.HTTP_403_FORBIDDEN)
                 if SocialMute.objects.filter(muter=recipient, muted=story.user).exists():
                     return Response({"detail": "Everyone in this chat must be able to view the status."}, status=status.HTTP_403_FORBIDDEN)
-                if not can_view_status(story, recipient, status_contact_ids(recipient)):
+                if not can_view_status(story, recipient, status_viewer_ids(recipient)):
                     return Response({"detail": "Everyone in this chat must be able to view the status."}, status=status.HTTP_403_FORBIDDEN)
 
         from .replies import status_snapshot
@@ -500,9 +494,7 @@ class ContactsStatusAPIView(APIView):
 
     def get(self, request):
         
-        contact_ids = set(
-            Contact.objects.filter(owner=request.user).values_list("contact_user_id", flat=True)
-        )
+        contact_ids = status_viewer_ids(request.user)
         chat_partner_ids = set(Participant.objects.filter(
             room__room_type=RoomType.PRIVATE,
             room__is_active=True,
@@ -606,7 +598,7 @@ class ViewStatusAPIView(APIView):
         if SocialMute.objects.filter(muter=request.user, muted_id=status_obj.user_id).exists():
             return Response({"detail": "You muted this account's updates."}, status=status.HTTP_404_NOT_FOUND)
 
-        contact_ids = status_contact_ids(request.user)
+        contact_ids = status_viewer_ids(request.user)
 
         if not ContactsStatusAPIView().can_view_status(
             status_obj,
@@ -654,14 +646,7 @@ class StatusReactionAPIView(APIView):
         if SocialMute.objects.filter(muter=request.user, muted_id=status_obj.user_id).exists():
             return Response({"detail": "You muted this account's updates."}, status=status.HTTP_404_NOT_FOUND)
 
-        contact_ids = set(Contact.objects.filter(owner=request.user).values_list("contact_user_id", flat=True))
-        contact_ids.update(
-            Participant.objects.filter(
-                room__room_type=RoomType.PRIVATE,
-                room__is_active=True,
-                room__participants__user=request.user,
-            ).exclude(user=request.user).values_list("user_id", flat=True)
-        )
+        contact_ids = status_viewer_ids(request.user)
         if not ContactsStatusAPIView().can_view_status(status_obj, request.user, contact_ids):
             return Response({"detail": "You cannot react to this status."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -776,7 +761,7 @@ class DeleteStatusAPIView(APIView):
         status_obj.is_deleted = True
         media = status_obj.media
         status_obj.save(update_fields=["is_deleted"])
-        notify_status_feed_changed(request.user, "deleted")
+        notify_status_feed_changed(request.user, "deleted", everyone=status_obj.visibility == StatusVisibility.EVERYONE)
         if media:
             transaction.on_commit(lambda: media.delete(save=False))
 
