@@ -637,19 +637,14 @@ class SearchMessagesAPIView(APIView):
             )
 
 
-        messages = (
+        messages = with_message_relations(
             Message.objects.filter(
                 room=room,
                 is_deleted=False,
             )
-            .select_related(
-                "sender__profile",
-                "reply_to__sender",
-            )
-            .prefetch_related(
-                "attachments",
-                "reply_to__attachments",
-            )
+        )
+        messages = (
+            messages
             .exclude(
                 deleted_for_users__user=request.user,
             )
@@ -2804,7 +2799,7 @@ class GlobalMessageSearchAPIView(APIView):
                 ).exclude(content__startswith="__MHTALK_"),
                 request.user,
             )
-            .select_related("sender", "sender__profile")
+            .select_related("room", "room__open_community", "sender", "sender__profile")
             .distinct()
             .order_by("-created_at")[:50]
         )
