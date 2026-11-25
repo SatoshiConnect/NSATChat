@@ -931,4 +931,5 @@ button.status-composer__privacy:hover {
   .status-mobile-posts .social-compose__row textarea { min-height: 54px; }
   .social-compose footer { flex-wrap: wrap; gap: 8px; padding-top: 9px; }
   .social-compose footer select { max-width: 48%; }
+  .social-compose footer .social-compose__audience-select { width: 104px; max-width: 104px; flex: 0 1 104px; padding: 7px 5px; }
 }
