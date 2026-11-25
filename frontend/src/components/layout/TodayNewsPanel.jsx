@@ -6,7 +6,7 @@ import { useApp } from "./AppContext";
 const formatNewsTime = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }).format(date);
 };
 
 /** Editorial/news destination. Member posts and Stories live in Social. */
@@ -32,11 +32,13 @@ export default function TodayNewsPanel() {
 
   useEffect(() => {
     let active = true;
-    fetchFeed()
+    const refresh = () => fetchFeed()
       .then((result) => { if (active) setFeed(result); })
       .catch(() => { if (active) setError("Today’s news could not be reached. Check your connection and try again."); })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    refresh();
+    const interval = window.setInterval(refresh, 5 * 60 * 1000);
+    return () => { active = false; window.clearInterval(interval); };
   }, [fetchFeed]);
 
   return (
@@ -54,7 +56,7 @@ export default function TodayNewsPanel() {
 
       <div className="today-news__feed">
         <div className="today-news__feed-heading">
-          <div><h2>Latest</h2><span>{feed?.date ? new Date(`${feed.date}T00:00:00`).toLocaleDateString() : "Today"}</span></div>
+          <div><h2>Latest</h2><span>{feed?.date ? new Date(`${feed.date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: "Asia/Bangkok" }) : "Today"}</span></div>
           {feed?.source ? <small>Source: {feed.source}</small> : null}
         </div>
         {feed?.stale ? <p className="today-news__notice">Showing the last saved update. It could not be refreshed just now.</p> : null}

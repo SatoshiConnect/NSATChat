@@ -8,9 +8,10 @@ The phone bottom bar uses six distinct destinations:
    calls remain available in conversations; there is no separate Calls tab.
 3. **OpenChat** — discover and join public communities, plus manage community
    join requests. Existing private groups remain private and are not listed.
-4. **Today** — editorial news and current affairs from the official
-   Thailand.go.th RSS feed. Headlines link to their publisher and are cached
-   briefly; member-created posts never appear here.
+4. **Today** — editorial news and current affairs from Thailand.go.th's
+   official news, topics and events RSS feeds. Headlines link to their
+   publisher, are cached briefly, and are filtered by the Bangkok calendar
+   date; member-created posts never appear here.
 5. **Social** — member Stories and persistent social posts.
 6. **Wallet** — Wallet and Marketplace through the section switcher.
 
@@ -27,7 +28,7 @@ Implementation points:
   Today, Social and Wallet sections.
 - `frontend/src/components/layout/TodayNewsPanel.jsx` renders the separate
   editorial news destination.
-- `apps/news/views.py` fetches the fixed official RSS source, limits and parses
+- `apps/news/views.py` fetches fixed official RSS sources, limits and parses
   feed data, caches it, and serves only today's headlines in Bangkok time.
 - `frontend/src/components/layout/MobileChatsPanel.jsx` provides the mobile
   Chats / Friends switcher.

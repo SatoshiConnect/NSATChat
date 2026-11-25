@@ -8,6 +8,7 @@ import re
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
+from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -29,6 +30,11 @@ FRESH_TTL_SECONDS = 300
 STALE_TTL_SECONDS = 86400
 MAX_FEED_BYTES = 1_500_000
 MAX_ITEMS = 60
+BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
+
+
+def _today_bangkok():
+    return timezone.now().astimezone(BANGKOK_TZ).date()
 
 
 class _TextOnly(HTMLParser):
@@ -103,14 +109,14 @@ def _fetch_feed(feed):
 
     root = ET.fromstring(payload)
     entries = [node for node in root.iter() if _local_name(node.tag) in ("item", "entry")]
-    today = timezone.localdate()
+    today = _today_bangkok()
     items = []
     seen = set()
     for entry in entries:
         title = _plain_text(_child_text(entry, "title"), 240)
         link = _safe_article_link(_child_text(entry, "link", "guid"))
         published = _published_at(entry)
-        if not title or not link or not published or timezone.localtime(published).date() != today:
+        if not title or not link or not published or published.astimezone(BANGKOK_TZ).date() != today:
             continue
         if link in seen:
             continue
@@ -144,7 +150,7 @@ def _fetch_today_items():
         raise URLError("All configured Today news feeds are unavailable")
     unique = {item["url"]: item for item in items}
     items = sorted(unique.values(), key=lambda item: item["published_at"], reverse=True)[:MAX_ITEMS]
-    today = timezone.localdate()
+    today = _today_bangkok()
     return {"items": items, "source": FEED_LABEL, "fetched_at": timezone.now().isoformat(), "date": today.isoformat()}
 
 
