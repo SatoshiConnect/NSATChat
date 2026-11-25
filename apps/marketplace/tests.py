@@ -470,7 +470,9 @@ class OrderSettlementTests(APITestCase):
         with patch("apps.marketplace.services.submit_signed_envelope", return_value="PENDING"), \
                 patch("apps.marketplace.services.confirmation_for_hash", return_value=pending):
             response = self.client.post(url, {"envelope_xdr": SIGNED_PAYMENT_VECTOR}, format="json")
-        self.assertEqual(response.data["state"], "partially_paid")
+        self.assertEqual(response.data["state"], "awaiting_payment")
+        self.assertEqual(response.data["payments"][0]["state"], "pending")
+        self.assertTrue(response.data["payments"][0]["tx_hash"])
         self.assertFalse(MarketplaceEntitlement.objects.exists())
         self.assertEqual(self.client.get(reverse("marketplace:owned-stickers")).data, [])
 

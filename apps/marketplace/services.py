@@ -407,9 +407,6 @@ def record_order_payment(*, order, role, envelope):
             payment.tx_hash = verified_hash
             payment.submitted_at = submitted_at
             payment.save(update_fields=["tx_hash", "submitted_at"])
-            if locked.state == MarketplaceOrder.State.AWAITING_PAYMENT:
-                locked.state = MarketplaceOrder.State.PARTIALLY_PAID
-                locked.save(update_fields=["state"])
             MarketplaceAuditEvent.objects.create(
                 actor=locked.buyer,
                 item=locked.item,

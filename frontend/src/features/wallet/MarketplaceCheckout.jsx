@@ -40,10 +40,15 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     ? JSON.stringify([
       order.buyer_address,
       (order.payments || [])
-        .filter((payment) => payment.state !== "confirmed")
+        .filter((payment) => payment.state !== "confirmed" && !payment.tx_hash)
         .map(({ role, amount_nsat, payee_address }) => [role, amount_nsat, payee_address]),
     ])
     : "";
+
+  const pendingPayments = (order?.payments || []).filter((payment) => payment.state !== "confirmed");
+  const awaitingPayments = pendingPayments.filter((payment) => Boolean(payment.tx_hash));
+  const payablePayments = pendingPayments.filter((payment) => !payment.tx_hash);
+  const confirmedPayments = (order?.payments || []).filter((payment) => payment.state === "confirmed");
 
   const load = async () => {
     try {
@@ -76,11 +81,29 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
   }, [orderId]);
 
   useEffect(() => {
-    if (!order || order.state !== "partially_paid") return undefined;
-    const timer = window.setInterval(() => { load(); }, 8_000);
-    return () => window.clearInterval(timer);
+    if (!order || !awaitingPayments.length || order.state === "paid") return undefined;
+    let active = true;
+    let timer;
+    const poll = async () => {
+      try {
+        const fresh = await marketplaceApi.order(orderId);
+        if (!active) return;
+        setOrder(fresh);
+        if (fresh.state !== "paid" && !["failed", "expired"].includes(fresh.state)
+          && (fresh.payments || []).some((payment) => payment.tx_hash && payment.state !== "confirmed")) {
+          timer = window.setTimeout(poll, 3_000);
+        }
+      } catch {
+        if (active) timer = window.setTimeout(poll, 5_000);
+      }
+    };
+    timer = window.setTimeout(poll, 1_500);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.state, orderId]);
+  }, [order?.state, awaitingPayments.length, orderId]);
 
   useEffect(() => {
     if (!order || !recipientCheckKey || order.state === "paid" || ["expired", "failed"].includes(order.state)) return undefined;
@@ -164,7 +187,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     let payingLabel = "";
     try {
       for (const payment of order.payments || []) {
-        if (payment.state === "confirmed") continue;
+        if (payment.state === "confirmed" || payment.tx_hash) continue;
         if (!ADDRESS_RE.test(payment.payee_address)) throw new Error("invalid_payee");
         payingLabel = ROLE_LABEL[payment.role] || payment.role;
         setStage(`Signing ${payingLabel}…`);
@@ -217,23 +240,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         onDone?.();
         return;
       }
-      setStage("Waiting for the NSAT network to confirm…");
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 5_000));
-        latest = await marketplaceApi.order(order.id);
-        setOrder(latest);
-        if (latest.state === "paid") {
-          toast.success(
-            latest.gift
-              ? `Payment confirmed. ${latest.gift.recipient_name} received the gift.`
-              : "Payment confirmed. Your item is unlocked.",
-          );
-          onDone?.();
-          return;
-        }
-        if (latest.state === "failed") throw new Error("payment_failed");
-      }
-      toast("The network is still confirming. Reopen this order in a moment.");
+      toast("Payment submitted. Waiting for NSAT Mainnet confirmation.");
     } catch (failure) {
       const code = failure?.response?.data?.code || failure?.message || "";
       const messages = {
@@ -267,11 +274,13 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
   if (loading) return <div className="wallet-native__empty">Loading order…</div>;
   if (!order) return <div className="wallet-native__empty">{error || "Order unavailable."}</div>;
 
-  const pending = (order.payments || []).filter((payment) => payment.state !== "confirmed");
   const paid = order.state === "paid";
   const closed = ["expired", "failed"].includes(order.state);
-  const networkFees = pending.length * NETWORK_FEE_NSAT;
+  const networkFees = payablePayments.length * NETWORK_FEE_NSAT;
   const readinessState = recipientReadiness?.key === recipientCheckKey ? recipientReadiness.state : "checking";
+  const orderStatusLabel = awaitingPayments.length
+    ? (confirmedPayments.length ? "partially paid · awaiting confirmation" : "awaiting Mainnet confirmation")
+    : order.state.replaceAll("_", " ");
 
   return (
     <section className="wallet-native">
@@ -289,7 +298,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
             <div className="wallet-checkout__row"><span>Price</span><strong>{amountLabel(order.unit_amount_nsat)} NSAT</strong></div>
             {order.platform_fee_nsat ? <div className="wallet-checkout__row"><span>Platform fee</span><strong>{amountLabel(order.platform_fee_nsat)} NSAT</strong></div> : null}
             <div className="wallet-checkout__row"><span>Creator receives</span><strong>{amountLabel(order.creator_proceeds_nsat)} NSAT</strong></div>
-            {pending.length ? <div className="wallet-checkout__row"><span>Network fee</span><strong>{networkFees} NSAT</strong></div> : null}
+            {payablePayments.length ? <div className="wallet-checkout__row"><span>Network fee</span><strong>{networkFees} NSAT</strong></div> : null}
           </div>
 
           <div className="wallet-checkout__card">
@@ -297,7 +306,9 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
               <div className="wallet-checkout__payment" key={payment.role}>
                 <div className="wallet-checkout__row">
                   <span>{ROLE_LABEL[payment.role] || payment.role}</span>
-                  <strong>{amountLabel(payment.amount_nsat)} NSAT · {payment.state}</strong>
+                  <strong>{amountLabel(payment.amount_nsat)} NSAT · {payment.state === "confirmed"
+                    ? "confirmed"
+                    : payment.tx_hash ? "submitted · awaiting confirmation" : "not submitted"}</strong>
                 </div>
                 <div className="wallet-checkout__payee">
                   <code title={payment.payee_address}>{payment.payee_address}</code>
@@ -306,7 +317,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
                 {payment.tx_hash ? <small className="wallet-checkout__hash">Transaction {payment.tx_hash.slice(0, 16)}…</small> : null}
               </div>
             ))}
-            <div className="wallet-checkout__row"><span>Status</span><strong>{order.state.replace("_", " ")}</strong></div>
+            <div className="wallet-checkout__row"><span>Status</span><strong>{orderStatusLabel}</strong></div>
             {!paid && !closed ? <div className="wallet-checkout__row"><span>Order expires in</span><strong>{Math.ceil(order.seconds_remaining / 60)} min</strong></div> : null}
           </div>
 
@@ -321,6 +332,13 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
             <p className="wallet-native__error">This order is {order.state}. Start a new checkout from the marketplace.</p>
           ) : (
             <>
+              {awaitingPayments.length ? (
+                <p className="wallet-checkout__hint" role="status" aria-live="polite">
+                  Payment submitted. Waiting for NSAT Mainnet confirmation; you do not need to pay again.
+                  The order status refreshes automatically.
+                </p>
+              ) : null}
+              {payablePayments.length ? <>
               {readinessState === "checking" ? (
                 <p className="wallet-checkout__hint">Checking recipient wallets on NSAT Mainnet before enabling payment…</p>
               ) : null}
@@ -344,7 +362,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
                 <p className="wallet-checkout__hint"><ShieldCheck size={16} /> Signed on this device. NSATChat never sends your key.</p>
                 <p className="wallet-checkout__disclosure">
                   Payment is final: NSAT transfers cannot be reversed or refunded by NSATChat. A {NETWORK_FEE_NSAT} NSAT
-                  network fee applies to each of the {pending.length} transfer(s), and the rest is paid directly to the creator.
+                  network fee applies to each of the {payablePayments.length} new transfer(s), and the rest is paid directly to the creator.
                 </p>
               </> : null}
               {error ? <p className="wallet-native__error">{error}</p> : null}
@@ -353,6 +371,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
                 <button type="submit" className="btn btn--primary" disabled={busy}>{busy ? "Processing…" : "Sign and pay"}</button>
               ) : null}
               </form>
+              </> : null}
             </>
           )}
           {error && (paid || closed) ? <p className="wallet-native__error">{error}</p> : null}
