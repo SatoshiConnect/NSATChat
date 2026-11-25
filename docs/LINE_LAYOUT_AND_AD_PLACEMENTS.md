@@ -7,7 +7,7 @@ brand, accessibility, privacy, and wallet-signing rules.
 
 | NSATChat surface | LINE pattern adapted | Current behavior |
 | --- | --- | --- |
-| Home | Home as a people and services hub | Profile, quick actions, and friend preview |
+| Home | Home as a people and services hub | Profile, quick actions, a marketplace spotlight poster, and friend preview |
 | Chats | Chat list with in-context Friends access | Conversation filters; phone layout switches between Chats and Friends; calls remain in conversations and call history cards |
 | OpenChat | Community destination | Current implementation is invite-only joined groups; public discovery is not available yet |
 | Today | Stories/status plus persistent social posts | Status row and social feed share the discovery surface |
@@ -28,7 +28,7 @@ are still required before ads can appear to users.
 Prepared placements:
 
 - `chat-list-top`: one compact card at the top of the conversation list.
-- `home-discovery`: after profile shortcuts and before friend previews.
+- `home-discovery`: reserved for moderated ad campaigns after profile shortcuts. It remains hidden until a campaign API exists.
 - `social-feed-inline`: between the post composer and feed results.
 - `marketplace-discovery`: in browse only, never on Wallet balance, send, or checkout screens.
 
@@ -44,6 +44,12 @@ link fields; never accept arbitrary HTML or scripts.
 3. Add click/impression measurement with privacy and fraud controls.
 4. Confirm ad assets are optimized and accessible on narrow screens.
 5. Keep checkout and wallet transaction UI ad-free and stable.
+
+The visible Home poster currently features the first approved marketplace item
+(or a SatoshiCore discovery card when the catalog is empty). It is a first-party
+spotlight, not a paid ad. Admin-managed poster campaigns still need a campaign
+model, upload/review controls, and scheduling before advertisers can use the
+reserved `home-discovery` placement.
 
 Official references:
 
