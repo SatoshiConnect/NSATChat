@@ -31,6 +31,7 @@ Prepared placements:
 - `home-discovery`: reserved for moderated ad campaigns after profile shortcuts. It remains hidden until a campaign API exists.
 - `social-feed-inline`: between the post composer and feed results.
 - `marketplace-discovery`: in browse only, never on Wallet balance, send, or checkout screens.
+- `conversation-promotion`: compact first-party feature strip below the conversation header in direct and group chats. It stays outside message history and the composer, and links to Marketplace. Until campaign inventory exists, this is a SatoshiCore house promotion labeled “Featured,” not a paid ad.
 
 Do not place ads inside direct or group message history, call screens, contacts,
 AI answers, wallet balances, transaction signing/confirmation, or payment error
