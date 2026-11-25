@@ -5,7 +5,7 @@ import { ForwardDialog } from "../conversation/dialogs";
 import { sendContactCard } from "../conversation/shareContact";
 import { errorMessage } from "../../api/client";
 import { contactsApi, statusApi, socialApi } from "../../api/endpoints";
-import { favoriteRoom, muteRoom } from "../../store/actions";
+import { favoriteRoom, loadStatus, muteRoom } from "../../store/actions";
 import { useStore } from "../../store/store";
 import { lastSeenLabel } from "../../utils/format";
 import { contactsByUser, disappearingLabel, profileName, roomTitle } from "../../utils/messages";
@@ -88,6 +88,7 @@ export default function ContactInfo({ roomId }) {
       } else {
         setFollowState({ ...(await socialApi.follow(user.id)), userId: Number(user.id) });
       }
+      await loadStatus();
     } catch (error) { toast.error(errorMessage(error, "Couldn't update follow status.")); }
     finally { setFollowBusy(false); }
   }

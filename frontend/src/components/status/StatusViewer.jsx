@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Eye, Flag, Gift, MoreVertical, Pause, Pencil, Play, Send, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Flag, Gift, MoreVertical, Pause, Pencil, Play, Send, Share2, Trash2, UserCheck, UserPlus, Volume2, VolumeX, X } from "lucide-react";
 import { errorMessage, mediaUrl } from "../../api/client";
-import { marketplaceApi, statusApi } from "../../api/endpoints";
+import { marketplaceApi, socialApi, statusApi } from "../../api/endpoints";
 import { loadStatus } from "../../store/actions";
 import { dispatch, getState, useStore } from "../../store/store";
 import { toast } from "../../services/toast";
@@ -106,6 +106,8 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [editBusy, setEditBusy] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [editBackground, setEditBackground] = useState("#075E54");
+  const [followState, setFollowState] = useState(null);
+  const [followBusy, setFollowBusy] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const videoRef = useRef(null);
@@ -116,6 +118,37 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const viewsCount = liveViews ?? status?.views_count ?? 0;
   const owner = group?.user;
   const ownerName = isMine ? "My status" : displayUserName(owner, contactMap);
+  const currentFollow = followState?.ownerId === Number(owner?.id) ? followState : null;
+
+  useEffect(() => {
+    if (!owner?.id || isMine) return undefined;
+    let active = true;
+    socialApi.followStatus(owner.id).then((value) => {
+      if (active) setFollowState({ ...value, ownerId: Number(owner.id) });
+    }).catch(() => {
+      if (active) setFollowState({ unavailable: true, ownerId: Number(owner.id) });
+    });
+    return () => { active = false; };
+  }, [owner?.id, isMine]);
+
+  const toggleFollow = async () => {
+    if (!owner?.id || followBusy || !currentFollow || currentFollow.unavailable) return;
+    setFollowBusy(true);
+    try {
+      if (currentFollow.following || currentFollow.request_pending) {
+        await socialApi.unfollow(owner.id);
+        await loadStatus();
+        toast.success("Follow removed.");
+        onClose();
+        return;
+      }
+      const next = await socialApi.follow(owner.id);
+      setFollowState({ ...next, ownerId: Number(owner.id) });
+      await loadStatus();
+      toast.success(next.request_pending ? "Follow request sent." : "Following this account.");
+    } catch (error) { toast.error(errorMessage(error, "Couldn't update follow status.")); }
+    finally { setFollowBusy(false); }
+  };
 
   // A live marketplace sells gifts as paid orders addressed to the Story
   // owner; a demo deployment still records the free simulation instead.
@@ -380,7 +413,10 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
               <MenuButton
                 icon={MoreVertical}
                 label="Status options"
-                items={[{ label: "Report status", icon: Flag, danger: true, onClick: () => setReportOpen(true) }]}
+                items={[
+                  !currentFollow?.unavailable && { label: currentFollow?.following ? "Unfollow account" : currentFollow?.request_pending ? "Cancel follow request" : "Follow account", icon: currentFollow?.following || currentFollow?.request_pending ? UserCheck : UserPlus, disabled: followBusy || !currentFollow, onClick: toggleFollow },
+                  { label: "Report status", icon: Flag, danger: true, onClick: () => setReportOpen(true) },
+                ].filter(Boolean)}
               />
             </span>
           )}

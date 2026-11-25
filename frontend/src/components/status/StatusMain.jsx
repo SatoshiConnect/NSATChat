@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, Check, Flag, Image as ImageIcon, MessageCircle, Pencil, Send, Share2, Trash2, UserPlus, X } from "lucide-react";
 import { socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
+import { loadStatus } from "../../store/actions";
 import { useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { Avatar, EmptyState, Spinner } from "../common/ui";
@@ -126,7 +127,7 @@ function PostCard({ post, me, onChange, onHashtag }) {
         setFollowState({ following: Boolean(result.following), pending: Boolean(result.request_pending) });
         toast.success(result.request_pending ? "Follow request sent." : "Following this account.");
       }
-      await onChange();
+      await Promise.all([onChange(), loadStatus()]);
     } catch (error) { toast.error(errorMessage(error, "Couldn't update this follow.")); }
     finally { setFollowBusy(false); }
   };
