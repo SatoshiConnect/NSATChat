@@ -7,6 +7,13 @@
 .marketplace__hero h1 { margin: 12px 0 5px; color: var(--text-strong); font-size: clamp(23px, 3vw, 34px); letter-spacing: -.035em; }
 .marketplace__hero p { margin: 0; color: var(--text-muted); }
 .marketplace__notice { display: inline-flex; margin-top: 17px; padding: 8px 11px; border-radius: 9px; background: color-mix(in srgb, #db9b22 12%, var(--panel)); color: var(--text-muted); font-size: 12px; }
+.marketplace__wallet-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--divider); border-radius: 13px; background: var(--panel-raised); }
+.marketplace__wallet-status > div { display: grid; min-width: 0; gap: 3px; }
+.marketplace__wallet-status strong { color: var(--text-strong); font-size: 13px; }
+.marketplace__wallet-status span { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.marketplace__wallet-status button { flex: none; min-height: 36px; padding: 0 12px; border: 0; border-radius: 9px; background: var(--accent); color: #fff; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.marketplace__wallet-status.is-unlinked { border-color: color-mix(in srgb, var(--accent) 32%, var(--divider)); }
+.marketplace__wallet-status.is-unavailable button { background: var(--panel); color: var(--text); }
 .marketplace__tabs { display: flex; min-width: 0; overflow-x: auto; gap: 8px; margin: 22px 0 16px; border-bottom: 1px solid var(--divider); }
 .marketplace__tabs button, .marketplace__categories button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 0 13px; border: 0; border-radius: 10px 10px 0 0; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
 .marketplace__tabs button { flex: 0 0 auto; }
@@ -77,6 +84,8 @@
   .is-marketplace-view .main { display: flex; flex: 1 1 auto; width: 100%; min-height: 0; grid-column: 1 / -1; }
   .marketplace__scroll { flex: 1 1 auto; height: auto; min-height: 0; padding: 14px 12px calc(24px + env(safe-area-inset-bottom)); }
   .marketplace__hero { padding: 19px 17px; }
+  .marketplace__wallet-status { align-items: flex-start; }
+  .marketplace__wallet-status button { min-height: 34px; padding: 0 10px; }
   .marketplace__creator { grid-template-columns: minmax(0, 1fr); }
   .market-item__preview { height: 130px; }
   .marketplace__form input, .marketplace__form select, .marketplace__form textarea, .marketplace__search input { font-size: 16px; }
