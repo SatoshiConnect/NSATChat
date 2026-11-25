@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "apps.social",
     "apps.calls",
     "apps.notifications",
+    "apps.news",
     "apps.wallet_integration.apps.WalletIntegrationConfig",
     "apps.marketplace.apps.MarketplaceConfig",
 
@@ -211,6 +212,7 @@ REST_FRAMEWORK = {
         "openchat_join": config("THROTTLE_OPENCHAT_JOIN", default="20/hour"),
         "openchat_create": config("THROTTLE_OPENCHAT_CREATE", default="5/day"),
         "openchat_report": config("THROTTLE_OPENCHAT_REPORT", default="10/hour"),
+        "today_news": config("THROTTLE_TODAY_NEWS", default="60/min"),
         "marketplace_purchase": config("THROTTLE_MARKETPLACE_PURCHASE", default="20/hour"),
         # Checkout polls an order while the network confirms; reads must be cheap
         # but not block a single purchase attempt.
