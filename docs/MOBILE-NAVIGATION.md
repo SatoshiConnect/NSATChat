@@ -30,6 +30,10 @@ Implementation points:
   invite-based groups; it is not a public group directory.
 - `frontend/src/styles/layout.css` owns the responsive switchers and tab bar.
 
+See [OpenChat product research and NSATChat adaptation](OPENCHAT_PRODUCT_RESEARCH.md)
+for the LINE feature comparison, current code audit, privacy boundaries, and
+phased implementation plan. Existing invite-only groups must remain private by default.
+
 If `VITE_FEATURE_WALLET_UI=false`, the fifth destination is **Market** and
 opens Marketplace directly; it never points to a disabled Wallet screen.
 
