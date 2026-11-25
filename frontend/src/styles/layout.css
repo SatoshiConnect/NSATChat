@@ -389,16 +389,6 @@
     color: var(--accent-text);
     font-weight: 650;
   }
-  .sidebar:has(.mobile-section-switcher--communications) {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .sidebar:has(.mobile-section-switcher--communications) .sidebar__stack {
-    flex: 1 1 auto;
-    height: auto;
-    min-height: 0;
-  }
   .main:has(.mobile-section-switcher--commerce) > .wallet-native,
   .main:has(.mobile-section-switcher--commerce) > .marketplace-panel {
     flex: 1 1 auto;

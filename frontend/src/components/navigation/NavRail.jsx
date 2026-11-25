@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Contact, Images, Phone, Settings, ShoppingBag, Sparkles, WalletCards } from "lucide-react";
+import { Contact, Images, Settings, ShoppingBag, Sparkles, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { useStore } from "../../store/store";
 import { Avatar } from "../common/ui";
@@ -13,8 +13,8 @@ const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
  * tab bar (Chats, Updates, Contacts, Wallet, You). Calls live inside Chats,
  * and Marketplace lives inside Wallet. SatoshiCore AI and
  * Media move to the floating button / chat menu on phones.
- * Badges are derived from real state: unread chats (non-archived), unseen
- * statuses and unacknowledged missed calls.
+ * Badges are derived from real state: unread chats (non-archived) and unseen
+ * statuses. Missed calls appear as call cards in their conversation.
  */
 function NavRail({ section, onChange, onOpenMedia }) {
   const me = useStore((state) => state.me);
@@ -22,7 +22,6 @@ function NavRail({ section, onChange, onOpenMedia }) {
     Object.values(state.rooms).filter((room) => !room.isArchived && room.unread > 0 && room.id !== state.activeRoomId).length,
   );
   const unseenStatus = useStore((state) => state.statusFeed.some((group) => Number(group.unseen_count) > 0));
-  const missed = useStore((state) => state.missedUnseen);
   const compact = useMediaQuery("(max-width: 900px)");
   const update = useAppUpdate();
 
@@ -31,7 +30,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
       ? { id: "wallet", label: "Wallet", match: ["wallet", "marketplace"], icon: () => <WalletCards size={22} strokeWidth={1.8} /> }
       : { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> };
     const tabs = [
-      { id: "chats", label: "Chats", match: ["chats", "calls"], icon: (active) => <ChatsIcon filled={active} />, badge: (unreadChats + missed) || null, ariaLabel: `Chats and calls${unreadChats || missed ? `, ${unreadChats} unread chats and ${missed} missed calls` : ""}` },
+      { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
       { id: "status", label: "Updates", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
       { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
       marketplaceTab,
@@ -72,7 +71,6 @@ function NavRail({ section, onChange, onOpenMedia }) {
 
   const items = [
     { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
-    { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
     { id: "status", label: "Status", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
     { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },

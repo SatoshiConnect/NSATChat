@@ -1,8 +1,8 @@
-import { FileText, MessageSquarePlus, Phone, UserPlus } from "lucide-react";
+import { FileText, MessageSquarePlus, Sparkles, UserPlus } from "lucide-react";
 import { LogoMark } from "../common/Icons";
 
 /** Right-hand placeholder shown when no conversation is open. */
-export default function IntroPane({ onNewChat, onNewContact, onCalls }) {
+export default function IntroPane({ onNewChat, onNewContact, onAssistant }) {
   return (
     <section className="intro">
       <div className="intro__card">
@@ -19,9 +19,9 @@ export default function IntroPane({ onNewChat, onNewContact, onCalls }) {
           <span><UserPlus size={22} /></span>
           Find friends
         </button>
-        <button type="button" onClick={onCalls}>
-          <span><Phone size={22} /></span>
-          Calls
+        <button type="button" onClick={onAssistant}>
+          <span className="is-accent"><Sparkles size={22} /></span>
+          SatoshiCore AI
         </button>
         <button type="button" onClick={onNewChat}>
           <span><FileText size={22} /></span>
