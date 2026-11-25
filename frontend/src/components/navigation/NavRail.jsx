@@ -26,18 +26,14 @@ function NavRail({ section, onChange, onOpenMedia }) {
   const update = useAppUpdate();
 
   if (compact) {
-    const marketplaceTab = WALLET_UI_ENABLED
-      ? { id: "wallet", label: "Wallet", match: ["wallet", "marketplace"], icon: () => <WalletCards size={22} strokeWidth={1.8} /> }
-      : { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> };
     const tabs = [
       { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
       { id: "status", label: "Updates", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
       { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
-      marketplaceTab,
       {
         id: "settings",
         label: "You",
-        match: ["settings", "profile"],
+        match: ["settings", "profile", "wallet", "marketplace"],
         dot: update.available,
         dotLabel: "New version available",
         icon: () => <Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={26} />,
