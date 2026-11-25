@@ -7,7 +7,7 @@ brand, accessibility, privacy, and wallet-signing rules.
 
 | NSATChat surface | LINE pattern adapted | Current behavior |
 | --- | --- | --- |
-| Home | Home as a people and services hub | Profile, quick actions, a marketplace spotlight poster, and friend preview |
+| Home | Home as a people and services hub | Profile/actions, friend and group counts, local friend search, horizontal service shortcuts, marketplace spotlight poster, and friend preview |
 | Chats | Chat list with in-context Friends access | Conversation filters; phone layout switches between Chats and Friends; calls remain in conversations and call history cards |
 | OpenChat | Community destination | Current implementation is invite-only joined groups; public discovery is not available yet |
 | Today | Stories/status plus persistent social posts | Status row and social feed share the discovery surface |
