@@ -19,6 +19,20 @@ const SOCIAL_VIDEO_LIMIT = 50 * 1024 * 1024;
 const SOCIAL_IMAGE_TOTAL_LIMIT = 32 * 1024 * 1024;
 const SOCIAL_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
 const SOCIAL_VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm"]);
+const ownedStickerLibraryCache = new Map();
+
+function ownedStickersFor(userId) {
+  const key = String(userId || "");
+  if (!key) return Promise.resolve([]);
+  const cached = ownedStickerLibraryCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = marketplaceApi.stickerPacks()
+    .then((packs) => packs.flatMap((pack) => (pack.stickers || []).map((sticker) => ({ ...sticker, pack_title: pack.title }))))
+    .catch((error) => { ownedStickerLibraryCache.delete(key); throw error; });
+  ownedStickerLibraryCache.set(key, { expiresAt: Date.now() + 60_000, promise });
+  while (ownedStickerLibraryCache.size > 4) ownedStickerLibraryCache.delete(ownedStickerLibraryCache.keys().next().value);
+  return promise;
+}
 
 function validatePostFiles(files) {
   if (!files.length) return "";
@@ -35,13 +49,14 @@ function validatePostFiles(files) {
 
 const POST_REACTIONS = [{ key: "LIKE", emoji: "👍", label: "Like" }, { key: "LOVE", emoji: "❤️", label: "Love" }, { key: "HAHA", emoji: "😂", label: "Haha" }, { key: "WOW", emoji: "😮", label: "Wow" }, { key: "SAD", emoji: "😢", label: "Sad" }, { key: "CARE", emoji: "🤗", label: "Care" }];
 
-function SocialStickerComposer({ onSubmit, busy, placeholder = "Write a comment…", allowReward = false }) {
+function SocialStickerComposer({ onSubmit, busy, userId, placeholder = "Write a comment…", allowReward = false }) {
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const [loadingStickers, setLoadingStickers] = useState(false);
   const [stickers, setStickers] = useState([]);
   const [selected, setSelected] = useState(null);
   const [isReward, setIsReward] = useState(false);
+  const [stickerQuery, setStickerQuery] = useState("");
 
   const togglePicker = async () => {
     if (open) { setOpen(false); return; }
@@ -49,8 +64,7 @@ function SocialStickerComposer({ onSubmit, busy, placeholder = "Write a comment�
     if (stickers.length || loadingStickers) return;
     setLoadingStickers(true);
     try {
-      const packs = await marketplaceApi.stickerPacks();
-      setStickers(packs.flatMap((pack) => (pack.stickers || []).map((sticker) => ({ ...sticker, pack_title: pack.title }))));
+      setStickers(await ownedStickersFor(userId));
     } catch (error) {
       toast.error(errorMessage(error, "Couldn't load your sticker library."));
     } finally { setLoadingStickers(false); }
@@ -63,9 +77,15 @@ function SocialStickerComposer({ onSubmit, busy, placeholder = "Write a comment�
     if (success !== false) { setText(""); setSelected(null); setOpen(false); setIsReward(false); }
   };
 
+  const filteredStickers = stickers.filter((sticker) => !stickerQuery.trim() || sticker.pack_title.toLowerCase().includes(stickerQuery.trim().toLowerCase()));
+
   return <form className="social-post__comment-form" onSubmit={submit}>
-    {open ? <div className="social-comment-sticker-picker" role="list" aria-label="Your purchased stickers">
-      {loadingStickers ? <Spinner size={16} /> : stickers.length ? stickers.map((sticker) => <button key={sticker.id} type="button" role="listitem" className={selected?.id === sticker.id ? "is-selected" : ""} title={sticker.pack_title} aria-label={`Choose sticker from ${sticker.pack_title}`} onClick={() => setSelected((current) => current?.id === sticker.id ? null : sticker)}><img src={mediaUrl(sticker.file)} alt={sticker.pack_title} loading="lazy" /></button>) : <span>No purchased stickers yet. Find packs in Marketplace.</span>}
+    {open ? <div className="social-comment-sticker-picker" aria-label="Your purchased stickers">
+      {loadingStickers ? <Spinner size={16} /> : stickers.length ? <>
+        <input className="social-comment-sticker-search" type="search" value={stickerQuery} onChange={(event) => setStickerQuery(event.target.value)} placeholder="Search your stickers" aria-label="Search your stickers" />
+        {filteredStickers.length ? filteredStickers.map((sticker) => <button key={sticker.id} type="button" className={selected?.id === sticker.id ? "is-selected" : ""} title={sticker.pack_title} aria-label={`Choose sticker from ${sticker.pack_title}`} onClick={() => setSelected((current) => current?.id === sticker.id ? null : sticker)}><img src={mediaUrl(sticker.file)} alt={sticker.pack_title} loading="lazy" /></button>) : <span>No matching stickers.</span>}
+        <span className="social-comment-sticker-note">Sending a sticker leaves the reusable pack in your library.</span>
+      </> : <span>No purchased stickers yet. Find packs in Marketplace.</span>}
     </div> : null}
     {selected ? <div className={`social-comment-sticker-selected${isReward ? " is-reward" : ""}`}><img src={mediaUrl(selected.file)} alt={selected.pack_title} /><span>{isReward ? `Reward · ${selected.pack_title}` : selected.pack_title}</span><button type="button" aria-label="Remove selected sticker" onClick={() => setSelected(null)}>×</button></div> : null}
     <input value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} placeholder={isReward ? "Choose a sticker to reward this post" : placeholder} aria-label={placeholder} disabled={isReward} />
@@ -132,7 +152,7 @@ function PostCommentItem({ comment, postId, me, onChange, depth = 0 }) {
           <button type="button" className="social-post__comment-icon" aria-label="Delete your comment" onClick={remove} disabled={busy}>{busy ? <Spinner size={14} /> : <Trash2 size={14} />}</button>
         </div> : null}
         {depth === 0 ? <button type="button" className="social-post__reply-toggle" onClick={() => setReplying((value) => !value)}>{replying ? "Cancel reply" : "Reply"}</button> : null}
-        {replying && depth === 0 ? <SocialStickerComposer onSubmit={submitReply} busy={busy} placeholder="Write a reply…" /> : null}
+        {replying && depth === 0 ? <SocialStickerComposer key={me?.id || "guest"} onSubmit={submitReply} busy={busy} userId={me?.id} placeholder="Write a reply…" /> : null}
         {depth === 0 ? (comment.replies || []).map((reply) => <PostCommentItem key={reply.id} comment={reply} postId={postId} me={me} onChange={onChange} depth={1} />) : null}
       </div>
     </div>
@@ -219,7 +239,7 @@ function PostCard({ post, me, onChange, onHashtag }) {
         <div><button type="button" className="btn btn--ghost" onClick={() => setReportOpen(false)} disabled={reportBusy}>Cancel</button><button type="submit" className="btn btn--primary" disabled={reportBusy}>{reportBusy ? <Spinner size={16} /> : "Send report"}</button></div>
       </form> : null}
       {comments.slice(-3).map((item) => <PostCommentItem key={item.id} comment={item} postId={post.id} me={me} onChange={onChange} />)}
-      <SocialStickerComposer onSubmit={submitComment} busy={busy} allowReward />
+      <SocialStickerComposer key={me?.id || "guest"} onSubmit={submitComment} busy={busy} userId={me?.id} allowReward />
     </article>
   );
 }

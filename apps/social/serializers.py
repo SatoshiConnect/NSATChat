@@ -230,8 +230,8 @@ class CreateCommentSerializer(serializers.Serializer):
     def validate(self, attrs):
         if not attrs.get("text") and not attrs.get("sticker_asset_id") and not self.context.get("allow_existing_sticker"):
             raise serializers.ValidationError("Add text or choose a sticker.")
-        if attrs.get("is_reward"):
-            raise serializers.ValidationError("Sticker rewards will be available after a confirmed marketplace transfer.")
+        if attrs.get("is_reward") and (not attrs.get("sticker_asset_id") or attrs.get("text")):
+            raise serializers.ValidationError("A post reward must be a sticker without comment text.")
         return attrs
 
 

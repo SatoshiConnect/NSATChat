@@ -28,8 +28,22 @@
   border-color: var(--accent);
   background: var(--input-bg);
 }
+.social-comment-sticker-search {
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--divider);
+  border-radius: 9px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: max(16px, var(--fs-sm));
+}
 .social-comment-sticker-picker img { width: 100%; height: 100%; object-fit: contain; }
 .social-comment-sticker-picker > span { color: var(--muted); font-size: var(--fs-sm); }
+.social-comment-sticker-picker > .social-comment-sticker-note { flex: 0 0 100%; font-size: var(--fs-xs); }
 .social-comment-sticker-selected {
   display: inline-flex;
   align-items: center;

@@ -14,6 +14,8 @@
 
 Allow a member to use a sticker from an owned Marketplace pack in a post comment or reply. The server verifies pack ownership on every submission. Unowned assets are rejected. A sticker-only comment is supported. Sending a comment sticker does not spend NSAT or consume the reusable pack entitlement.
 
+Marketplace sticker packs are reusable entitlements today; the system does not enforce limited editions, serial numbers, or scarce per-sticker quantities. The picker should not label a pack “rare” unless a future inventory model actually enforces that supply limit.
+
 ### Stage 2: small live-session pilot
 
 Only consider reusing the current mesh for a private, explicitly labeled pilot capped at the existing eight-person call limit. Add a distinct live-session record and audience policy rather than treating an ordinary chat call as a public stream. Clearly disclose the small audience limit and test mobile uplink, reconnect, moderation, host termination, and abuse controls before enabling discovery.

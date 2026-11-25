@@ -172,8 +172,15 @@ class SocialPostAPITests(TestCase):
         )
         self.assertEqual(sticker_reply.status_code, 201, sticker_reply.data)
         self.assertEqual(sticker_reply.data["parent_id"], parent.pk)
+        reward = self.contact_client.post(
+            f"/api/social/posts/{post.pk}/comments/",
+            {"sticker_asset_id": asset.pk, "is_reward": True},
+            format="json",
+        )
+        self.assertEqual(reward.status_code, 201, reward.data)
+        self.assertTrue(reward.data["is_reward"])
         self.assertEqual(
-            self.contact_client.post(
+            self.author_client.post(
                 f"/api/social/posts/{post.pk}/comments/",
                 {"sticker_asset_id": asset.pk, "is_reward": True},
                 format="json",

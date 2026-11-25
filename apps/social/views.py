@@ -362,6 +362,8 @@ class PostCommentsAPIView(APIView):
         parent_id = attrs.pop("parent_id", None)
         sticker_asset_id = attrs.pop("sticker_asset_id", None)
         is_reward = attrs.pop("is_reward", False)
+        if is_reward and post.author_id == request.user.id:
+            return Response({"detail": "You cannot reward your own post."}, status=status.HTTP_400_BAD_REQUEST)
         parent = None
         if parent_id:
             parent = get_object_or_404(PostComment, pk=parent_id, post=post, deleted_at__isnull=True, parent__isnull=True)
