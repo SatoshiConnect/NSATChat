@@ -267,7 +267,7 @@ def _encode_wallet_address(public_key):
 
 
 def _verify_signed_payment_envelope(envelope):
-    """Accept only one-signer NSAT V0 native payment/create-account XDR."""
+    """Accept one-signer payments or the exact NSAT V1 free self-open XDR."""
     raw = base64.b64decode(envelope, validate=True)
     if base64.b64encode(raw).decode("ascii") != envelope:
         raise ValueError("non-canonical base64")
@@ -284,7 +284,50 @@ def _verify_signed_payment_envelope(envelope):
     def uint32():
         return int.from_bytes(take(4), "big")
 
-    if uint32() != 0:  # TransactionEnvelopeType::ENVELOPE_TYPE_TX_V0
+    envelope_type = uint32()
+    if envelope_type == 2:  # TransactionEnvelopeType::ENVELOPE_TYPE_TX
+        # V_16 self-open is deliberately narrow: a new key signs one
+        # zero-balance CREATE_ACCOUNT where transaction source, operation
+        # source, and destination are that same key. There is no fee, sequence
+        # number, memo, precondition, or extra operation to authorize.
+        body_start = offset
+        if uint32() != 0:  # MuxedAccount::KEY_TYPE_ED25519
+            raise ValueError("unsupported self-open source")
+        source = take(32)
+        fee = uint32()
+        sequence = int.from_bytes(take(8), "big", signed=True)
+        if fee != 0 or sequence != 0 or uint32() != 0 or uint32() != 0 or uint32() != 1:
+            raise ValueError("unsupported self-open transaction fields")
+        if uint32() != 1 or uint32() != 0 or take(32) != source:
+            raise ValueError("unsupported self-open operation source")
+        if uint32() != 0 or uint32() != 0 or take(32) != source:
+            raise ValueError("self-open must create its own account")
+        amount = int.from_bytes(take(16), "big", signed=True)
+        if amount != 0 or uint32() != 0:
+            raise ValueError("self-open must have zero balance and empty extension")
+        tx_body = raw[body_start:offset]
+        if uint32() != 1 or take(4) != source[-4:] or uint32() != 64:
+            raise ValueError("invalid self-open transaction signature")
+        signature = take(64)
+        if offset != len(raw):
+            raise ValueError("unexpected self-open envelope tail")
+        network_hash = hashlib.sha256(MAINNET_ID.encode("utf-8")).digest()
+        payload = hashlib.sha256(network_hash + _u32(2) + tx_body).digest()
+        try:
+            Ed25519PublicKey.from_public_bytes(source).verify(signature, payload)
+        except (ValueError, InvalidSignature) as error:
+            raise ValueError("invalid transaction signature") from error
+        address = _encode_wallet_address(source)
+        return {
+            "hash": payload.hex(),
+            "source": address,
+            "destination": address,
+            "amount": 0,
+            "fee": 0,
+            "operation": "self_open",
+        }
+
+    if envelope_type != 0:  # TransactionEnvelopeType::ENVELOPE_TYPE_TX_V0
         raise ValueError("unsupported transaction envelope")
     body_start = offset
     source = take(32)
@@ -364,6 +407,32 @@ def _verified_mainnet():
     return network if network.get("network") == MAINNET_ID and network.get("core") == "ok" else None
 
 
+def _self_open_policy_available(policy):
+    protocol = policy.get("protocolVersion")
+    required = policy.get("selfOpenProtocol")
+    zero_reserve = policy.get("zeroReserveProtocol")
+    return (
+        policy.get("selfOpenAvailable") is True
+        and policy.get("sponsorshipRequired") is False
+        and isinstance(protocol, int) and not isinstance(protocol, bool)
+        and isinstance(required, int) and not isinstance(required, bool)
+        and isinstance(zero_reserve, int) and not isinstance(zero_reserve, bool)
+        and protocol >= required and protocol >= zero_reserve
+        and str(policy.get("reservePerAccount")) == "0"
+    )
+
+
+def _zero_reserve_enabled(policy):
+    protocol = policy.get("protocolVersion")
+    required = policy.get("zeroReserveProtocol")
+    return (
+        isinstance(protocol, int) and not isinstance(protocol, bool)
+        and isinstance(required, int) and not isinstance(required, bool)
+        and protocol >= required
+        and str(policy.get("reservePerAccount")) == "0"
+    )
+
+
 def _safe_network_failure(error):
     if isinstance(error, HTTPError):
         return Response({"code": "wallet_gateway_rejected"}, status=status.HTTP_502_BAD_GATEWAY)
@@ -389,10 +458,11 @@ class WalletPreflightAPIView(APIView):
             network = _verified_mainnet()
             if not network:
                 return Response({"code": "mainnet_unverified"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            account, recipient, chain = (
+            account, recipient, chain, policy = (
                 _get_json(f"{GATEWAY}/api/v1/account?acc={source}"),
                 _get_json(f"{GATEWAY}/api/v1/account?acc={destination}"),
                 _get_json(f"{GATEWAY}/api/v1/chain/info"),
+                _get_json(f"{GATEWAY}/api/v1/sponsorship/policy"),
             )
         except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
             return _safe_network_failure(error)
@@ -404,6 +474,8 @@ class WalletPreflightAPIView(APIView):
             return Response({"code": "mainnet_unverified"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         if not isinstance(reserve, (int, str)) or not re.fullmatch(r"\d+", str(reserve)):
             return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        reserve_value = int(reserve)
+        reserve_floor = 0 if _zero_reserve_enabled(policy) else reserve_value * 2
 
         account_status = account.get("status")
         if account_status == "not_found":
@@ -430,8 +502,63 @@ class WalletPreflightAPIView(APIView):
             "sequence": str(sequence),
             "fee": fee,
             "base_reserve": str(reserve),
+            "account_reserve_floor": str(reserve_floor),
+            "destination_creation_minimum": str(reserve_floor),
+            "protocol_version": policy.get("protocolVersion") if isinstance(policy.get("protocolVersion"), int) else None,
+            "zero_reserve_enabled": _zero_reserve_enabled(policy),
+            "self_open_available": _self_open_policy_available(policy),
             "destination": destination,
             "destination_exists": destination_exists,
+        })
+
+
+class WalletSelfOpenPreflightAPIView(APIView):
+    """Verify live Mainnet policy for a zero-fee, zero-balance self-open."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_scope = "wallet_read"
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if not settings.FEATURE_FLAGS.get("wallet_send", False):
+            raise NotFound()
+
+    def get(self, request):
+        address = str(request.query_params.get("address", "")).strip().upper()
+        if not ADDRESS_RE.fullmatch(address) or not _decode_wallet_public_key(address):
+            return Response({"code": "invalid_address"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            network = _verified_mainnet()
+            if not network:
+                return Response({"code": "mainnet_unverified"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            account = _get_json(f"{GATEWAY}/api/v1/account?acc={address}")
+            policy = _get_json(f"{GATEWAY}/api/v1/sponsorship/policy")
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
+            return _safe_network_failure(error)
+
+        if account.get("status") == "ok":
+            account_id = account.get("id")
+            if not isinstance(account_id, str) or account_id.upper() != address:
+                return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({
+                "network": MAINNET_ID,
+                "address": address,
+                "account_exists": True,
+                "available": False,
+            })
+        if account.get("status") != "not_found":
+            return Response({"code": "wallet_unavailable"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        protocol = policy.get("protocolVersion")
+        required = policy.get("selfOpenProtocol")
+        available = _self_open_policy_available(policy)
+        return Response({
+            "network": MAINNET_ID,
+            "address": address,
+            "account_exists": False,
+            "available": available,
+            "protocol_version": protocol if isinstance(protocol, int) and not isinstance(protocol, bool) else None,
+            "required_protocol": required if isinstance(required, int) and not isinstance(required, bool) else None,
         })
 
 
@@ -448,12 +575,19 @@ class WalletSubmitAPIView(APIView):
         if not isinstance(envelope, str) or len(envelope) > 65_536 or not re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", envelope):
             return Response({"code": "invalid_signed_envelope"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            _verify_signed_payment_envelope(envelope)
+            verified = _verify_signed_payment_envelope(envelope)
         except (binascii.Error, ValueError):
             return Response({"code": "invalid_signed_envelope"}, status=status.HTTP_400_BAD_REQUEST)
         try:
             if not _verified_mainnet():
                 return Response({"code": "mainnet_unverified"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            if verified["operation"] == "self_open":
+                policy = _get_json(f"{GATEWAY}/api/v1/sponsorship/policy")
+                account = _get_json(f"{GATEWAY}/api/v1/account?acc={verified['source']}")
+                if not _self_open_policy_available(policy):
+                    return Response({"code": "self_open_unavailable"}, status=status.HTTP_409_CONFLICT)
+                if account.get("status") != "not_found":
+                    return Response({"code": "self_open_account_already_exists"}, status=status.HTTP_409_CONFLICT)
             result = _post_json(f"{GATEWAY}/api/v1/tx", {"envelope_xdr": envelope})
         except (HTTPError, URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError) as error:
             return _safe_network_failure(error)

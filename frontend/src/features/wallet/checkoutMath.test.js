@@ -20,6 +20,11 @@ test("shortfall is exact and zero only when the balance covers the transfer", ()
   );
 });
 
+test("uses the live zero-reserve account floor instead of two base reserves", () => {
+  assert.equal(transferRequirement({ amount: "10", fee: 10, reserve: "100000000", reserveFloor: "0" }), 20n);
+  assert.equal(transferShortfall({ amount: "10", balance: "20", fee: 10, reserve: "100000000", reserveFloor: "0" }), 0n);
+});
+
 test("invalid amounts are refused instead of becoming NaN", () => {
   assert.throws(() => transferRequirement({ amount: "1.5", fee: 10, reserve: "0" }), /checkout_amount_invalid/);
   assert.throws(() => transferRequirement({ amount: "", fee: 10, reserve: "0" }), /checkout_amount_invalid/);

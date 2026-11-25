@@ -6,6 +6,7 @@ The Messenger Wallet is a first-party React feature rendered inside NSATChat. It
 
 - Create or restore a non-custodial account in the browser. The S… recovery key is encrypted at rest on this device with PBKDF2-SHA256 and AES-256-GCM. The backend never receives it.
 - Read balance and recent activity through authenticated `/api/wallet/read/`.
+- Open a zero-balance wallet on Mainnet at zero fee when the live Core policy allows self-open. The owner must unlock and sign with that wallet's own key; NSATChat verifies the live policy and exact transaction before relaying it.
 - Generate a receive QR locally and create/share payment requests in one-to-one chats.
 - Prepare a payment from fresh authenticated `/api/wallet/preflight/` data. The browser verifies the exact Mainnet identity, recipient checksum, exact integer amount, live 10 NSAT fee policy, account sequence, balance, and reserve rules before creating a review.
 - Sign the NSAT TransactionV0 envelope on-device. `/api/wallet/submit/` relays only an already signed envelope to the fixed NSAT gateway; it does not receive or persist the key.
@@ -23,7 +24,7 @@ The browser transaction builder is checked against the NSAT transaction vector i
 - Mainnet identity and account state are read again immediately before signing. A changed balance, sequence, fee, or destination state invalidates the review.
 - A network timeout after signing is shown as unknown. The user must check the exact hash; the app does not create a replacement automatically.
 - The local recovery key must be backed up by the user. Clearing browser storage or losing the password without the recovery key can permanently lose access. Browser encryption does not protect against a compromised device or same-origin script execution.
-- New recipients are initialized using the protocol's account-creation payment and current base-reserve rule. An active source account must retain the configured 2× reserve floor and the live network base fee must equal the reviewed 10 NSAT policy. A changed fee policy blocks signing.
+- New recipient payments use the live Mainnet `zeroReserveProtocol` policy. On current NSAT Mainnet, the ledger reports zero reserve for a new account, so a marketplace payment may create a recipient with the listed amount; the wallet must not invent a 2× base-reserve minimum. Where zero-reserve policy is unavailable, preflight falls back to the live base-reserve minimum. Free self-open is a separate owner-signed path. An active source account retains the reserve floor reported by live policy, and the live network base fee must equal the reviewed 10 NSAT policy. A changed fee policy blocks signing.
 
 ## Verification boundary
 

@@ -24,19 +24,21 @@ const toBigInt = (value) => {
  * Minimum balance a transfer of `amount` needs: the amount itself, the network
  * fee, and the reserve cushion the source account must keep.
  */
-export function transferRequirement({ amount, fee, reserve }) {
+export function transferRequirement({ amount, fee, reserve, reserveFloor }) {
   const [amountValue, feeValue, reserveValue] = [amount, fee, reserve].map(toBigInt);
-  if ([amountValue, feeValue, reserveValue].some((value) => value === null || value < 0n)) {
+  const explicitFloor = reserveFloor == null ? null : toBigInt(reserveFloor);
+  if ([amountValue, feeValue, reserveValue].some((value) => value === null || value < 0n)
+    || (explicitFloor !== null && explicitFloor < 0n)) {
     throw new Error("checkout_amount_invalid");
   }
-  return amountValue + feeValue + reserveValue * RESERVE_MULTIPLIER;
+  return amountValue + feeValue + (explicitFloor ?? reserveValue * RESERVE_MULTIPLIER);
 }
 
 /** How much more NSAT the wallet needs, or 0n when the transfer fits. */
-export function transferShortfall({ amount, balance, fee, reserve }) {
+export function transferShortfall({ amount, balance, fee, reserve, reserveFloor }) {
   const available = toBigInt(balance);
   if (available === null || available < 0n) throw new Error("checkout_balance_invalid");
-  const required = transferRequirement({ amount, fee, reserve });
+  const required = transferRequirement({ amount, fee, reserve, reserveFloor });
   return required > available ? required - available : 0n;
 }
 

@@ -5,7 +5,7 @@ import { useApp } from "../../components/layout/AppContext";
 import { toast } from "../../services/toast";
 import { generateWalletKeypair, readKeystoreMeta, saveEncryptedWallet, unlockEncryptedWallet } from "./keystore";
 import { readWalletLinkChallenge, signWalletLinkChallenge } from "./walletLink";
-import { buildSignedPayment, paymentPreflight, parsePositiveAmount } from "./transaction";
+import { buildSignedPayment, buildSignedSelfOpen, paymentPreflight, parsePositiveAmount } from "./transaction";
 import { createWalletReceiptMessage } from "./paymentRequest";
 import { sendText } from "../../store/actions";
 import MarketplaceCheckout from "./MarketplaceCheckout";
@@ -73,6 +73,8 @@ export default function WalletPanel({ launch = null }) {
   const [sendReview, setSendReview] = useState(null);
   const [sendBusy, setSendBusy] = useState(false);
   const [txStatus, setTxStatus] = useState(null);
+  const [selfOpenReview, setSelfOpenReview] = useState(null);
+  const [selfOpenBusy, setSelfOpenBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [accountLink, setAccountLink] = useState({ loading: true, connected: false, address: "", error: "" });
   const [linkBusy, setLinkBusy] = useState(false);
@@ -327,6 +329,8 @@ export default function WalletPanel({ launch = null }) {
         baseFee: state.fee,
         baseReserve: state.base_reserve,
         destinationExists: state.destination_exists,
+        destinationCreationMinimum: state.destination_creation_minimum,
+        accountReserveFloor: state.account_reserve_floor,
       });
       setSendReview({ state, prepared, destination, amount: prepared.amount.toString() });
     } catch (failure) {
@@ -336,15 +340,15 @@ export default function WalletPanel({ launch = null }) {
     } finally { setSendBusy(false); }
   };
 
-  const checkConfirmation = async (hash, submittedAt, { poll = false, transfer = null } = {}) => {
-    setTxStatus({ hash, state: "pending", submittedAt, transfer });
+  const checkConfirmation = async (hash, submittedAt, { poll = false, transfer = null, operation = "payment" } = {}) => {
+    setTxStatus({ hash, state: "pending", submittedAt, transfer, operation });
     const deadline = Date.now() + (poll ? 90_000 : 12_000);
     do {
       try {
         const result = await walletApi.confirmation(hash, submittedAt);
         if (result.hash !== hash) throw new Error("Confirmation hash mismatch");
         if (result.status === "confirmed" && result.success === true) {
-          setTxStatus({ hash, state: "confirmed", result, transfer });
+          setTxStatus({ hash, state: "confirmed", result, transfer, operation });
           setRefreshKey((value) => value + 1);
           if (launch?.roomId && transfer && !postedReceiptHashesRef.current.has(hash)) {
             postedReceiptHashesRef.current.add(hash);
@@ -354,11 +358,11 @@ export default function WalletPanel({ launch = null }) {
           return;
         }
         if (result.status === "failed" || (result.status === "confirmed" && result.success === false)) {
-          setTxStatus({ hash, state: "failed", result, transfer });
+          setTxStatus({ hash, state: "failed", result, transfer, operation });
           setRefreshKey((value) => value + 1);
           return;
         }
-        setTxStatus({ hash, state: result.status === "pending" ? "pending" : "unknown", result, submittedAt, transfer });
+        setTxStatus({ hash, state: result.status === "pending" ? "pending" : "unknown", result, submittedAt, transfer, operation });
         if (!poll || Date.now() >= deadline || ["unknown", "not_found"].includes(result.status)) return;
       } catch {
         setTxStatus((current) => current?.hash === hash ? { ...current, state: "unknown", submittedAt } : current);
@@ -381,7 +385,10 @@ export default function WalletPanel({ launch = null }) {
       if (latest.network !== MAINNET || latest.source !== address || latest.destination !== sendReview.destination
         || latest.balance !== previous.balance || latest.sequence !== previous.sequence
         || latest.fee !== previous.fee || latest.base_reserve !== previous.base_reserve
-        || latest.destination_exists !== previous.destination_exists) {
+        || latest.destination_exists !== previous.destination_exists
+        || latest.destination_creation_minimum !== previous.destination_creation_minimum
+        || latest.account_reserve_floor !== previous.account_reserve_floor
+        || latest.protocol_version !== previous.protocol_version) {
         setSendReview(null);
         throw new Error("Account balance, sequence, network fee, or recipient state changed. Review the transfer again.");
       }
@@ -408,6 +415,78 @@ export default function WalletPanel({ launch = null }) {
         setTxStatus({ hash: signed.hash, state: "unknown", submittedAt, transfer: { destination: sendReview.destination, amount: sendReview.amount } });
       } else setError(failure?.message || "The transfer was not signed or submitted.");
     } finally { setSendBusy(false); }
+  };
+
+  const reviewSelfOpen = async () => {
+    setError("");
+    if (!ownsWallet) {
+      setError("Only the wallet owner can open this address. Restore the wallet key on this device first.");
+      return;
+    }
+    if (!signingSecretRef.current || !unlocked) {
+      setKeyError("Unlock this wallet to open its zero-balance Mainnet account.");
+      setKeyFlow("unlock");
+      return;
+    }
+    setSelfOpenBusy(true);
+    try {
+      const policy = await walletApi.selfOpenPreflight(address);
+      if (policy.network !== MAINNET || policy.address !== address || policy.account_exists || !policy.available) {
+        throw new Error("free_account_open_unavailable");
+      }
+      setSelfOpenReview(policy);
+    } catch (failure) {
+      const code = failure?.response?.data?.code || failure?.message;
+      setError(code === "free_account_open_unavailable" || code === "self_open_unavailable"
+        ? "Free wallet activation is not available on the current Mainnet policy. No payment was sent."
+        : code === "self_open_account_already_exists"
+          ? "This wallet is already open. Refresh its Mainnet balance."
+          : "Could not verify free wallet activation on NSAT Mainnet. No payment was sent.");
+    } finally {
+      setSelfOpenBusy(false);
+    }
+  };
+
+  const submitSelfOpen = async () => {
+    if (!selfOpenReview || !signingSecretRef.current || !unlocked || selfOpenBusy) return;
+    setSelfOpenBusy(true);
+    setError("");
+    let signed = null;
+    const submittedAt = Math.floor(Date.now() / 1000);
+    try {
+      const latest = await walletApi.selfOpenPreflight(address);
+      if (latest.network !== MAINNET || latest.address !== address || latest.account_exists || !latest.available
+        || latest.protocol_version !== selfOpenReview.protocol_version) {
+        setSelfOpenReview(null);
+        throw new Error("Mainnet account status or free-open policy changed. Review again.");
+      }
+      signed = await buildSignedSelfOpen({ secret: signingSecretRef.current, address });
+      const response = await walletApi.submit(signed.envelopeXdr);
+      if (!["PENDING", "DUPLICATE"].includes(String(response.status || "").toUpperCase())) {
+        if (response.status === "ERROR") {
+          setSelfOpenReview(null);
+          setTxStatus({ hash: signed.hash, state: "failed", operation: "self_open" });
+          return;
+        }
+        setSelfOpenReview(null);
+        setTxStatus({ hash: signed.hash, state: "unknown", submittedAt, operation: "self_open" });
+        return;
+      }
+      setSelfOpenReview(null);
+      void checkConfirmation(signed.hash, submittedAt, { poll: true, operation: "self_open" });
+    } catch (failure) {
+      if (signed) {
+        setSelfOpenReview(null);
+        setTxStatus({ hash: signed.hash, state: "unknown", submittedAt, operation: "self_open" });
+      } else {
+        const code = failure?.response?.data?.code || failure?.message;
+        setError(code === "self_open_unavailable" || code === "self_open_account_already_exists"
+          ? "The wallet activation state changed. Refresh Mainnet status and try again."
+          : failure?.message || "The free wallet activation was not signed or submitted.");
+      }
+    } finally {
+      setSelfOpenBusy(false);
+    }
   };
 
   if (launch?.orderId) {
@@ -480,6 +559,7 @@ export default function WalletPanel({ launch = null }) {
             </> : null}
             {keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}
             {error ? <p className="wallet-native__error" role="alert">{error}</p> : null}
+            {txStatus?.operation === "self_open" ? <div className={`wallet-native__tx-status is-${txStatus.state}`} role="status"><strong>{txStatus.state === "confirmed" ? "Wallet opened on Mainnet" : txStatus.state === "failed" ? "Wallet activation failed" : txStatus.state === "pending" ? "Opening wallet on Mainnet…" : "Activation status unknown — do not submit again yet"}</strong><code>{txStatus.hash}</code>{txStatus.result?.ledger ? <span>Ledger #{txStatus.result.ledger}</span> : null}{txStatus.result?.result_code ? <span>{txStatus.result.result_code}</span> : null}{["unknown", "pending"].includes(txStatus.state) ? <button type="button" className="wallet-native__text-button" onClick={() => checkConfirmation(txStatus.hash, txStatus.submittedAt, { operation: "self_open" })}>Check status</button> : null}</div> : null}
             <p className="wallet-native__availability">Your recovery key stays on this device. Transfers are signed locally and are public and irreversible.</p>
           </div>
         ) : (
@@ -513,6 +593,15 @@ export default function WalletPanel({ launch = null }) {
               <strong>{busy ? "…" : wallet?.account_status === "active" ? exactAmount(wallet.balance) : wallet?.account_status === "not_found" ? "0" : "—"}</strong>
               <span>NSAT · whole units</span>
             </section>
+
+            {wallet?.account_status === "not_found" ? (
+              <section className="wallet-native__self-open" aria-label="Free wallet activation">
+                <div><strong>This wallet is not open on Mainnet yet</strong><p>Its owner can open it with a zero balance and zero network fee. No 200,000,000 NSAT first payment is required.</p></div>
+                {ownsWallet
+                  ? <button type="button" className="btn btn--primary" onClick={reviewSelfOpen} disabled={selfOpenBusy}>{selfOpenBusy ? "Checking Mainnet…" : unlocked ? "Activate wallet for free" : "Unlock to activate free"}</button>
+                  : <span className="wallet-native__muted">Only the wallet owner can sign the free activation.</span>}
+              </section>
+            ) : null}
 
             <div className="wallet-native__actions">
               {actions.map(({ key, label, icon: Icon }) => (
@@ -560,19 +649,24 @@ export default function WalletPanel({ launch = null }) {
                   <label>Amount (whole NSAT)<input inputMode="numeric" value={sendAmount} onChange={(event) => setSendAmount(event.target.value)} placeholder="0" required /></label>
                   {!unlocked ? <button type="button" className="btn btn--secondary" onClick={() => setKeyFlow("unlock")}>Unlock wallet to send</button> : <button type="submit" className="btn btn--primary" disabled={sendBusy}>{sendBusy ? "Checking Mainnet…" : "Review transfer"}</button>}
                 </form> : <div className="wallet-native__notice"><ShieldCheck size={18} /><span>This is a view-only address. Restore or create a wallet you control to send NSAT.</span></div>}
-                <p className="wallet-native__availability">The transfer is signed on this device. Before signing, NSATChat checks the Mainnet identity, live fee, latest sequence and balance, recipient address, and reserve requirement.</p>
+                <p className="wallet-native__availability">The transfer is signed on this device. Before signing, NSATChat checks the Mainnet identity, live fee, latest sequence and balance, recipient address, and the current account reserve policy.</p>
                 {error ? <p className="wallet-native__error" role="alert">{error}</p> : null}
                 {sendReview ? <div className="wallet-native__review" role="dialog" aria-modal="true" aria-label="Review NSAT transfer">
                   <h3>Review transfer</h3><dl><div><dt>To</dt><dd>{sendReview.destination}</dd></div><div><dt>Amount</dt><dd>{exactAmount(sendReview.amount)} NSAT</dd></div><div><dt>Network fee</dt><dd>{exactAmount(sendReview.prepared.fee)} NSAT</dd></div><div><dt>Total debit</dt><dd>{exactAmount(sendReview.prepared.total.toString())} NSAT</dd></div><div><dt>Network</dt><dd>Verified NSAT Mainnet</dd></div>{sendReview.prepared.create ? <div><dt>Account setup</dt><dd>Create new recipient account</dd></div> : null}</dl>
-                  {sendReview.prepared.create ? <p>The recipient address has no account yet. This transfer will create one and must meet the current Mainnet reserve requirement.</p> : null}
+                  {sendReview.prepared.create ? <p>The recipient address has no account yet. This transfer will create it with the amount shown above. NSATChat applies the live Mainnet account reserve policy.</p> : null}
                   <p>Transfers are public and irreversible. Check the full recipient address before approving.</p>
                   <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setSendReview(null)}>Cancel</button><button type="button" className="btn btn--primary" onClick={submitTransfer} disabled={sendBusy}>{sendBusy ? "Signing and submitting…" : "Confirm and send"}</button></div>
                 </div> : null}
-                {txStatus ? <div className={`wallet-native__tx-status is-${txStatus.state}`} role="status"><strong>{txStatus.state === "confirmed" ? "Confirmed on Mainnet" : txStatus.state === "failed" ? "Transfer failed" : txStatus.state === "pending" ? "Waiting for Mainnet confirmation…" : "Status unknown — do not send again yet"}</strong><code>{txStatus.hash}</code>{txStatus.result?.ledger ? <span>Ledger #{txStatus.result.ledger}</span> : null}{txStatus.result?.result_code ? <span>{txStatus.result.result_code}</span> : null}{["unknown", "pending"].includes(txStatus.state) ? <button type="button" className="wallet-native__text-button" onClick={() => checkConfirmation(txStatus.hash, txStatus.submittedAt, { transfer: txStatus.transfer })}>Check status</button> : null}</div> : null}
+                {txStatus && txStatus.operation !== "self_open" ? <div className={`wallet-native__tx-status is-${txStatus.state}`} role="status"><strong>{txStatus.state === "confirmed" ? "Confirmed on Mainnet" : txStatus.state === "failed" ? "Transfer failed" : txStatus.state === "pending" ? "Waiting for Mainnet confirmation…" : "Status unknown — do not send again yet"}</strong><code>{txStatus.hash}</code>{txStatus.result?.ledger ? <span>Ledger #{txStatus.result.ledger}</span> : null}{txStatus.result?.result_code ? <span>{txStatus.result.result_code}</span> : null}{["unknown", "pending"].includes(txStatus.state) ? <button type="button" className="wallet-native__text-button" onClick={() => checkConfirmation(txStatus.hash, txStatus.submittedAt, { transfer: txStatus.transfer })}>Check status</button> : null}</div> : null}
               </section>
             ) : null}
 
             {keyFlow === "unlock" ? <form className="wallet-native__inline-unlock" onSubmit={submitUnlockWallet}><label>Device password<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button>{keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}</form> : null}
+            {selfOpenReview ? <div className="wallet-native__review" role="dialog" aria-modal="true" aria-label="Review free wallet activation">
+              <h3>Open this wallet for free?</h3><dl><div><dt>Wallet</dt><dd>{shortAddress(address)}</dd></div><div><dt>Starting balance</dt><dd>0 NSAT</dd></div><div><dt>Network fee</dt><dd>0 NSAT</dd></div><div><dt>Mainnet ledger version</dt><dd>{selfOpenReview.protocol_version}</dd></div></dl>
+              <p>This signs only the NSAT Core self-open operation for this wallet. It sends no NSAT and the private key stays on this device.</p>
+              <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setSelfOpenReview(null)} disabled={selfOpenBusy}>Cancel</button><button type="button" className="btn btn--primary" onClick={submitSelfOpen} disabled={selfOpenBusy}>{selfOpenBusy ? "Opening wallet…" : "Open wallet for free"}</button></div>
+            </div> : null}
             {ownsWallet ? <button type="button" className="wallet-native__change" onClick={lockWallet}>Lock this device wallet</button> : <button type="button" className="wallet-native__change" onClick={() => { try { window.localStorage.removeItem(ADDRESS_KEY); } catch { /* ignore */ } setAddress(""); setWallet(null); setQr(""); setSection("overview"); }}>Change or clear viewed address</button>}
           </>
         )}
