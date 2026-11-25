@@ -7,6 +7,7 @@ import { unlockEncryptedWallet } from "./keystore";
 import { walletApi } from "./api";
 import { NSAT_BASE_FEE_POLICY, buildSignedPayment, paymentPreflight } from "./transaction";
 import { formatNsat, transferRequirement, transferShortfall } from "./checkoutMath";
+import { checkoutRecipientMessage, inspectCheckoutRecipients } from "./checkoutReadiness";
 
 const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const ROLE_LABEL = { creator: "Creator share", platform: "Platform fee" };
@@ -32,7 +33,17 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
+  const [recipientReadiness, setRecipientReadiness] = useState(null);
   const secretRef = useRef("");
+
+  const recipientCheckKey = order
+    ? JSON.stringify([
+      order.buyer_address,
+      (order.payments || [])
+        .filter((payment) => payment.state !== "confirmed")
+        .map(({ role, amount_nsat, payee_address }) => [role, amount_nsat, payee_address]),
+    ])
+    : "";
 
   const load = async () => {
     try {
@@ -71,6 +82,19 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.state, orderId]);
 
+  useEffect(() => {
+    if (!order || !recipientCheckKey || order.state === "paid" || ["expired", "failed"].includes(order.state)) return undefined;
+    let active = true;
+    inspectCheckoutRecipients(order, (source, destination) => walletApi.preflight(source, destination))
+      .then((issue) => {
+        if (active) setRecipientReadiness({ key: recipientCheckKey, state: issue ? "blocked" : "ready", issue });
+      })
+      .catch(() => {
+        if (active) setRecipientReadiness({ key: recipientCheckKey, state: "unavailable" });
+      });
+    return () => { active = false; };
+  }, [order, recipientCheckKey]);
+
   const unlock = async (event) => {
     event.preventDefault();
     setError("");
@@ -105,6 +129,25 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     if (event?.preventDefault) event.preventDefault();
     if (!order) return;
     setError("");
+    // Re-check live recipient account state before asking for the buyer's
+    // password. The price is server-defined; never inflate it to activate a
+    // seller account automatically.
+    try {
+      const recipientIssue = await inspectCheckoutRecipients(
+        order,
+        (source, destination) => walletApi.preflight(source, destination),
+      );
+      if (recipientIssue) {
+        setRecipientReadiness({ key: recipientCheckKey, state: "blocked", issue: recipientIssue });
+        setError(checkoutRecipientMessage(recipientIssue, ROLE_LABEL[recipientIssue.role] || recipientIssue.role));
+        return;
+      }
+      setRecipientReadiness({ key: recipientCheckKey, state: "ready" });
+    } catch {
+      setRecipientReadiness({ key: recipientCheckKey, state: "unavailable" });
+      setError("Could not verify the recipient wallet on NSAT Mainnet. Refresh the order and try again. No payment was sent.");
+      return;
+    }
     let secret = secretRef.current;
     if (!secret) {
       const wallet = await unlock(event);
@@ -194,7 +237,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         envelope_payee_mismatch: "The signed payment went to the wrong address.",
         envelope_source_mismatch: "Sign in with the wallet linked to your account.",
         insufficient_balance_or_reserve: "Your wallet balance cannot cover this payment.",
-        destination_creation_reserve_too_low: "The recipient needs a larger first payment.",
+        destination_creation_reserve_too_low: "The recipient wallet is not activated. The listed price was not changed and no payment was sent.",
         payment_already_submitted: "This part of the order is already submitted.",
         order_expired: "This order expired. Start checkout again.",
         already_owned: "You already own this item through another order. Nothing was charged.",
@@ -224,6 +267,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
   const paid = order.state === "paid";
   const closed = ["expired", "failed"].includes(order.state);
   const networkFees = pending.length * NETWORK_FEE_NSAT;
+  const readinessState = recipientReadiness?.key === recipientCheckKey ? recipientReadiness.state : "checking";
 
   return (
     <section className="wallet-native">
@@ -272,20 +316,40 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
           ) : closed ? (
             <p className="wallet-native__error">This order is {order.state}. Start a new checkout from the marketplace.</p>
           ) : (
-            <form className="wallet-native__key-form" onSubmit={pay}>
+            <>
+              {readinessState === "checking" ? (
+                <p className="wallet-checkout__hint">Checking recipient wallets on NSAT Mainnet before enabling payment…</p>
+              ) : null}
+              {readinessState === "blocked" ? (
+                <div className="wallet-native__error" role="alert">
+                  {checkoutRecipientMessage(recipientReadiness.issue, ROLE_LABEL[recipientReadiness.issue.role] || recipientReadiness.issue.role)}
+                </div>
+              ) : null}
+              {readinessState === "unavailable" ? (
+                <div className="wallet-native__error" role="alert">
+                  Recipient wallet status could not be verified. Payment is disabled until NSAT Mainnet can confirm it. No payment has been sent.
+                  <button type="button" className="wallet-native__refresh" onClick={() => load()}>Retry</button>
+                </div>
+              ) : null}
+              <form className="wallet-native__key-form" onSubmit={pay}>
               <h2>Pay {amountLabel(order.total_due_nsat)} NSAT</h2>
-              <label>Wallet password
-                <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Unlock to sign" autoComplete="current-password" />
-              </label>
-              <p className="wallet-checkout__hint"><ShieldCheck size={16} /> Signed on this device. NSATChat never sends your key.</p>
-              <p className="wallet-checkout__disclosure">
-                Payment is final: NSAT transfers cannot be reversed or refunded by NSATChat. A {NETWORK_FEE_NSAT} NSAT
-                network fee applies to each of the {pending.length} transfer(s), and the rest is paid directly to the creator.
-              </p>
+              {readinessState === "ready" ? <>
+                <label>Wallet password
+                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Unlock to sign" autoComplete="current-password" />
+                </label>
+                <p className="wallet-checkout__hint"><ShieldCheck size={16} /> Signed on this device. NSATChat never sends your key.</p>
+                <p className="wallet-checkout__disclosure">
+                  Payment is final: NSAT transfers cannot be reversed or refunded by NSATChat. A {NETWORK_FEE_NSAT} NSAT
+                  network fee applies to each of the {pending.length} transfer(s), and the rest is paid directly to the creator.
+                </p>
+              </> : null}
               {error ? <p className="wallet-native__error">{error}</p> : null}
               {stage ? <p className="wallet-checkout__hint">{stage}</p> : null}
-              <button type="submit" className="btn btn--primary" disabled={busy}>{busy ? "Processing…" : "Sign and pay"}</button>
-            </form>
+              {readinessState === "ready" ? (
+                <button type="submit" className="btn btn--primary" disabled={busy}>{busy ? "Processing…" : "Sign and pay"}</button>
+              ) : null}
+              </form>
+            </>
           )}
           {error && (paid || closed) ? <p className="wallet-native__error">{error}</p> : null}
         </div>
