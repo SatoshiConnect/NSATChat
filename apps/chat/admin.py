@@ -494,7 +494,7 @@ class OpenCommunityReportAdmin(admin.ModelAdmin):
     list_display = ("id", "community", "reporter", "reason", "state", "created_at", "reviewed_by")
     list_filter = ("state", "reason", "created_at")
     search_fields = ("community__room__name", "reporter__phone_number", "details")
-    readonly_fields = ("community", "reporter", "reason", "details", "created_at")
+    readonly_fields = ("community", "reporter", "reason", "details", "created_at", "reviewed_by", "reviewed_at")
     def save_model(self, request, obj, form, change):
         if change and "state" in form.changed_data:
             obj.reviewed_by = request.user
