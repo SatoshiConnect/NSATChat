@@ -19,6 +19,7 @@ import { useAssistant } from "../assistant/assistantStore";
 import { useChatList } from "./useChatList";
 import { askDeleteChat } from "./roomMenu";
 import PresenceAvatar from "../common/PresenceAvatar";
+import AdPlacement from "../common/AdPlacement";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -226,6 +227,7 @@ export default function ChatListPanel() {
       ) : null}
 
       <div className="panel__scroll">
+        <AdPlacement placement="chat-list-top" />
         {!searchingActive && filter === "all" && archivedSummary.total > 0 ? (
           <button type="button" className="archived-row" onClick={() => app.pushPanel("archived")}>
             <span className="archived-row__icon">

@@ -4,6 +4,7 @@ import { useStore } from "../../store/store";
 import { displayUserName } from "../../utils/messages";
 import { Avatar, EmptyState, IconButton, PanelHeader } from "../common/ui";
 import PresenceAvatar from "../common/PresenceAvatar";
+import AdPlacement from "../common/AdPlacement";
 import { useApp } from "./AppContext";
 
 const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
@@ -43,6 +44,8 @@ export default function HomePanel() {
             <span>{WALLET_UI_ENABLED ? "Wallet" : "Market"}</span>
           </button>
         </div>
+
+        <AdPlacement placement="home-discovery" />
 
         <div className="home-section-header">
           <h2>Friends</h2>

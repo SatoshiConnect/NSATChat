@@ -6,6 +6,7 @@ import { toast } from "../../services/toast";
 import { walletApi } from "../../features/wallet/api";
 import { useApp } from "../layout/AppContext";
 import { EmptyState, PanelHeader, Spinner } from "../common/ui";
+import AdPlacement from "../common/AdPlacement";
 
 const CATEGORIES = ["all", "gift", "sticker_pack", "profile_frame", "badge", "theme", "avatar", "pixel_world"];
 const PURCHASE_ERRORS = {
@@ -281,6 +282,8 @@ export default function MarketplacePanel() {
               ? <button type="button" onClick={() => app.openWallet()}>Manage wallet</button>
               : null}
         </div>
+
+        {tab === "catalog" ? <AdPlacement placement="marketplace-discovery" /> : null}
 
         {/* Shown above the tabs so an unpaid order is one tap away from every
             marketplace section, not only from Explore. */}
