@@ -21,7 +21,7 @@ export default function TodayNewsPanel() {
   const fetchFeed = useCallback(() => newsApi.today(), []);
   const globalNewsAvailable = feed?.global_available ?? String(feed?.source || "").includes("GDELT");
   const visibleItems = (feed?.items || []).filter((item) => {
-    const matchesCategory = category === "all" || item.category === category;
+    const matchesCategory = category === "all" || item.category === category || item.region === category;
     const needle = query.trim().toLocaleLowerCase();
     const matchesQuery = !needle || `${item.title} ${item.summary || ""}`.toLocaleLowerCase().includes(needle);
     return matchesCategory && matchesQuery;
@@ -66,7 +66,7 @@ export default function TodayNewsPanel() {
       <div className="today-news__feed">
         <div className="today-news__feed-heading">
           <div><h2>What’s happening today</h2><span>{feed?.date ? new Date(`${feed.date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: "Asia/Bangkok" }) : "Today"}</span></div>
-          {feed?.fetched_at ? <small>Updated {formatNewsTime(feed.fetched_at)} · {feed.source}</small> : null}
+          {feed?.fetched_at ? <small>Updated {formatNewsTime(feed.fetched_at)} · {feed.sources?.length || 1} sources</small> : null}
         </div>
         <label className="today-news__search">
           <Search size={18} aria-hidden="true" />
@@ -74,12 +74,16 @@ export default function TodayNewsPanel() {
           {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button> : null}
         </label>
         <div className="today-news__filters" role="group" aria-label="Filter news category">
-          {(feed?.categories || [{ id: "all", label: "All" }, { id: "thailand", label: "Thailand" }, { id: "world", label: "World" }, { id: "science", label: "Science" }, { id: "news", label: "Thailand news" }, { id: "topics", label: "Topics" }, { id: "events", label: "Events" }]).map((item) => (
+          {(feed?.categories || [
+            { id: "all", label: "All" }, { id: "thailand", label: "Thailand" }, { id: "world", label: "World" },
+            { id: "business", label: "Business" }, { id: "technology", label: "Technology" }, { id: "science", label: "Science" },
+            { id: "health", label: "Health" }, { id: "sports", label: "Sports" }, { id: "culture", label: "Culture" },
+          ]).map((item) => (
             <button key={item.id} type="button" className={category === item.id ? "is-active" : ""} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.label}</button>
           ))}
         </div>
         {feed?.stale ? <p className="today-news__notice">Showing the last saved update. It could not be refreshed just now.</p> : null}
-        {feed && !globalNewsAvailable ? <p className="today-news__notice">Global headlines are not reaching the server right now. Showing today’s available Thailand news.</p> : null}
+        {feed && !globalNewsAvailable ? <p className="today-news__notice">Some international news sources are temporarily unavailable. Showing headlines from sources that responded.</p> : null}
         {loading && !feed ? <div className="today-news__state" role="status">Loading today’s news…</div> : null}
         {error ? <div className="today-news__state today-news__state--error" role="alert">{error}<button type="button" onClick={load}>Retry</button></div> : null}
         {!loading && !error && visibleItems.length ? (
@@ -87,7 +91,7 @@ export default function TodayNewsPanel() {
             {visibleItems.map((item) => (
               <article className="today-news__story" key={item.id}>
                 <div className="today-news__story-meta">
-                  <span>{item.category_label} · {item.source}</span>
+                  <span>{item.category_label}{item.region && item.region !== item.category ? ` · ${item.region_label}` : ""} · {item.source}</span>
                   <time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time>
                 </div>
                 {Number.isFinite(Number(item.interest_rating)) ? (
@@ -106,7 +110,7 @@ export default function TodayNewsPanel() {
           <div className="today-news__state">
             <span className="today-news__icon"><Newspaper size={26} /></span>
             <strong>{query || category !== "all" ? "No matching headlines" : "No stories published today"}</strong>
-            <p>{query || category !== "all" ? "Try another search or category." : "Today refreshes from Thailand.go.th and GDELT global news. Social posts and Stories are shown in Social."}</p>
+            <p>{query || category !== "all" ? "Try another search or category." : "Today refreshes from Thai and international publishers. Social posts and Stories are shown in Social."}</p>
           </div>
         ) : null}
       </div>

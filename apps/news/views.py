@@ -22,19 +22,45 @@ from rest_framework.views import APIView
 
 
 FEEDS = (
-    {"url": "https://www.thailand.go.th/useful-rss?hl=th", "label": "Thailand.go.th", "category": "news", "category_label": "Thailand news"},
-    {"url": "https://www.thailand.go.th/issue-rss?hl=th", "label": "Thailand.go.th", "category": "topics", "category_label": "Topics"},
-    {"url": "https://www.thailand.go.th/event-rss?hl=th", "label": "Thailand.go.th", "category": "events", "category_label": "Events"},
-    {"url": "https://www.nasa.gov/news-release/feed/", "label": "NASA", "category": "science", "category_label": "Science"},
+    {"url": "https://news.google.com/rss?hl=th&gl=TH&ceid=TH:th", "label": "Google News Thailand", "category": "thailand", "category_label": "Thailand", "region": "thailand", "summary": False, "classify": True},
+    {"url": "https://www.thailand.go.th/useful-rss?hl=th", "label": "Thailand.go.th", "category": "thailand", "category_label": "Thailand", "region": "thailand"},
+    {"url": "https://www.thailand.go.th/issue-rss?hl=th", "label": "Thailand.go.th", "category": "thailand", "category_label": "Thailand", "region": "thailand"},
+    {"url": "https://www.thailand.go.th/event-rss?hl=th", "label": "Thailand.go.th", "category": "thailand", "category_label": "Thailand", "region": "thailand"},
+    {"url": "https://feeds.bbci.co.uk/news/world/rss.xml", "label": "BBC News", "category": "world", "category_label": "World", "region": "world", "global_source": True},
+    {"url": "https://feeds.bbci.co.uk/news/world/asia/rss.xml", "label": "BBC News Asia", "category": "world", "category_label": "World", "region": "world", "global_source": True},
+    {"url": "https://www.theguardian.com/world/rss", "label": "The Guardian", "category": "world", "category_label": "World", "region": "world", "global_source": True},
+    {"url": "https://feeds.npr.org/1001/rss.xml", "label": "NPR", "category": "world", "category_label": "World", "region": "world", "global_source": True},
+    {"url": "https://feeds.bbci.co.uk/news/business/rss.xml", "label": "BBC News Business", "category": "business", "category_label": "Business", "region": "world", "global_source": True},
+    {"url": "https://feeds.bbci.co.uk/news/technology/rss.xml", "label": "BBC News Technology", "category": "technology", "category_label": "Technology", "region": "world", "global_source": True},
+    {"url": "https://techcrunch.com/feed/", "label": "TechCrunch", "category": "technology", "category_label": "Technology", "region": "world", "global_source": True},
+    {"url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "label": "BBC News Science & Environment", "category": "science", "category_label": "Science", "region": "world", "global_source": True},
+    {"url": "https://www.nasa.gov/news-release/feed/", "label": "NASA", "category": "science", "category_label": "Science", "region": "world", "global_source": True},
+    {"url": "https://feeds.bbci.co.uk/news/health/rss.xml", "label": "BBC News Health", "category": "health", "category_label": "Health", "region": "world", "global_source": True},
+    {"url": "https://www.who.int/rss-feeds/news-english.xml", "label": "World Health Organization", "category": "health", "category_label": "Health", "region": "world", "global_source": True},
+    {"url": "https://feeds.bbci.co.uk/sport/rss.xml", "label": "BBC Sport", "category": "sports", "category_label": "Sports", "region": "world", "global_source": True},
+    {"url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "label": "BBC News Culture", "category": "culture", "category_label": "Culture", "region": "world", "global_source": True},
 )
-FEED_LABEL = "Thailand.go.th · NASA · GDELT Project"
-FRESH_CACHE_KEY = "today-news:thailand-prd:v5"
-STALE_CACHE_KEY = "today-news:thailand-prd:stale:v5"
+FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · more"
+FRESH_CACHE_KEY = "today-news:thailand-prd:v6"
+STALE_CACHE_KEY = "today-news:thailand-prd:stale:v6"
 FRESH_TTL_SECONDS = 300
 STALE_TTL_SECONDS = 86400
 MAX_FEED_BYTES = 1_500_000
-MAX_ITEMS = 60
+MAX_ITEMS = 80
+MAX_ITEMS_PER_FEED = 30
+MAX_ITEMS_PER_CATEGORY = 12
+FETCH_TIMEOUT_SECONDS = 3
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
+CATEGORY_LABELS = {
+    "thailand": "Thailand",
+    "world": "World",
+    "business": "Business",
+    "technology": "Technology",
+    "science": "Science",
+    "health": "Health",
+    "sports": "Sports",
+    "culture": "Culture",
+}
 GDELT_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 GDELT_QUERY = '(Thailand OR earthquake OR election OR parliament OR government OR economy OR business OR health OR science OR technology OR climate OR war OR sports OR disaster OR education)'
 
@@ -101,12 +127,29 @@ def _safe_article_link(raw):
     return ""
 
 
+def _classify_headline(title, fallback):
+    """Assign broad topics to aggregator headlines without rewriting their content."""
+    text = str(title or "").casefold()
+    topic_patterns = (
+        ("sports", r"กีฬา|ฟุตบอล|ฟุตซอล|วอลเลย์บอล|บาสเกตบอล|นักกีฬา|ทีมชาติ|แชมป์|พรีเมียร์.?ลีก|เอฟเอคัพ|โอลิมปิก|\bsport(?:s)?\b|\bfootball\b|\bsoccer\b|\btennis\b|\bnba\b|\bfifa\b"),
+        ("business", r"เศรษฐกิจ|ธุรกิจ|ตลาดหุ้น|หุ้น|ราคาทอง|ทองคำ|ค่าเงินบาท|ธนาคาร|บริษัท|ลงทุน|ส่งออก|การค้า|น้ำมัน|\bbusiness\b|\beconomy\b|\bmarket\b|\bstocks?\b|\bfinance\b|\btrade\b"),
+        ("technology", r"เทคโนโลยี|ปัญญาประดิษฐ์|ไซเบอร์|แฮก|แฮ็ก|ดิจิทัล|สมาร์ตโฟน|มือถือ|แอปพลิเคชัน|\btechnology\b|\btech\b|\bai\b|\bcyber\b|\bsoftware\b|\bsmartphone\b|\bstartup\b"),
+        ("health", r"สุขภาพ|สาธารณสุข|โรงพยาบาล|แพทย์|หมอ|ผู้ป่วย|โรคระบาด|วัคซีน|ยาใหม่|\bhealth\b|\bmedical\b|\bhospital\b|\bdisease\b|\bvaccine\b|\bwho\b"),
+        ("science", r"วิทยาศาสตร์|อวกาศ|ดาราศาสตร์|นาซา|นาซ่า|สิ่งแวดล้อม|โลกร้อน|สภาพภูมิอากาศ|แผ่นดินไหว|พายุ|น้ำท่วม|\bscience\b|\bspace\b|\bnasa\b|\bclimate\b|\bresearch\b|\bearthquake\b"),
+        ("culture", r"บันเทิง|ดารา|นักแสดง|ภาพยนตร์|หนังใหม่|เพลงใหม่|คอนเสิร์ต|ซีรีส์|ละคร|เกมใหม่|\bentertainment\b|\bculture\b|\bfilm\b|\bmovie\b|\bmusic\b|\bcelebrity\b|\btelevision\b"),
+    )
+    for category, pattern in topic_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return category
+    return fallback
+
+
 def _fetch_feed(feed):
     request = Request(
         feed["url"],
         headers={"User-Agent": "SatoshiCoreToday/1.0 (+https://chat.satoshicore.org)", "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"},
     )
-    with urlopen(request, timeout=5) as response:
+    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
         if response.status != 200:
             raise URLError(f"Feed returned HTTP {response.status}")
         payload = response.read(MAX_FEED_BYTES + 1)
@@ -121,24 +164,31 @@ def _fetch_feed(feed):
     for entry in entries:
         title = _plain_text(_child_text(entry, "title"), 240)
         link = _safe_article_link(_child_text(entry, "link", "guid"))
+        source_node = next((child for child in entry if _local_name(child.tag) == "source"), None)
+        source_name = _plain_text("".join(source_node.itertext()), 120) if source_node is not None else ""
+        if source_name and title.casefold().endswith(f" - {source_name}".casefold()):
+            title = title[: -(len(source_name) + 3)].strip()
         published = _published_at(entry)
         if not title or not link or not published or published.astimezone(BANGKOK_TZ).date() != today:
             continue
         if link in seen:
             continue
         seen.add(link)
-        summary = _plain_text(_child_text(entry, "description", "summary", "content"), 420)
+        summary = _plain_text(_child_text(entry, "description", "summary", "content"), 420) if feed.get("summary", True) else ""
+        category = _classify_headline(title, feed["category"]) if feed.get("classify", False) else feed["category"]
         items.append({
             "id": link,
             "title": title,
             "summary": summary,
             "url": link,
-            "source": feed["label"],
-            "category": feed["category"],
-            "category_label": feed["category_label"],
+            "source": source_name or feed["label"],
+            "category": category,
+            "category_label": CATEGORY_LABELS[category],
+            "region": feed.get("region", "world"),
+            "region_label": CATEGORY_LABELS.get(feed.get("region", "world"), "World"),
             "published_at": published.isoformat(),
         })
-        if len(items) >= MAX_ITEMS:
+        if len(items) >= MAX_ITEMS_PER_FEED:
             break
     items.sort(key=lambda item: item["published_at"], reverse=True)
     return items
@@ -159,7 +209,7 @@ def _fetch_global_news():
         headers={"User-Agent": "SatoshiCoreToday/1.0 (+https://chat.satoshicore.org)", "Accept": "application/json"},
     )
     # GDELT is optional: do not make a user's Today page wait on a slow global source.
-    with urlopen(request, timeout=3) as response:
+    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
         if response.status != 200:
             raise URLError(f"GDELT returned HTTP {response.status}")
         payload = response.read(MAX_FEED_BYTES + 1)
@@ -180,14 +230,17 @@ def _fetch_global_news():
             continue
         country = str(article.get("sourcecountry") or "").strip().casefold()
         domain = _plain_text(article.get("domain"), 120) or "News publisher"
+        category = _classify_headline(title, "thailand" if country in {"th", "thailand"} else "world")
         items.append({
             "id": link,
             "title": title,
             "summary": "",
             "url": link,
             "source": domain,
-            "category": "thailand" if country in {"th", "thailand"} else "world",
-            "category_label": "Thailand" if country in {"th", "thailand"} else "World",
+            "category": category,
+            "category_label": CATEGORY_LABELS[category],
+            "region": "thailand" if country in {"th", "thailand"} else "world",
+            "region_label": "Thailand" if country in {"th", "thailand"} else "World",
             "published_at": published.isoformat(),
         })
     return items
@@ -198,26 +251,33 @@ def _fetch_today_items():
     failures = 0
     successful_sources = set()
     with ThreadPoolExecutor(max_workers=len(FEEDS) + 1) as executor:
-        future_sources = {executor.submit(_fetch_feed, feed): feed["label"] for feed in FEEDS}
-        future_sources[executor.submit(_fetch_global_news)] = "GDELT Project"
+        future_sources = {executor.submit(_fetch_feed, feed): feed for feed in FEEDS}
+        future_sources[executor.submit(_fetch_global_news)] = {"label": "GDELT Project", "region": "world", "global_source": True}
+        successful_global_source = False
+        successful_thailand_source = False
         for future in as_completed(future_sources):
             try:
                 result = future.result()
                 items.extend(result)
-                successful_sources.add(future_sources[future])
+                source = future_sources[future]
+                successful_sources.add(source["label"])
+                successful_global_source |= source.get("global_source", False)
+                successful_thailand_source |= source.get("region") == "thailand"
             except Exception:
                 failures += 1
     if failures == len(FEEDS) + 1:
         raise URLError("All configured Today news sources are unavailable")
     unique = {item["url"]: item for item in items}
-    items = _rank_coverage(unique.values())[:MAX_ITEMS]
+    items = _balance_categories(_rank_coverage(unique.values()))[:MAX_ITEMS]
     today = _today_bangkok()
     source_label = " · ".join(sorted(successful_sources)) or FEED_LABEL
     return {
         "items": items,
         "source": source_label,
         "sources": sorted(successful_sources),
-        "global_available": "GDELT Project" in successful_sources,
+        "global_available": successful_global_source,
+        "thailand_available": successful_thailand_source,
+        "global_trends_available": "GDELT Project" in successful_sources,
         "fetched_at": timezone.now().isoformat(),
         "date": today.isoformat(),
     }
@@ -249,6 +309,19 @@ def _rank_coverage(items):
     return sorted(ranked, key=lambda item: (item["interest_rating"], item["published_at"]), reverse=True)
 
 
+def _balance_categories(items):
+    """Interleave fresh headlines so one high-volume feed cannot crowd out other topics."""
+    categories = {}
+    for item in items:
+        categories.setdefault(item.get("category", "world"), []).append(item)
+    ordered_categories = ["thailand", "world", "business", "technology", "science", "health", "sports", "culture"]
+    ordered_categories.extend(category for category in categories if category not in ordered_categories)
+    balanced = []
+    for category in ordered_categories:
+        balanced.extend(categories.get(category, [])[:MAX_ITEMS_PER_CATEGORY])
+    return balanced
+
+
 class TodayNewsFeedAPIView(APIView):
     """Serve today's cached headlines with local category and keyword filtering."""
 
@@ -278,12 +351,12 @@ class TodayNewsFeedAPIView(APIView):
     def _filtered(request, feed, *, stale):
         category = (request.query_params.get("category") or "all").strip().lower()
         query = (request.query_params.get("q") or "").strip()[:100].casefold()
-        allowed = {"all", "thailand", "world", *(source["category"] for source in FEEDS)}
+        allowed = {"all", *CATEGORY_LABELS}
         if category not in allowed:
             category = "all"
         items = feed.get("items", [])
         if category != "all":
-            items = [item for item in items if item.get("category") == category]
+            items = [item for item in items if item.get("category") == category or item.get("region") == category]
         if query:
             items = [
                 item for item in items
@@ -295,8 +368,6 @@ class TodayNewsFeedAPIView(APIView):
             "stale": stale,
             "categories": [
                 {"id": "all", "label": "All"},
-                {"id": "thailand", "label": "Thailand"},
-                {"id": "world", "label": "World"},
-                *[{"id": source["category"], "label": source["category_label"]} for source in FEEDS],
+                *[{"id": category, "label": label} for category, label in CATEGORY_LABELS.items()],
             ],
         }
