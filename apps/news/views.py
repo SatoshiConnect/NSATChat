@@ -362,12 +362,22 @@ class TodayNewsFeedAPIView(APIView):
                 item for item in items
                 if query in f"{item.get('title', '')} {item.get('summary', '')}".casefold()
             ]
+        available_categories = {
+            category
+            for item in feed.get("items", [])
+            for category in (item.get("category"), item.get("region"))
+            if category in CATEGORY_LABELS
+        }
         return {
             **feed,
             "items": items,
             "stale": stale,
             "categories": [
                 {"id": "all", "label": "All"},
-                *[{"id": category, "label": label} for category, label in CATEGORY_LABELS.items()],
+                *[
+                    {"id": category, "label": label}
+                    for category, label in CATEGORY_LABELS.items()
+                    if category in available_categories
+                ],
             ],
         }
