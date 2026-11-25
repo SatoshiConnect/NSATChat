@@ -351,6 +351,65 @@
 .mobile-section-switcher {
   display: none;
 }
+.home-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: calc(100% - 24px);
+  min-width: 0;
+  margin: 12px;
+  padding: 12px;
+  border: 1px solid var(--divider);
+  border-radius: 16px;
+  background: var(--panel-bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.home-profile > svg:last-child { flex: none; color: var(--text-muted); }
+.home-profile__body { display: grid; flex: 1; min-width: 0; gap: 3px; }
+.home-profile__body strong { overflow: hidden; color: var(--text-strong); text-overflow: ellipsis; white-space: nowrap; }
+.home-profile__body small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.home-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 4px 12px 18px;
+  border-bottom: 1px solid var(--divider);
+}
+.home-shortcuts button {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 8px 3px;
+  border: 1px solid var(--divider);
+  border-radius: 13px;
+  background: var(--panel-bg);
+  color: var(--accent);
+  cursor: pointer;
+}
+.home-shortcuts button span { max-width: 100%; color: var(--text); font-size: 11px; text-align: center; overflow-wrap: anywhere; }
+.home-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 16px 16px 6px; }
+.home-section-header h2 { margin: 0; font-size: var(--fs-lg); }
+.home-section-header button { display: inline-flex; align-items: center; gap: 2px; border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; }
+.home-friends { padding: 0 8px 12px; }
+.home-friend { display: flex; align-items: center; gap: 11px; width: 100%; min-width: 0; padding: 9px 8px; border: 0; border-bottom: 1px solid var(--divider); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.home-friend > span:nth-child(2) { display: grid; flex: 1; min-width: 0; gap: 3px; }
+.home-friend strong, .home-friend small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-friend strong { font-size: var(--fs-sm); font-weight: 550; }
+.home-friend small, .home-friend > svg:last-child { color: var(--text-muted); font-size: var(--fs-xs); }
+.mobile-chats-panel { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.mobile-chat-switch { display: none; }
+.mobile-chats-panel__body { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
+.mobile-chats-panel__body > .panel { height: 100%; min-height: 0; }
+.openchat-note { display: grid; gap: 4px; margin: 12px; padding: 12px 14px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-raised); }
+.openchat-note strong { color: var(--text-strong); font-size: var(--fs-sm); }
+.openchat-note span { color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.4; }
+.openchat-room { width: 100%; border: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.openchat-room__time { flex: none; color: var(--text-muted); font-size: var(--fs-xs); }
 .fab-stack {
   display: none;
 }
@@ -410,6 +469,30 @@
     background: var(--panel-bg);
     border-top: 1px solid var(--divider);
   }
+  .mobile-chat-switch {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    margin: 8px 12px;
+    padding: 4px;
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    background: var(--panel-raised);
+  }
+  .mobile-chat-switch button {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 36px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .mobile-chat-switch button.is-active { background: var(--accent); color: var(--badge-text); font-weight: 650; }
   .tabbar__btn {
     flex: 1 1 0;
     min-width: 0;

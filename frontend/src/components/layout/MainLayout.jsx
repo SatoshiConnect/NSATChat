@@ -8,6 +8,9 @@ import { loadMessages, loadStatus, markRoomRead, setActiveRoom } from "../../sto
 import { getState, useStore } from "../../store/store";
 import NavRail from "../navigation/NavRail";
 import ChatListPanel from "../chat-list/ChatListPanel";
+import OpenChatPanel from "../chat-list/OpenChatPanel";
+import HomePanel from "./HomePanel";
+import MobileChatsPanel from "./MobileChatsPanel";
 import ArchivedPanel from "../chat-list/ArchivedPanel";
 import NewChatPanel from "../chat-list/NewChatPanel";
 import NewContactPanel from "../chat-list/NewContactPanel";
@@ -72,7 +75,9 @@ const PANELS = {
 };
 
 const SECTION_PANELS = {
-  chats: ChatListPanel,
+  home: HomePanel,
+  chats: MobileChatsPanel,
+  openChat: OpenChatPanel,
   status: StatusPanel,
   contacts: ContactsPanel,
   profile: ProfilePanel,
@@ -91,7 +96,7 @@ const DRAWERS = {
 };
 
 export default function MainLayout({ onLogout }) {
-  const [section, setSectionState] = useState("chats");
+  const [section, setSectionState] = useState("home");
   const [stack, setStack] = useState([]);
   const [drawer, setDrawer] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
@@ -273,7 +278,7 @@ export default function MainLayout({ onLogout }) {
           {!showWallet && !showMarketplace ? (
             <aside className="sidebar">
               <div className="sidebar__stack">
-                <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} /></Suspense>
+                <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} {...(section === "chats" ? { FriendsPanel: ContactsPanel } : {})} {...(section === "contacts" ? { onBack: () => setSection("home") } : {})} /></Suspense>
                 {OverlayPanel ? (
                   <div className="sidebar__overlay" key={`${top.name}-${stack.length}`}>
                     <Suspense fallback={fallback}><OverlayPanel {...top.props} /></Suspense>

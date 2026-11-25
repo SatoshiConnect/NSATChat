@@ -334,7 +334,7 @@ export default function SettingsPanel() {
 
   return (
     <section className="panel settings-panel">
-      <PanelHeader title={app.compact ? "You" : "Settings"} />
+      <PanelHeader title="Settings" />
       <SearchInput value={query} onChange={setQuery} placeholder="Search settings" />
       <div className="panel__scroll">
         <button type="button" className="settings-profile" onClick={() => app.setSection("profile")}>

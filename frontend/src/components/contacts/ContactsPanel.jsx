@@ -15,7 +15,7 @@ import { useApp } from "../layout/AppContext";
 import PresenceAvatar from "../common/PresenceAvatar";
 
 /** Saved contacts: search, open chat, add, edit (re-link) and delete. */
-export default function ContactsPanel() {
+export default function ContactsPanel({ onBack } = {}) {
   const app = useApp();
   const contacts = useStore((state) => state.contacts);
   const [query, setQuery] = useState("");
@@ -63,7 +63,7 @@ export default function ContactsPanel() {
 
   return (
     <section className="panel">
-      <PanelHeader title="Contacts" actions={<IconButton icon={UserPlus} label="Add friends" onClick={() => app.pushPanel("addFriends")} />} />
+      <PanelHeader title="Friends" onBack={onBack} actions={<IconButton icon={UserPlus} label="Add friends" onClick={() => app.pushPanel("addFriends")} />} />
       <SearchInput value={query} onChange={setQuery} placeholder="Search name or number" />
       <div className="panel__scroll">
         {!query ? (

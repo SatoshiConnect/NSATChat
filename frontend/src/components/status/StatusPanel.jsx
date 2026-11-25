@@ -118,7 +118,7 @@ export default function StatusPanel() {
   return (
     <section className="panel status-panel">
       <PanelHeader
-        title={compact ? "Updates" : "Stories"}
+        title={compact ? "Today" : "Stories"}
         actions={(
           <>
             <IconButton icon={Plus} label="Add status" onClick={(event) => setAddAnchor(event.currentTarget)} />

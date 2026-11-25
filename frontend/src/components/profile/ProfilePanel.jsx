@@ -242,7 +242,7 @@ export default function ProfilePanel() {
 
   return (
     <section className="panel profile-panel">
-      <PanelHeader title="Profile" onBack={app.compact ? () => app.setSection("settings") : undefined} />
+      <PanelHeader title="Profile" onBack={app.compact ? () => app.setSection("home") : undefined} />
       <div className="panel__scroll">
         <div className="profile-photo">
           <button type="button" className="profile-photo__btn" onClick={(event) => setPhotoMenu(event.currentTarget)} aria-label="Change profile photo">
