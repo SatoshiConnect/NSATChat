@@ -81,8 +81,13 @@ export default function WalletPanel({ launch = null }) {
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const signingSecretRef = useRef("");
   const postedReceiptHashesRef = useRef(new Set());
+  const walletUnlockRef = useRef(null);
 
   useEffect(() => () => { signingSecretRef.current = ""; }, []);
+
+  useEffect(() => {
+    if (keyFlow === "unlock") walletUnlockRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [keyFlow]);
 
   useEffect(() => {
     let active = true;
@@ -589,6 +594,13 @@ export default function WalletPanel({ launch = null }) {
               ) : null}
             </div>
 
+            {keyFlow === "unlock" ? <form ref={walletUnlockRef} className="wallet-native__inline-unlock wallet-native__inline-unlock--top" onSubmit={submitUnlockWallet}>
+              <label>Wallet password on this device<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
+              <p className="wallet-native__privacy">This unlocks your locally encrypted signing key; it does not sign in to chat or send your password to the server.</p>
+              <button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button>
+              {keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}
+            </form> : null}
+
             <section className="wallet-native__balance-card" aria-label="Wallet balance">
               <div className="wallet-native__balance-label"><span>NSAT balance</span><span className="wallet-native__network-dot" />{wallet?.account_status === "active" ? "Mainnet" : wallet?.account_status === "not_found" ? "Not activated" : "Checking"}</div>
               <strong>{busy ? "…" : wallet?.account_status === "active" ? exactAmount(wallet.balance) : wallet?.account_status === "not_found" ? "0" : "—"}</strong>
@@ -662,7 +674,6 @@ export default function WalletPanel({ launch = null }) {
               </section>
             ) : null}
 
-            {keyFlow === "unlock" ? <form className="wallet-native__inline-unlock" onSubmit={submitUnlockWallet}><label>Wallet password on this device<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label><p className="wallet-native__privacy">This unlocks your locally encrypted signing key; it does not sign in to chat or send your password to the server.</p><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button>{keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}</form> : null}
             {selfOpenReview ? <div className="wallet-native__review" role="dialog" aria-modal="true" aria-label="Review free wallet activation">
               <h3>Open this wallet for free?</h3><dl><div><dt>Wallet</dt><dd>{shortAddress(address)}</dd></div><div><dt>Starting balance</dt><dd>0 NSAT</dd></div><div><dt>Network fee</dt><dd>0 NSAT</dd></div><div><dt>Mainnet ledger version</dt><dd>{selfOpenReview.protocol_version}</dd></div></dl>
               <p>This signs only the NSAT Core self-open operation for this wallet. It sends no NSAT and the private key stays on this device.</p>
