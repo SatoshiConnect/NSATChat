@@ -596,6 +596,10 @@
     text-overflow: ellipsis;
     max-width: 100%;
   }
+  @media (max-width: 360px) {
+    .tabbar__label { font-size: 10.5px; }
+    .tabbar__pill { height: 30px; }
+  }
   .tabbar__btn.is-active .tabbar__label {
     font-weight: 600;
   }

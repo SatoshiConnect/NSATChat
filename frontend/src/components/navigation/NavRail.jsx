@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Contact, Home, Images, Settings, ShoppingBag, Sparkles, Users, WalletCards } from "lucide-react";
+import { Contact, Home, Images, Newspaper, Settings, ShoppingBag, Sparkles, Users, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { useStore } from "../../store/store";
 import { Avatar } from "../common/ui";
@@ -10,7 +10,7 @@ const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 /**
  * Compact vertical navigation on desktop; on phones the LINE-inspired
- * Home, Chats, OpenChat, Today and Wallet destinations. Calls live inside
+ * Home, Chats, OpenChat, Today, Social and Wallet destinations. Calls live inside
  * Chats, Marketplace lives inside Wallet, and Friends are available from Home
  * and the Chats/Friends switcher.
  * Badges are derived from real state: unread chats (non-archived) and unseen
@@ -30,7 +30,8 @@ function NavRail({ section, onChange, onOpenMedia }) {
       { id: "home", label: "Home", match: ["home", "contacts", "profile", "settings"], icon: () => <Home size={22} strokeWidth={1.8} /> },
       { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
       { id: "openChat", label: "OpenChat", icon: () => <Users size={22} strokeWidth={1.8} /> },
-      { id: "status", label: "Today", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
+      { id: "today", label: "Today", icon: () => <Newspaper size={22} strokeWidth={1.8} /> },
+      { id: "status", label: "Social", ariaLabel: "Social media", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
       {
         id: WALLET_UI_ENABLED ? "wallet" : "marketplace",
         label: WALLET_UI_ENABLED ? "Wallet" : "Market",
@@ -70,7 +71,8 @@ function NavRail({ section, onChange, onOpenMedia }) {
     { id: "home", label: "Home", match: ["home", "contacts"], icon: () => <Home size={22} strokeWidth={1.8} /> },
     { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
     { id: "openChat", label: "OpenChat", icon: () => <Users size={22} strokeWidth={1.8} /> },
-    { id: "status", label: "Today", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
+    { id: "today", label: "Today", icon: () => <Newspaper size={22} strokeWidth={1.8} /> },
+    { id: "status", label: "Social", ariaLabel: "Social media", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
     { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
     ...(WALLET_UI_ENABLED ? [{ id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> }] : []),

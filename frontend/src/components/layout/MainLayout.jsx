@@ -15,6 +15,7 @@ import ArchivedPanel from "../chat-list/ArchivedPanel";
 import NewChatPanel from "../chat-list/NewChatPanel";
 import NewContactPanel from "../chat-list/NewContactPanel";
 import NewGroupPanel from "../chat-list/NewGroupPanel";
+import OpenCommunityCreatePanel from "../chat-list/OpenCommunityCreatePanel";
 import Conversation from "../conversation/Conversation";
 import SearchMessages from "../info/SearchMessages";
 import { CallProvider } from "../calls/CallManager";
@@ -27,6 +28,7 @@ import { Spinner } from "../common/ui";
 // Less-used screens load on demand to keep the first download small.
 const StatusPanel = lazy(() => import("../status/StatusPanel"));
 const StatusMain = lazy(() => import("../status/StatusMain"));
+const TodayNewsPanel = lazy(() => import("./TodayNewsPanel"));
 const AssistantPanel = lazy(() => import("../assistant/AssistantPanel"));
 const AssistantChat = lazy(() => import("../assistant/AssistantChat"));
 const AllMediaDialog = lazy(() => import("../media/AllMediaDialog"));
@@ -71,6 +73,7 @@ const PANELS = {
   newContact: NewContactPanel,
   addFriends: AddFriendsPanel,
   newGroup: NewGroupPanel,
+  newOpenCommunity: OpenCommunityCreatePanel,
   starred: StarredPanel,
 };
 
@@ -78,6 +81,7 @@ const SECTION_PANELS = {
   home: HomePanel,
   chats: MobileChatsPanel,
   openChat: OpenChatPanel,
+  today: TodayNewsPanel,
   status: StatusPanel,
   contacts: ContactsPanel,
   profile: ProfilePanel,
@@ -268,6 +272,7 @@ export default function MainLayout({ onLogout }) {
     </>
   );
   else if (section === "status") main = compact ? null : <StatusMain />;
+  else if (section === "today") main = <TodayNewsPanel />;
   else if (section === "ai" || section === "aiChat") main = <AssistantChat />;
   else if (showChat) main = <Conversation key={activeRoomId} roomId={activeRoomId} />;
   else
@@ -289,7 +294,7 @@ export default function MainLayout({ onLogout }) {
       <CallProvider>
         <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""} ${showWallet ? "is-wallet-view" : ""} ${showMarketplace ? "is-marketplace-view" : ""}`}>
           <NavRail section={section === "aiChat" ? "chats" : section} onChange={setSection} onOpenMedia={openMedia} />
-          {!showWallet && !showMarketplace ? (
+          {!showWallet && !showMarketplace && section !== "today" ? (
             <aside className="sidebar">
               <div className="sidebar__stack">
                 <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} {...(section === "chats" ? { FriendsPanel: ContactsPanel } : {})} {...(section === "contacts" ? { onBack: () => setSection("home") } : {})} /></Suspense>

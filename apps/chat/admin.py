@@ -7,6 +7,8 @@ from .models import (
     ChatRoom,
     Message,
     Participant,
+    OpenCommunity,
+    OpenCommunityReport,
 )
 from django.db.models import Sum
 from django.utils import timezone
@@ -463,3 +465,38 @@ class ChatClearAdmin(admin.ModelAdmin):
     list_display = ("room", "user", "cleared_at")
     list_filter = ("cleared_at",)
     search_fields = ("user__phone_number", "room__name")
+
+
+@admin.register(OpenCommunity)
+class OpenCommunityAdmin(admin.ModelAdmin):
+    list_display = ("id", "room", "owner", "category", "join_mode", "state", "searchable", "created_at")
+    list_filter = ("state", "category", "join_mode", "searchable", "created_at")
+    search_fields = ("room__name", "room__description", "owner__phone_number")
+    readonly_fields = ("created_at", "updated_at", "published_at", "join_code_hash")
+    actions = ("publish_communities", "suspend_communities")
+
+    @admin.action(description="Approve and publish selected communities")
+    def publish_communities(self, request, queryset):
+        for community in queryset.exclude(state=OpenCommunity.State.PUBLISHED):
+            community.publish()
+            self.log_change(request, community, "Approved and published after moderation review.")
+
+    @admin.action(description="Suspend selected communities from discovery")
+    def suspend_communities(self, request, queryset):
+        for community in queryset.exclude(state=OpenCommunity.State.SUSPENDED):
+            community.state = OpenCommunity.State.SUSPENDED
+            community.save(update_fields=("state", "updated_at"))
+            self.log_change(request, community, "Suspended from OpenChat discovery.")
+
+
+@admin.register(OpenCommunityReport)
+class OpenCommunityReportAdmin(admin.ModelAdmin):
+    list_display = ("id", "community", "reporter", "reason", "state", "created_at", "reviewed_by")
+    list_filter = ("state", "reason", "created_at")
+    search_fields = ("community__room__name", "reporter__phone_number", "details")
+    readonly_fields = ("community", "reporter", "reason", "details", "created_at")
+    def save_model(self, request, obj, form, change):
+        if change and "state" in form.changed_data:
+            obj.reviewed_by = request.user
+            obj.reviewed_at = timezone.now()
+        super().save_model(request, obj, form, change)

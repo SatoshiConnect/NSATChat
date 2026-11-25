@@ -61,6 +61,9 @@ class Participant(models.Model):
         help_text="Whether the chat appears under this user's Favorites filter.",
     )
 
+    # Set only for community memberships; never modifies the account profile.
+    community_display_name = models.CharField(max_length=50, blank=True)
+
     joined_at = models.DateTimeField(
         auto_now_add=True,
     )

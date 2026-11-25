@@ -66,6 +66,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return
 
         self.room_id = self.scope["url_route"]["kwargs"]["room_id"]
+        self.is_open_community = await self.open_community_room()
 
         room_exists = await self.room_exists()
 
@@ -660,7 +661,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             {
                 "type": "typing.update",
                 "user_id": self.user.id,
-                "sender_phone": self.user.phone_number,
+                "sender_phone": "" if self.is_open_community else self.user.phone_number,
                 "is_typing": is_typing,
             },
         )
@@ -795,7 +796,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "type": "message.reaction",
                 "message_id": message_id,
                 "user_id": self.user.id,
-                "sender_phone": self.user.phone_number,
+                "sender_phone": "" if self.is_open_community else self.user.phone_number,
                 "emoji": emoji,
             },
         )
@@ -1420,6 +1421,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             pk=self.room_id,
             is_active=True,
         ).exists()
+
+    @database_sync_to_async
+    def open_community_room(self) -> bool:
+        return ChatRoom.objects.filter(pk=self.room_id, open_community__isnull=False).exists()
 
     @database_sync_to_async
     def is_participant(self) -> bool:

@@ -19,9 +19,44 @@ from .models import (
     DeletedMessage,
     VoiceNote,
     MessageReceipt,
+    OpenCommunity,
 
 
 )
+
+
+def _community_alias(room, user_id, context=None):
+    """Return the room-only identity for public communities, if applicable."""
+    if not room:
+        return None
+    room_id = room.pk
+    context = context if isinstance(context, dict) else {}
+    room_cache = context.setdefault("_open_community_room_cache", {})
+    is_community = room_cache.get(room_id)
+    if is_community is None:
+        is_community = OpenCommunity.objects.filter(room_id=room_id).exists()
+        room_cache[room_id] = is_community
+    if not is_community:
+        return None
+    alias_cache = context.setdefault("_open_community_alias_cache", {})
+    key = (room_id, user_id)
+    if key not in alias_cache:
+        alias_cache[key] = Participant.objects.filter(room_id=room_id, user_id=user_id).values_list("community_display_name", flat=True).first() or "Member"
+    alias = alias_cache[key]
+    return alias or "Member"
+
+
+def _mask_community_user(data, alias):
+    if not alias or not isinstance(data, dict):
+        return data
+    data.pop("phone_number", None)
+    data.pop("email", None)
+    data.pop("public_id", None)
+    profile = data.get("profile")
+    if isinstance(profile, dict):
+        profile["display_name"] = alias
+        profile["contact_phone"] = ""
+    return data
 
 
 # ==========================================================
@@ -369,6 +404,7 @@ class ParticipantSerializer(serializers.ModelSerializer):
             "is_muted",
             "muted_until",
             "is_archived",
+            "community_display_name",
             "joined_at",
         )
 
@@ -376,6 +412,13 @@ class ParticipantSerializer(serializers.ModelSerializer):
             "id",
             "joined_at",
         )
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        alias = _community_alias(obj.room, obj.user_id, self.context)
+        if alias:
+            data["user"] = _mask_community_user(data.get("user"), alias)
+        return data
 
 
 # ==========================================================
@@ -439,6 +482,15 @@ class MessageSerializer(serializers.ModelSerializer):
         from apps.accounts.privacy import mask_read_state, viewer_from_context
 
         data = super().to_representation(obj)
+        alias = _community_alias(obj.room, obj.sender_id, self.context)
+        if alias:
+            data["sender"] = _mask_community_user(data.get("sender"), alias)
+            for reaction in data.get("reactions") or []:
+                reaction["sender_phone"] = ""
+            if data.get("reply_to"):
+                data["reply_to"]["sender_phone"] = ""
+            if data.get("forwarded_from"):
+                data["forwarded_from"]["sender_phone"] = ""
         if obj.is_view_once:
             # Never expose a URL for view once media: it is fetched once
             # through /messages/<id>/view-once/ (see ViewOnceMediaAPIView).
@@ -1618,6 +1670,11 @@ class MessageSearchSerializer(serializers.ModelSerializer):
 
     def to_representation(self, obj):
         data = super().to_representation(obj)
+        alias = _community_alias(obj.room, obj.sender_id, self.context)
+        if alias:
+            data["sender"] = _mask_community_user(data.get("sender"), alias)
+            if data.get("reply_to"):
+                data["reply_to"]["sender_phone"] = ""
         if obj.is_view_once:
             data["attachments"] = [{**item, "file": None} for item in data.get("attachments") or []]
         return data
@@ -1630,7 +1687,7 @@ class MessageSearchSerializer(serializers.ModelSerializer):
             "id": obj.reply_to.id,
             "content": obj.reply_to.content,
             "sender_id": obj.reply_to.sender.id,
-            "sender_phone": obj.reply_to.sender.phone_number,
+            "sender_phone": "" if _community_alias(obj.room, obj.reply_to.sender_id, self.context) else obj.reply_to.sender.phone_number,
         }
 
 

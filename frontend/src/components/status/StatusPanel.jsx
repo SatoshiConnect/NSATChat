@@ -114,11 +114,36 @@ export default function StatusPanel() {
     { label: "Photos & videos", icon: ImageIcon, onClick: () => fileRef.current?.click() },
     { label: "Text", icon: Pencil, onClick: () => setComposer({ mode: "text" }) },
   ];
+  const mobileStories = (
+    <section className="status-stories status-stories--mobile" aria-label="Stories">
+      <h2>Stories</h2>
+      <div className="status-stories__rail">
+        <button type="button" className="status-story" onClick={() => (myGroup ? openGroup([myGroup], 0) : fileRef.current?.click())} aria-label={myGroup ? "View your status" : "Add a status update"}>
+          <span className="status-story__avatar">
+            <Avatar src={me.profile?.profile_picture} name={me.profile?.display_name} size={52} ring={myGroup ? "seen" : undefined} />
+            {!myGroup ? <span className="status-row__plus"><Plus size={14} strokeWidth={3} /></span> : null}
+          </span>
+          <span className="status-story__name">Create story</span>
+          <span className="status-story__meta">{myGroup ? `${mine.length} updates` : "Share a moment"}</span>
+        </button>
+        {[...recent, ...viewed].map((group, index, groups) => (
+          <button key={group.user.id} type="button" className="status-story" onClick={() => openGroup(groups, index)} aria-label={`View ${displayUserName(group.user, contactMap)}'s status`}>
+            <span className="status-story__avatar">
+              <PresenceAvatar user={group.user} src={group.user.profile?.profile_picture} name={displayUserName(group.user, contactMap)} size={52} ring={group.unseen_count > 0 ? "new" : "seen"} />
+            </span>
+            <span className="status-story__name">{displayUserName(group.user, contactMap)}</span>
+            <span className="status-story__meta">{detailTime(group.statuses[0]?.created_at)}</span>
+          </button>
+        ))}
+      </div>
+      {!loaded && !feed.length ? <div className="status-stories__loading"><Spinner size={16} /> Loading stories</div> : null}
+    </section>
+  );
 
   return (
     <section className="panel status-panel">
       <PanelHeader
-        title={compact ? "Today" : "Stories"}
+        title={compact ? "Social" : "Stories"}
         actions={(
           <>
             <IconButton icon={Plus} label="Add status" onClick={(event) => setAddAnchor(event.currentTarget)} />
@@ -127,31 +152,7 @@ export default function StatusPanel() {
         )}
       />
       <><div className="panel__scroll">
-        {compact ? (
-          <section className="status-stories status-stories--mobile" aria-label="Stories">
-            <h2>Stories</h2>
-            <div className="status-stories__rail">
-              <button type="button" className="status-story" onClick={() => (myGroup ? openGroup([myGroup], 0) : fileRef.current?.click())} aria-label={myGroup ? "View your status" : "Add a status update"}>
-                <span className="status-story__avatar">
-                  <Avatar src={me.profile?.profile_picture} name={me.profile?.display_name} size={52} ring={myGroup ? "seen" : undefined} />
-                  {!myGroup ? <span className="status-row__plus"><Plus size={14} strokeWidth={3} /></span> : null}
-                </span>
-                <span className="status-story__name">My status</span>
-                <span className="status-story__meta">{myGroup ? `${mine.length} update${mine.length === 1 ? "" : "s"}` : "Add update"}</span>
-              </button>
-              {[...recent, ...viewed].map((group, index, groups) => (
-                <button key={group.user.id} type="button" className="status-story" onClick={() => openGroup(groups, index)} aria-label={`View ${displayUserName(group.user, contactMap)}'s status`}>
-                  <span className="status-story__avatar">
-                    <PresenceAvatar user={group.user} src={group.user.profile?.profile_picture} name={displayUserName(group.user, contactMap)} size={52} ring={group.unseen_count > 0 ? "new" : "seen"} />
-                  </span>
-                  <span className="status-story__name">{displayUserName(group.user, contactMap)}</span>
-                  <span className="status-story__meta">{detailTime(group.statuses[0]?.created_at)}</span>
-                </button>
-              ))}
-            </div>
-            {!loaded && !feed.length ? <div className="status-stories__loading"><Spinner size={16} /> Loading stories</div> : null}
-          </section>
-        ) : (
+        {!compact ? (
         <>
         <div className="list-pad">
           <div className="row status-row">
@@ -199,11 +200,11 @@ export default function StatusPanel() {
         ) : null}
         <p className="info-muted info-pad status-foot"><Lock size={12} /> Status updates are only shown to the audience you choose.</p>
         </>
-        )}
+        ) : null}
 
-        {/* Phones scroll one Updates screen: stories on top, the post feed
-            below, instead of a second menu to switch between them. */}
-        {compact ? <div className="status-mobile-posts"><StatusMain /></div> : null}
+        {/* Mobile Social follows the Facebook-style rhythm: composer, Stories,
+            then the member post feed in one continuous scroll. */}
+        {compact ? <div className="status-mobile-posts"><StatusMain storiesSlot={mobileStories} /></div> : null}
       </div>
 
       <input

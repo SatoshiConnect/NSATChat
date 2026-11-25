@@ -10,7 +10,8 @@ brand, accessibility, privacy, and wallet-signing rules.
 | Home | Home as a people and services hub | Profile/actions, friend and group counts, local friend search, horizontal service shortcuts, marketplace spotlight poster, and friend preview |
 | Chats | Chat list with in-context Friends access | Conversation filters; phone layout switches between Chats and Friends; calls remain in conversations and call history cards |
 | OpenChat | Community destination | Current implementation is invite-only joined groups; public discovery is not available yet |
-| Today | Stories/status plus persistent social posts | Status row and social feed share the discovery surface |
+| Today | Publisher news and current-affairs discovery | Separate editorial news destination; do not mix member Stories or posts here |
+| Social | Member-created posts and Stories | Dedicated space for community discussion and status updates |
 | Wallet | Wallet and commerce gateway | Wallet and Marketplace share one bottom destination and have an in-page switcher |
 
 LINE's current redesign is regional and gradual. Its official help documents a

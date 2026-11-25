@@ -79,7 +79,9 @@ export default function Conversation({ roomId }) {
   const nameOf = useCallback(
     (userId) => {
       if (Number(userId) === Number(me.id)) return "You";
-      const user = room?.participants.find((p) => Number(p.user?.id) === Number(userId))?.user;
+      const participant = room?.participants.find((p) => Number(p.user?.id) === Number(userId));
+      if (participant?.community_display_name) return participant.community_display_name;
+      const user = participant?.user;
       return user ? displayUserName(user, contactMap) : "Unknown";
     },
     [room?.participants, contactMap, me.id],

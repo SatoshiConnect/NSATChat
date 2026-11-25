@@ -26,16 +26,39 @@ Availability and limits can vary by region and LINE version. The guide is a prod
 
 ## Current NSATChat state from source
 
+### Implemented foundation in the current feature branch
+
+OpenChat now has a separate `OpenCommunity` record linked to a group room.
+New communities start pending moderation review; existing groups are not
+backfilled into public discovery. The app has discovery search and category
+filters, a My OpenChats view, create flow, public/code/approval join modes,
+room-only nicknames, request review for community admins, and community
+reporting. The existing group room continues to provide messages and calls.
+
+Community member/message serializers suppress account phone, email, public ID,
+and the main profile display name in this context; the community nickname is
+used instead. Join codes are hashed. Admins approve/suspend listings in the
+Django admin, and reports are reviewed there. The migration must be applied
+before these API routes work on a server.
+
+This is the first usable community slice, not the full LINE feature set. It
+does not yet include a community cover/nickname avatar editor, configurable
+join questions, public message previews, owner self-service edit/moderation,
+in-app report queue, member bans/capacity controls, recommendation/trending
+ranking, subchats/threads/events, or large-audience live audio.
+
 | Capability | Current state |
 | --- | --- |
-| OpenChat screen | `OpenChatPanel.jsx` filters the signed-in user's existing group rooms and calls them “Your groups.” Its description says public discovery is unavailable. Search only filters those already-joined groups. |
-| Group data | `ChatRoom` represents private and group rooms. It has name, description, photo, invite code, and ordinary group permissions; there is no separate community publication/category model. |
+| OpenChat screen | `OpenChatPanel.jsx` provides published-community discovery, category/name search, expandable metadata/rules, My OpenChats, and create entry. |
+| Community data | `OpenCommunity` links one group room to a review state, category, join mode, discoverability, preview setting, rules, tags, and a hashed optional join code. |
 | Invitations | Existing group invite codes have high entropy, are resettable, and preview/join endpoints are authenticated and rate limited. This is a useful private-invite foundation. |
-| Membership/admin | Participants have an admin flag. Existing group permissions cover who can edit group details, send messages, and add members. There is no co-admin permission matrix or join-request queue. |
+| Membership/admin | Existing group admins can review approval requests. OpenChat creators start as room admins; group-level permission controls are reused. New owners can choose a separate room nickname. |
 | Conversation engine | Existing messaging features include real-time chat and group features such as calls, reactions, polls, and mentions. These can be reused where appropriate. |
-| Not currently present as OpenChat product features | Public community directory, categories, trending/recommendation ranking, public preview pages, per-community member pseudonyms, public/code/approval join modes, join questions, subchats, threaded replies, community notes/events, public-room reporting and moderation workflow, or community discovery controls. |
+| Moderation | Public discovery is limited to published/searchable records; new listings are pending by default. Members can report a community; admins publish/suspend listings and review reports in Django admin. There is no in-app moderation queue yet. |
+| Not yet present | Recommendation/trending, public message previews, join questions, community cover/avatar editing, bans/capacity, owner self-service settings, subchats, threaded replies, community notes/events, message reporting, and stage-style live audio. |
 
-The repository's current behavior is therefore an invite-only group list. Public search must not be implemented by simply listing every `ChatRoom` with `room_type=GROUP`.
+Public search must continue to use only explicitly published community records;
+it must never list every `ChatRoom` with `room_type=GROUP`.
 
 ## Proposed NSATChat product shape
 

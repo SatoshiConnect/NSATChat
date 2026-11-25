@@ -67,7 +67,7 @@ export default function HomePanel() {
             <strong>{me?.profile?.display_name || "Your profile"}</strong>
             <span>{me?.profile?.about || (me?.public_id ? `@${me.public_id}` : "Set up your SatoshiCore profile")}</span>
           </button>
-          <button type="button" className="home-identity__avatar" aria-label="Open Today and share a status" onClick={() => app.setSection("status")}>
+          <button type="button" className="home-identity__avatar" aria-label="Open Social and share a status" onClick={() => app.setSection("status")}>
             <Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={56} />
             <span><Plus size={15} /></span>
           </button>
@@ -98,7 +98,8 @@ export default function HomePanel() {
             <button type="button" onClick={openFriends}><ContactRound /><span>Friends</span></button>
             <button type="button" onClick={openAddFriends}><UserPlus /><span>Add friends</span></button>
             <button type="button" onClick={() => app.setSection("openChat")}><MessageSquareDashed /><span>OpenChat</span></button>
-            <button type="button" onClick={() => app.setSection("status")}><CalendarDays /><span>Today</span></button>
+            <button type="button" onClick={() => app.setSection("today")}><CalendarDays /><span>Today</span></button>
+            <button type="button" onClick={() => app.setSection("status")}><Users /><span>Social</span></button>
             <button type="button" onClick={() => app.setSection("marketplace")}><ShoppingBag /><span>Market</span></button>
             {WALLET_UI_ENABLED ? <button type="button" onClick={() => app.openWallet()}><WalletCards /><span>Wallet</span></button> : null}
             <button type="button" onClick={() => app.openAssistant()}><Sparkles /><span>AI</span></button>

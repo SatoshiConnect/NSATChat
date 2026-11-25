@@ -1,0 +1,41 @@
+.openchat-tabs { display: flex; gap: 6px; padding: 4px 12px 0; border-bottom: 1px solid var(--divider); }
+.openchat-tabs button { min-height: 42px; padding: 0 14px; color: var(--text-muted); border-bottom: 2px solid transparent; font-size: var(--fs-sm); font-weight: 600; }
+.openchat-tabs button.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.openchat-categories { display: flex; gap: 8px; overflow-x: auto; padding: 10px 14px; scrollbar-width: none; }
+.openchat-categories::-webkit-scrollbar { display: none; }
+.openchat-categories button { flex: none; padding: 7px 12px; color: var(--text-muted); background: var(--panel-raised); border: 1px solid var(--divider); border-radius: 999px; font-size: var(--fs-xs); }
+.openchat-categories button.is-active { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--divider)); }
+.openchat-cards { display: grid; gap: 10px; padding: 12px; }
+.openchat-card { overflow: hidden; border: 1px solid var(--divider); border-radius: 14px; background: var(--panel-raised); }
+.openchat-card__main { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 12px; color: var(--text); text-align: left; }
+.openchat-card__copy { display: grid; flex: 1; gap: 4px; min-width: 0; }
+.openchat-card__copy > strong { overflow: hidden; color: var(--text-strong); font-size: var(--fs-sm); text-overflow: ellipsis; white-space: nowrap; }
+.openchat-card__subtitle,.openchat-card__meta { overflow: hidden; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.openchat-card__meta { color: var(--accent); }
+.openchat-card__details { display: grid; gap: 10px; padding: 0 14px 14px; border-top: 1px solid var(--divider); }
+.openchat-card__details > div:first-child { padding-top: 10px; }
+.openchat-card__details strong { color: var(--text-strong); font-size: var(--fs-xs); }
+.openchat-card__details p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.45; white-space: pre-wrap; }
+.openchat-card__tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.openchat-card__tags span { color: var(--accent); font-size: var(--fs-xs); }
+.openchat-card__status { padding: 8px 10px; color: var(--text-muted); background: var(--panel); border-radius: 9px; }
+.openchat-card__identity { display: grid; gap: 5px; }
+.openchat-card__identity label { color: var(--text-muted); font-size: var(--fs-xs); }
+.openchat-card__identity input { width: 100%; min-width: 0; padding: 9px 10px; color: var(--text); background: var(--panel); border: 1px solid var(--divider); border-radius: 9px; font-size: 16px; }
+.openchat-card__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.openchat-card__badge { color: var(--text-muted); font-size: var(--fs-xs); }
+.openchat-report { display: inline-flex; align-items: center; gap: 5px; padding: 8px; color: var(--text-muted); font-size: var(--fs-xs); }
+.openchat-requests { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--divider); }
+.openchat-request { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.openchat-request > span { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.openchat-request small { overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; }
+.openchat-request button { display: grid; place-items: center; width: 34px; height: 34px; color: var(--accent); border: 1px solid var(--divider); border-radius: 50%; }
+.openchat-request button:last-child { color: var(--danger); }
+.openchat-loading { display: flex; justify-content: center; align-items: center; gap: 8px; min-height: 180px; color: var(--text-muted); font-size: var(--fs-sm); }
+.openchat-create { display: grid; gap: 14px; padding: 16px; }
+.openchat-create__intro { display: flex; align-items: flex-start; gap: 10px; padding: 12px; color: var(--text-muted); background: var(--panel-raised); border: 1px solid var(--divider); border-radius: 12px; font-size: var(--fs-sm); line-height: 1.45; }
+.openchat-create__intro svg { flex: none; color: var(--accent); }
+.openchat-create .field { display: grid; gap: 6px; }
+.openchat-create .field label { color: var(--text-strong); font-size: var(--fs-sm); font-weight: 600; }
+.openchat-create .field input,.openchat-create .field textarea,.openchat-create .field select { width: 100%; min-width: 0; padding: 10px 11px; color: var(--text); background: var(--panel-raised); border: 1px solid var(--divider); border-radius: 10px; font-size: 16px; }
+.openchat-create__submit { justify-self: stretch; min-height: 44px; }

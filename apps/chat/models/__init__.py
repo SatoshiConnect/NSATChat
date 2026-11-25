@@ -13,6 +13,7 @@ from .poll import Poll, PollOption, PollVote
 from .mention import MessageMention
 from .view_once import ViewOnceOpen
 from .assistant_usage import AssistantControl, AssistantUsage
+from .open_community import OpenCommunity, CommunityJoinRequest, OpenCommunityReport
 
 __all__ = [
     "ChatRoom",
@@ -33,4 +34,7 @@ __all__ = [
     "ViewOnceOpen",
     "AssistantControl",
     "AssistantUsage",
+    "OpenCommunity",
+    "CommunityJoinRequest",
+    "OpenCommunityReport",
 ]

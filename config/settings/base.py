@@ -207,6 +207,10 @@ REST_FRAMEWORK = {
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),
         # Group invite link preview/join (per user).
         "invite": config("THROTTLE_INVITE", default="30/min"),
+        "openchat_read": config("THROTTLE_OPENCHAT_READ", default="120/min"),
+        "openchat_join": config("THROTTLE_OPENCHAT_JOIN", default="20/hour"),
+        "openchat_create": config("THROTTLE_OPENCHAT_CREATE", default="5/day"),
+        "openchat_report": config("THROTTLE_OPENCHAT_REPORT", default="10/hour"),
         "marketplace_purchase": config("THROTTLE_MARKETPLACE_PURCHASE", default="20/hour"),
         # Checkout polls an order while the network confirms; reads must be cheap
         # but not block a single purchase attempt.
