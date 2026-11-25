@@ -266,9 +266,9 @@ export default function MarketplacePanel() {
 
         <div className={`marketplace__wallet-status is-${walletStatus.state}`} role="status" aria-live="polite">
           <div>
-            <strong>{walletStatus.state === "checking" ? "Checking your wallet…" : walletStatus.state === "linked" ? "Wallet ready for NSAT trading" : walletStatus.state === "unlinked" ? "Connect a wallet to trade" : "Wallet status unavailable"}</strong>
+            <strong>{walletStatus.state === "checking" ? "Checking your wallet…" : walletStatus.state === "linked" ? "Wallet linked to your account" : walletStatus.state === "unlinked" ? "Connect a wallet to trade" : "Wallet status unavailable"}</strong>
             <span>{walletStatus.state === "linked"
-              ? `${walletStatus.address.slice(0, 8)}…${walletStatus.address.slice(-6)}${walletStatus.balance === undefined ? " · checking balance…" : walletStatus.balance === null ? " · balance unavailable" : ` · ${BigInt(walletStatus.balance).toLocaleString("en-US")} NSAT`}`
+              ? `${walletStatus.address.slice(0, 8)}…${walletStatus.address.slice(-6)}${walletStatus.balance === undefined ? " · checking balance…" : walletStatus.balance === null ? " · balance unavailable" : ` · ${BigInt(walletStatus.balance).toLocaleString("en-US")} NSAT`} · review the total and network fee before signing`
               : walletStatus.state === "unlinked"
                 ? "Link your wallet once to buy items and receive creator payments."
                 : walletStatus.state === "unavailable"
