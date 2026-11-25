@@ -349,7 +349,9 @@ class PostCommentsAPIView(APIView):
 
     def get(self, request, pk):
         post = get_object_or_404(visible_posts_for(request.user), pk=pk)
-        comments = post.comments.filter(deleted_at__isnull=True, parent__isnull=True).select_related("author", "author__profile")
+        comments = post.comments.filter(deleted_at__isnull=True, parent__isnull=True).select_related(
+            "author", "author__profile", "sticker_asset", "sticker_asset__item"
+        )
         return Response(PostCommentSerializer(comments, many=True, context={"request": request}).data)
 
     def post(self, request, pk):
@@ -358,10 +360,28 @@ class PostCommentsAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         attrs = dict(serializer.validated_data)
         parent_id = attrs.pop("parent_id", None)
+        sticker_asset_id = attrs.pop("sticker_asset_id", None)
+        is_reward = attrs.pop("is_reward", False)
         parent = None
         if parent_id:
             parent = get_object_or_404(PostComment, pk=parent_id, post=post, deleted_at__isnull=True, parent__isnull=True)
-        comment = PostComment.objects.create(post=post, author=request.user, parent=parent, **attrs)
+        sticker_asset = None
+        if sticker_asset_id:
+            from apps.marketplace.models import DigitalItemAsset, DigitalItem
+
+            sticker_asset = DigitalItemAsset.objects.filter(
+                pk=sticker_asset_id,
+                item__kind=DigitalItem.Kind.STICKER_PACK,
+            ).filter(
+                Q(item__entitlements__owner=request.user, item__entitlements__revoked_at__isnull=True)
+                | Q(item__inventory_entries__owner=request.user, item__state=DigitalItem.State.APPROVED)
+            ).select_related("item").first()
+            if not sticker_asset:
+                return Response({"detail": "That sticker is not in your library."}, status=status.HTTP_403_FORBIDDEN)
+        comment = PostComment.objects.create(
+            post=post, author=request.user, parent=parent, sticker_asset=sticker_asset, is_reward=is_reward, **attrs
+        )
+        comment = PostComment.objects.select_related("author", "author__profile", "sticker_asset", "sticker_asset__item").get(pk=comment.pk)
         return Response(PostCommentSerializer(comment, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
@@ -384,7 +404,7 @@ class PostCommentDetailAPIView(APIView):
 
     def patch(self, request, post_pk, comment_pk):
         comment = self.owned_comment(request, post_pk, comment_pk)
-        serializer = CreateCommentSerializer(data=request.data)
+        serializer = CreateCommentSerializer(data=request.data, context={"allow_existing_sticker": bool(comment.sticker_asset_id)})
         serializer.is_valid(raise_exception=True)
         comment.text = serializer.validated_data["text"]
         comment.save(update_fields=("text",))

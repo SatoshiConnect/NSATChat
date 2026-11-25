@@ -67,7 +67,15 @@ class PostComment(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="social_post_comments")
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.CASCADE, related_name="replies")
-    text = models.CharField(max_length=1000)
+    text = models.CharField(max_length=1000, blank=True)
+    sticker_asset = models.ForeignKey(
+        "marketplace.DigitalItemAsset",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="social_comments",
+    )
+    is_reward = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 

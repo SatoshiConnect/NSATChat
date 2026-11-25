@@ -221,7 +221,12 @@ export const socialApi = {
   unsavePost: (id) => api.delete(`social/posts/${id}/save/`),
   reportPost: (id, payload) => api.post(`social/posts/${id}/report/`, payload).then((r) => r.data),
   comments: (id) => api.get(`social/posts/${id}/comments/`).then((r) => asList(r.data)),
-  addComment: (id, text, parent_id) => api.post(`social/posts/${id}/comments/`, { text, ...(parent_id ? { parent_id } : {}) }).then((r) => r.data),
+  addComment: (id, payload, parent_id, sticker_asset_id, is_reward = false) => {
+    const body = payload && typeof payload === "object"
+      ? payload
+      : { text: payload || "", ...(parent_id ? { parent_id } : {}), ...(sticker_asset_id ? { sticker_asset_id } : {}), ...(is_reward ? { is_reward } : {}) };
+    return api.post(`social/posts/${id}/comments/`, body).then((r) => r.data);
+  },
   editComment: (postId, commentId, text) => api.patch(`social/posts/${postId}/comments/${commentId}/`, { text }).then((r) => r.data),
   removeComment: (postId, commentId) => api.delete(`social/posts/${postId}/comments/${commentId}/`),
 };

@@ -129,6 +129,58 @@ class SocialPostAPITests(TestCase):
         self.assertEqual(self.stranger_client.post(f"/api/social/posts/{post.id}/comments/", {"text": "No"}, format="json").status_code, 404)
         self.assertEqual(self.contact_client.post(f"/api/social/posts/{post.id}/comments/", {"text": "  "}, format="json").status_code, 400)
 
+    def test_marketplace_stickers_in_comments_require_library_ownership(self):
+        import uuid
+        from apps.marketplace.models import DigitalItem, DigitalItemAsset, InventoryItem, SimulatedPurchase
+
+        post = Post.objects.create(author=self.author, text="Public sticker post", visibility=Post.EVERYONE)
+        pack = DigitalItem.objects.create(
+            creator=self.author,
+            kind=DigitalItem.Kind.STICKER_PACK,
+            title="Rare pack",
+            state=DigitalItem.State.APPROVED,
+        )
+        asset = DigitalItemAsset.objects.create(
+            item=pack,
+            image=SimpleUploadedFile("rare.png", b"sticker-test", content_type="image/png"),
+        )
+
+        unowned = self.stranger_client.post(
+            f"/api/social/posts/{post.pk}/comments/", {"sticker_asset_id": asset.pk}, format="json"
+        )
+        self.assertEqual(unowned.status_code, 403)
+
+        purchase = SimulatedPurchase.objects.create(
+            buyer=self.contact,
+            item=pack,
+            idempotency_key=uuid.uuid4(),
+            amount_nsat=1,
+        )
+        InventoryItem.objects.create(owner=self.contact, item=pack, purchase=purchase)
+        owned = self.contact_client.post(
+            f"/api/social/posts/{post.pk}/comments/", {"sticker_asset_id": asset.pk}, format="json"
+        )
+        self.assertEqual(owned.status_code, 201, owned.data)
+        self.assertEqual(owned.data["text"], "")
+        self.assertEqual(owned.data["sticker"]["id"], asset.pk)
+        self.assertEqual(owned.data["sticker"]["pack_title"], pack.title)
+        parent = PostComment.objects.create(post=post, author=self.author, text="Nice post")
+        sticker_reply = self.contact_client.post(
+            f"/api/social/posts/{post.pk}/comments/",
+            {"parent_id": parent.pk, "sticker_asset_id": asset.pk},
+            format="json",
+        )
+        self.assertEqual(sticker_reply.status_code, 201, sticker_reply.data)
+        self.assertEqual(sticker_reply.data["parent_id"], parent.pk)
+        self.assertEqual(
+            self.contact_client.post(
+                f"/api/social/posts/{post.pk}/comments/",
+                {"sticker_asset_id": asset.pk, "is_reward": True},
+                format="json",
+            ).status_code,
+            400,
+        )
+
     def test_comment_owner_can_edit_and_soft_delete_own_comment(self):
         post = Post.objects.create(author=self.author, text="Comment me", visibility=Post.EVERYONE)
         comment = PostComment.objects.create(post=post, author=self.contact, text="Original")
