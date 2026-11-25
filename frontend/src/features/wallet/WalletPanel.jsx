@@ -4,6 +4,7 @@ import { walletApi } from "./api";
 import { useApp } from "../../components/layout/AppContext";
 import { toast } from "../../services/toast";
 import { generateWalletKeypair, readKeystoreMeta, saveEncryptedWallet, unlockEncryptedWallet } from "./keystore";
+import { readWalletLinkChallenge, signWalletLinkChallenge } from "./walletLink";
 import { buildSignedPayment, paymentPreflight, parsePositiveAmount } from "./transaction";
 import { createWalletReceiptMessage } from "./paymentRequest";
 import { sendText } from "../../store/actions";
@@ -73,10 +74,25 @@ export default function WalletPanel({ launch = null }) {
   const [sendBusy, setSendBusy] = useState(false);
   const [txStatus, setTxStatus] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [accountLink, setAccountLink] = useState({ loading: true, connected: false, address: "", error: "" });
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [confirmUnlink, setConfirmUnlink] = useState(false);
   const signingSecretRef = useRef("");
   const postedReceiptHashesRef = useRef(new Set());
 
   useEffect(() => () => { signingSecretRef.current = ""; }, []);
+
+  useEffect(() => {
+    let active = true;
+    walletApi.linkMe()
+      .then((result) => {
+        if (active) setAccountLink({ loading: false, connected: Boolean(result.connected), address: result.address || "", error: "" });
+      })
+      .catch(() => {
+        if (active) setAccountLink({ loading: false, connected: false, address: "", error: "Wallet account status is temporarily unavailable." });
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -150,6 +166,7 @@ export default function WalletPanel({ launch = null }) {
     setQr("");
     setError("");
     setAddress(value);
+    setOwnsWallet(readKeystoreMeta()?.address === value);
     setAddressInput("");
   };
 
@@ -237,6 +254,54 @@ export default function WalletPanel({ launch = null }) {
     setUnlocked(false);
     setKeyFlow("");
     setWalletPassword("");
+  };
+
+  const connectWalletToAccount = async () => {
+    setError("");
+    if (!ownsWallet) {
+      setError("A view-only address cannot be connected. Restore or create a wallet you control first.");
+      return;
+    }
+    if (!signingSecretRef.current || !unlocked) {
+      setKeyError("Unlock this wallet to prove ownership and connect it to your SatoshiCore account.");
+      setKeyFlow("unlock");
+      return;
+    }
+    setLinkBusy(true);
+    try {
+      const challengeResponse = await walletApi.linkStart();
+      const { token, message } = readWalletLinkChallenge(challengeResponse.wallet_url);
+      const signature = signWalletLinkChallenge(signingSecretRef.current, address, message);
+      const result = await walletApi.linkConfirm(token, address, signature);
+      setAccountLink({ loading: false, connected: Boolean(result.connected), address: result.address || address, error: "" });
+      toast.success("NSAT wallet connected to your SatoshiCore account.");
+    } catch (failure) {
+      const code = failure?.response?.data?.code || failure?.message || "";
+      const messages = {
+        wallet_already_linked: "Another NSAT wallet is already linked to this account. Disconnect it before connecting a different one.",
+        wallet_address_in_use: "This NSAT wallet is linked to another SatoshiCore account.",
+        wallet_signature_invalid: "Wallet ownership could not be verified. Unlock the wallet and try again.",
+        wallet_link_expired: "The link request expired. Start again to connect your wallet.",
+        wallet_address_mismatch: "The unlocked wallet does not match this address.",
+      };
+      setError(messages[code] || "The wallet could not be connected to your account. Try again.");
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const disconnectWalletFromAccount = async () => {
+    setLinkBusy(true);
+    try {
+      const result = await walletApi.unlink();
+      setAccountLink({ loading: false, connected: Boolean(result.connected), address: result.address || "", error: "" });
+      setConfirmUnlink(false);
+      toast.success("NSAT wallet disconnected from your SatoshiCore account.");
+    } catch {
+      setError("The wallet could not be disconnected right now. Try again.");
+    } finally {
+      setLinkBusy(false);
+    }
   };
 
   const reviewSend = async (event) => {
@@ -423,6 +488,24 @@ export default function WalletPanel({ launch = null }) {
               <div><span className="wallet-native__eyebrow">YOUR NSAT ADDRESS</span><strong title={address}>{shortAddress(address)}</strong></div>
               <button type="button" className="wallet-native__icon-button" aria-label="Copy address" onClick={copyAddress}><Copy size={17} /></button>
               {ownsWallet ? <button type="button" className="wallet-native__lock-button" onClick={() => unlocked ? lockWallet() : (setKeyError(""), setKeyFlow("unlock"))}>{unlocked ? "Lock" : "Unlock"}</button> : null}
+            </div>
+
+            <div className="wallet-native__account-link" role="status">
+              <div>
+                <strong>{accountLink.loading ? "Checking account connection…" : accountLink.connected ? "Wallet linked to your account" : "Wallet not linked to your account"}</strong>
+                <span>{accountLink.connected && accountLink.address === address
+                  ? "Marketplace purchases and chat transfers can use this verified address."
+                  : accountLink.connected
+                    ? `Linked address ${shortAddress(accountLink.address)} differs from this device wallet.`
+                    : "Link this wallet to buy marketplace items and enable verified wallet features in chat."}</span>
+                {accountLink.error ? <span className="wallet-native__link-error">{accountLink.error}</span> : null}
+              </div>
+              {accountLink.connected ? (
+                confirmUnlink ? <div className="wallet-native__link-actions"><button type="button" className="wallet-native__text-button" onClick={() => setConfirmUnlink(false)}>Keep linked</button><button type="button" className="wallet-native__text-button is-danger" onClick={disconnectWalletFromAccount} disabled={linkBusy}>Disconnect</button></div>
+                  : <button type="button" className="wallet-native__text-button" onClick={() => setConfirmUnlink(true)}>Disconnect</button>
+              ) : !accountLink.connected ? (
+                <button type="button" className="btn btn--secondary" onClick={connectWalletToAccount} disabled={linkBusy || accountLink.loading}>{linkBusy ? "Connecting…" : unlocked ? "Connect wallet" : "Unlock & connect"}</button>
+              ) : null}
             </div>
 
             <section className="wallet-native__balance-card" aria-label="Wallet balance">
