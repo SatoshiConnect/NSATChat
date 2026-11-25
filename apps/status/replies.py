@@ -8,6 +8,8 @@ which the chat shows as a "Name · Status" card above it, like WhatsApp.
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
+from apps.chat.choices import RoomType
+from apps.chat.models import Participant
 from apps.social.models import SocialMute
 
 from .models import Status

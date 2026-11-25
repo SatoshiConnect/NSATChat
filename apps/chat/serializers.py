@@ -34,14 +34,22 @@ def _community_alias(room, user_id, context=None):
     room_cache = context.setdefault("_open_community_room_cache", {})
     is_community = room_cache.get(room_id)
     if is_community is None:
-        is_community = OpenCommunity.objects.filter(room_id=room_id).exists()
+        if "open_community" in room._state.fields_cache:
+            is_community = room._state.fields_cache["open_community"] is not None
+        else:
+            is_community = OpenCommunity.objects.filter(room_id=room_id).exists()
         room_cache[room_id] = is_community
     if not is_community:
         return None
     alias_cache = context.setdefault("_open_community_alias_cache", {})
     key = (room_id, user_id)
     if key not in alias_cache:
-        alias_cache[key] = Participant.objects.filter(room_id=room_id, user_id=user_id).values_list("community_display_name", flat=True).first() or "Member"
+        participants = getattr(room, "_prefetched_objects_cache", {}).get("participants")
+        if participants is not None:
+            participant = next((row for row in participants if row.user_id == user_id), None)
+            alias_cache[key] = (participant.community_display_name if participant else "") or "Member"
+        else:
+            alias_cache[key] = Participant.objects.filter(room_id=room_id, user_id=user_id).values_list("community_display_name", flat=True).first() or "Member"
     alias = alias_cache[key]
     return alias or "Member"
 
@@ -415,7 +423,9 @@ class ParticipantSerializer(serializers.ModelSerializer):
 
     def to_representation(self, obj):
         data = super().to_representation(obj)
-        alias = _community_alias(obj.room, obj.user_id, self.context)
+        # Only OpenChat membership rows carry a community-only alias; using the
+        # prefetched row avoids a room/participant lookup per member in chat lists.
+        alias = obj.community_display_name or None
         if alias:
             data["user"] = _mask_community_user(data.get("user"), alias)
         return data
@@ -1512,12 +1522,14 @@ def with_message_relations(queryset):
     Every view that returns full messages goes through this one helper.
     """
     return queryset.select_related(
+        "room__open_community",
         "sender__profile",
         "reply_to__sender__profile",
         "forwarded_from__sender__profile",
         "voice_note",
         "poll",
     ).prefetch_related(
+        Prefetch("room__participants", queryset=Participant.objects.only("id", "room_id", "user_id", "community_display_name")),
         "attachments",
         "reply_to__attachments",
         Prefetch("reactions", queryset=Reaction.objects.select_related("user")),
