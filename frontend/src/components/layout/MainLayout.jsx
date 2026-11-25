@@ -101,6 +101,7 @@ export default function MainLayout({ onLogout }) {
   const [drawer, setDrawer] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [walletLaunch, setWalletLaunch] = useState(null);
+  const [walletPanelMounted, setWalletPanelMounted] = useState(false);
   const activeRoomId = useStore((state) => state.activeRoomId);
   const activeExists = useStore((state) => Boolean(state.activeRoomId && state.rooms[state.activeRoomId]));
   const totalUnread = useStore((state) => Object.values(state.rooms).filter((room) => !room.isArchived && room.unread > 0).length);
@@ -125,7 +126,15 @@ export default function MainLayout({ onLogout }) {
 
   const setSection = useCallback((next) => {
     if (next === "wallet" && !WALLET_UI_ENABLED) return;
-    if (next === "wallet") setWalletLaunch(null);
+    if (next === "wallet") {
+      setWalletLaunch(null);
+      setWalletPanelMounted(true);
+    } else if (next === "marketplace") {
+      setWalletLaunch(null);
+    } else {
+      setWalletLaunch(null);
+      setWalletPanelMounted(false);
+    }
     setSectionState(next);
     setStack([]);
     if (next === "status") loadStatus();
@@ -244,6 +253,7 @@ export default function MainLayout({ onLogout }) {
 
   const showWallet = section === "wallet";
   const showMarketplace = section === "marketplace";
+  const retainWalletPanel = WALLET_UI_ENABLED && (showWallet || (walletPanelMounted && showMarketplace));
   const SectionPanel = SECTION_PANELS[section] || ChatListPanel;
   const top = stack[stack.length - 1];
   const OverlayPanel = top ? PANELS[top.name] : null;
@@ -251,8 +261,12 @@ export default function MainLayout({ onLogout }) {
 
   const showChat = section === "chats" && activeRoomId && activeExists;
   let main;
-  if (showWallet) main = <WalletPanel launch={walletLaunch} />;
-  else if (showMarketplace) main = <MarketplacePanel />;
+  if (showWallet || showMarketplace) main = (
+    <>
+      {retainWalletPanel ? <div hidden={!showWallet} aria-hidden={!showWallet}><WalletPanel launch={showWallet ? walletLaunch : null} /></div> : null}
+      {showMarketplace ? <MarketplacePanel /> : null}
+    </>
+  );
   else if (section === "status") main = compact ? null : <StatusMain />;
   else if (section === "ai" || section === "aiChat") main = <AssistantChat />;
   else if (showChat) main = <Conversation key={activeRoomId} roomId={activeRoomId} />;
