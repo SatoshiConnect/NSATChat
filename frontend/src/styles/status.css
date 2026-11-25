@@ -942,6 +942,11 @@ button.status-composer__privacy:hover {
   .social-compose footer { flex-wrap: wrap; gap: 8px; padding-top: 9px; }
   .social-compose footer select { max-width: 48%; }
   .social-compose footer .social-compose__audience-select { width: 104px; max-width: 104px; flex: 0 1 104px; padding: 7px 5px; }
+  .social-post__counts { padding-block: 7px; }
+  .social-post__actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 5px 0; }
+  .social-post__reaction-picker { grid-column: 1 / -1; display: flex; flex-wrap: nowrap; justify-content: space-around; gap: 2px; width: 100%; padding-bottom: 4px; border-bottom: 1px solid var(--divider); }
+  .social-post__actions button, .social-post__actions span { min-width: 0; padding: 7px 2px; gap: 5px; white-space: nowrap; font-size: var(--fs-sm); }
+  .social-post__reaction-picker button { flex: 1 1 0; min-width: 0; padding: 4px 2px; font-size: 16px; }
 }
 .today-news {
   display: flex;
