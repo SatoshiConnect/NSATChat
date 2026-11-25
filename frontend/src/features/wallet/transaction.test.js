@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Keypair } from "@stellar/stellar-sdk";
-import { buildSignedPayment, paymentPreflight, parsePositiveAmount } from "./transaction.js";
+import { buildSignedPayment, buildSignedSelfOpen, paymentPreflight, parsePositiveAmount } from "./transaction.js";
 
 const seed = "SAAACAQDAQCQMBYIBEFAWDANBYHRAEISCMKBKFQXDAMRUGY4DUPB6NKI";
 const sender = Keypair.fromSecret(seed);
@@ -9,6 +9,19 @@ const destination = "GAYJYVAUMI7BY3UBLV5BSKOWYRH5AR6NUFUO4LXGQEJ7SMAUMKAXI7EQ";
 const txHash = "ed416812815ee2993c26ca65ca7e14f8d81f0b0e36ad7aec8b0c32ca0e11b6d7";
 
 describe("NSAT transaction safety", () => {
+  it("builds the exact zero-fee NSAT V1 self-open envelope", async () => {
+    const signed = await buildSignedSelfOpen({ secret: seed, address: sender.publicKey() });
+    const envelope = Uint8Array.from(atob(signed.envelopeXdr), (character) => character.charCodeAt(0));
+    const readU32 = (offset) => new DataView(envelope.buffer, envelope.byteOffset + offset, 4).getUint32(0);
+    assert.equal(readU32(0), 2); // TransactionV1 envelope
+    assert.equal(signed.sourceAddress, sender.publicKey());
+    assert.equal(signed.hash.length, 64);
+    assert.equal(sender.verify(Uint8Array.from(signed.hash.match(/../g), (byte) => Number.parseInt(byte, 16)), envelope.slice(-64)), true);
+    await assert.rejects(buildSignedSelfOpen({ secret: seed, address: destination }), /wallet_address_mismatch/);
+    assert.equal(readU32(envelope.length - 76), 1); // one decorated signature
+    assert.equal(readU32(envelope.length - 68), 64); // one 64-byte Ed25519 signature
+  });
+
   it("matches the verified NSAT mainnet transaction hash vector", async () => {
     const preflight = paymentPreflight({
       sourceAddress: sender.publicKey(), destinationAddress: destination, amount: "123456789",
@@ -20,6 +33,17 @@ describe("NSAT transaction safety", () => {
     assert.equal(signed.sourceAddress, sender.publicKey());
     assert.equal(envelope.length > 200, true);
     assert.equal(sender.verify(Uint8Array.from(signed.hash.match(/../g), (byte) => Number.parseInt(byte, 16)), envelope.slice(-64)), true);
+  });
+
+  it("permits a small payment to create a recipient when Mainnet zero-reserve policy is live", () => {
+    const prepared = paymentPreflight({
+      sourceAddress: sender.publicKey(), destinationAddress: destination, amount: "10",
+      balance: "20", sequence: "1", baseFee: 10, baseReserve: "100000000", destinationExists: false,
+      destinationCreationMinimum: "0", accountReserveFloor: "0",
+    });
+    assert.equal(prepared.create, true);
+    assert.equal(prepared.total, 20n);
+    assert.equal(prepared.reserveFloor, 0n);
   });
 
   it("uses exact integer amounts and refuses invalid send states", () => {

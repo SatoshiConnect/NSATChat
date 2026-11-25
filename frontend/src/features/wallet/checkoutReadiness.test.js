@@ -12,23 +12,44 @@ test("does not block an existing recipient regardless of listing price", async (
   assert.equal(issue, null);
 });
 
-test("blocks an unactivated payee when the listed amount is below the current account-creation floor", async () => {
+test("uses a conservative reserve minimum only when the server omits live creation policy", async () => {
   const issue = await inspectCheckoutRecipients(order, async () => ({ destination_exists: false, base_reserve: "100000000" }));
-  assert.deepEqual(issue, { role: "creator", amount: "10", minimum: "200000000" });
+  assert.deepEqual(issue, { role: "creator", amount: "10", minimum: "200000000", address: "Gcreator", self_open_available: false });
   assert.match(checkoutRecipientMessage(issue, "Creator share"), /10 NSAT/);
-  assert.match(checkoutRecipientMessage(issue, "Creator share"), /200,000,000 NSAT/);
+  assert.match(checkoutRecipientMessage(issue, "Creator share"), /live minimum of 200,000,000 NSAT/i);
   assert.match(checkoutRecipientMessage(issue, "Creator share"), /No payment has been sent/);
 });
 
-test("allows an initial payment that meets the live reserve floor", async () => {
+test("allows a 10 NSAT initial payment when Mainnet reports zero reserve for new accounts", async () => {
+  const issue = await inspectCheckoutRecipients(order, async () => ({
+    destination_exists: false,
+    destination_creation_minimum: "0",
+    account_reserve_floor: "0",
+    zero_reserve_enabled: true,
+    self_open_available: true,
+  }));
+  assert.equal(issue, null);
+});
+
+test("allows an initial payment that meets the live legacy reserve floor", async () => {
   const fundedOrder = { ...order, payments: [{ ...order.payments[0], amount_nsat: "200000000" }] };
   const issue = await inspectCheckoutRecipients(fundedOrder, async () => ({ destination_exists: false, base_reserve: "100000000" }));
   assert.equal(issue, null);
 });
 
-test("refuses incomplete account state instead of guessing", async () => {
+test("uses free owner activation guidance when it is enabled by policy", async () => {
+  const issue = await inspectCheckoutRecipients(order, async () => ({
+    destination_exists: false,
+    destination_creation_minimum: "200000000",
+    base_reserve: "100000000",
+    self_open_available: true,
+  }));
+  assert.match(checkoutRecipientMessage(issue, "Creator share"), /open it for free/i);
+});
+
+test("refuses incomplete account existence state instead of guessing", async () => {
   await assert.rejects(
-    inspectCheckoutRecipients(order, async () => ({ destination_exists: false })),
+    inspectCheckoutRecipients(order, async () => ({ base_reserve: "100000000" })),
     /recipient_state_unknown/,
   );
 });

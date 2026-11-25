@@ -16,6 +16,9 @@ VALID_DESTINATION = "GAYJYVAUMI7BY3UBLV5BSKOWYRH5AR6NUFUO4LXGQEJ7SMAUMKAXI7EQ"
 SIGNED_PAYMENT_VECTOR = (
     "AAAAAAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAACgAAAAAAAAAqAAAAAAAAAAAAAAABAAAAAQAAAAADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAAEAAAAAMJxUFGI+HG6BXXoZKdbET9BHzaFo7i7mgRP5MBRigXQAAAAAAAAAAAAAAAAAAAAAB1vNFQAAAAAAAAABElUxuAAAAEDX9Qmo/qAWvNRgaXuJ4qLS9O6ggttSVL2xn+TS5yZLvF5dWrdON9M3d/q6nJMUYSorxvXsAoTECJocEKhgDSoO"
 )
+SIGNED_SELF_OPEN_VECTOR = (
+    "AAAAAgAAAAADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAEAAAAAA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbgAAAAAAAAAAAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABElUxuAAAAECbUWBubcBiDFspzVsitsbaE0zOfo9aJ00xdXHEdJAVI5XeUPVCUHKceT+itaVJyx11rd5qdAAyYKOhScOiIskK"
+)
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
@@ -32,6 +35,8 @@ class WalletReadTests(TestCase):
             {"id": VALID_SOURCE, "status": "ok", "balance128": "900000000", "seqnum": 12},
             {"id": VALID_DESTINATION, "status": "ok", "balance128": "10", "seqnum": 1},
             {"info": {"network": MAINNET_ID, "ledger": {"baseFee": 10, "baseReserve": 100000000}}},
+            {"protocolVersion": 16, "zeroReserveProtocol": 15, "reservePerAccount": "0",
+             "selfOpenAvailable": True, "selfOpenProtocol": 16, "sponsorshipRequired": False},
         ]
         response = self.client.get("/api/wallet/preflight/", {"source": VALID_SOURCE, "destination": VALID_DESTINATION})
         self.assertEqual(response.status_code, 200)
@@ -39,6 +44,10 @@ class WalletReadTests(TestCase):
         self.assertEqual(response.data["sequence"], "12")
         self.assertEqual(response.data["fee"], 10)
         self.assertEqual(response.data["base_reserve"], "100000000")
+        self.assertEqual(response.data["account_reserve_floor"], "0")
+        self.assertEqual(response.data["destination_creation_minimum"], "0")
+        self.assertTrue(response.data["zero_reserve_enabled"])
+        self.assertTrue(response.data["self_open_available"])
         self.assertTrue(response.data["destination_exists"])
 
     @patch("apps.wallet_integration.views._get_json")
@@ -48,6 +57,33 @@ class WalletReadTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["code"], "mainnet_unverified")
         self.assertEqual(get_json.call_count, 1)
+
+    @patch("apps.wallet_integration.views._get_json")
+    @patch("apps.wallet_integration.views._verified_mainnet")
+    def test_self_open_preflight_requires_the_live_free_open_policy(self, verified, get_json):
+        verified.return_value = {"network": MAINNET_ID, "core": "ok", "ledger": 513832}
+        get_json.side_effect = [
+            {"status": "not_found"},
+            {"selfOpenAvailable": True, "selfOpenProtocol": 16, "zeroReserveProtocol": 15,
+             "protocolVersion": 16, "sponsorshipRequired": False, "reservePerAccount": "0"},
+        ]
+        response = self.client.get("/api/wallet/self-open/preflight/", {"address": VALID_SOURCE})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["available"])
+        self.assertEqual(response.data["protocol_version"], 16)
+
+    @patch("apps.wallet_integration.views._get_json")
+    @patch("apps.wallet_integration.views._verified_mainnet")
+    def test_self_open_preflight_fails_closed_when_policy_is_stale_or_disabled(self, verified, get_json):
+        verified.return_value = {"network": MAINNET_ID, "core": "ok", "ledger": 513832}
+        get_json.side_effect = [
+            {"status": "not_found"},
+            {"selfOpenAvailable": False, "selfOpenProtocol": 16, "zeroReserveProtocol": 15,
+             "protocolVersion": 16, "sponsorshipRequired": False, "reservePerAccount": "0"},
+        ]
+        response = self.client.get("/api/wallet/self-open/preflight/", {"address": VALID_SOURCE})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["available"])
 
     @patch("apps.wallet_integration.views._post_json")
     @patch("apps.wallet_integration.views._verified_mainnet")
@@ -59,6 +95,48 @@ class WalletReadTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, {"status": "PENDING"})
         post_json.assert_called_once_with("https://gateway.satoshicore.org/api/v1/tx", {"envelope_xdr": envelope})
+
+    @patch("apps.wallet_integration.views._get_json")
+    @patch("apps.wallet_integration.views._post_json")
+    @patch("apps.wallet_integration.views._verified_mainnet")
+    def test_submit_relays_exact_user_signed_free_self_open_when_policy_allows(self, verified, post_json, get_json):
+        verified.return_value = {"network": MAINNET_ID, "core": "ok"}
+        get_json.side_effect = [
+            {"selfOpenAvailable": True, "selfOpenProtocol": 16, "zeroReserveProtocol": 15,
+             "protocolVersion": 16, "sponsorshipRequired": False, "reservePerAccount": "0"},
+            {"status": "not_found"},
+        ]
+        post_json.return_value = {"status": "PENDING"}
+        response = self.client.post("/api/wallet/submit/", {"envelope_xdr": SIGNED_SELF_OPEN_VECTOR}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"status": "PENDING"})
+        post_json.assert_called_once_with("https://gateway.satoshicore.org/api/v1/tx", {"envelope_xdr": SIGNED_SELF_OPEN_VECTOR})
+
+    @patch("apps.wallet_integration.views._get_json")
+    @patch("apps.wallet_integration.views._post_json")
+    @patch("apps.wallet_integration.views._verified_mainnet")
+    def test_submit_refuses_self_open_when_live_policy_is_unavailable(self, verified, post_json, get_json):
+        verified.return_value = {"network": MAINNET_ID, "core": "ok"}
+        get_json.return_value = {"selfOpenAvailable": False}
+        response = self.client.post("/api/wallet/submit/", {"envelope_xdr": SIGNED_SELF_OPEN_VECTOR}, format="json")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["code"], "self_open_unavailable")
+        post_json.assert_not_called()
+
+    def test_verifier_accepts_only_the_exact_zero_fee_self_open(self):
+        from apps.wallet_integration.views import verify_payment_envelope
+
+        verified = verify_payment_envelope(SIGNED_SELF_OPEN_VECTOR)
+        self.assertEqual(verified["operation"], "self_open")
+        self.assertEqual(verified["source"], VALID_SOURCE)
+        self.assertEqual(verified["destination"], VALID_SOURCE)
+        self.assertEqual(verified["amount"], 0)
+        self.assertEqual(verified["fee"], 0)
+
+        tampered = bytearray(base64.b64decode(SIGNED_SELF_OPEN_VECTOR))
+        tampered[-1] ^= 1
+        with self.assertRaises(ValueError):
+            verify_payment_envelope(base64.b64encode(tampered).decode("ascii"))
 
     @patch("apps.wallet_integration.views._post_json")
     @patch("apps.wallet_integration.views._verified_mainnet")

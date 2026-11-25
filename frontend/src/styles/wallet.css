@@ -146,6 +146,11 @@
 .wallet-native__receive .btn { display: inline-flex; justify-content: center; gap: 8px; margin-top: 14px; }
 .wallet-native__notice { display: flex; align-items: flex-start; gap: 10px; margin: 14px 0; padding: 14px; border: 1px solid var(--divider); border-radius: 12px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
 .wallet-native__notice svg { flex: none; color: var(--warning); }
+.wallet-native__self-open { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 14px 0; padding: 16px; border: 1px solid var(--divider); border-radius: 14px; background: var(--surface); }
+.wallet-native__self-open strong { display: block; color: var(--text-primary); }
+.wallet-native__self-open p { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.wallet-native__muted { color: var(--text-secondary); font-size: 13px; }
+@media (max-width: 540px) { .wallet-native__self-open { align-items: stretch; flex-direction: column; } .wallet-native__self-open .btn { width: 100%; } }
 .wallet-native__recipient { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text-muted); font-size: 12px; }
 .wallet-native__change { display: block; margin: 20px auto 4px; padding: 10px; border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; }
 .wallet-native__change:hover { color: var(--text-strong); }

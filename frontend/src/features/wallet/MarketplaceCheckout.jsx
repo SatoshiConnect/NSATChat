@@ -175,12 +175,14 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
             amount: payment.amount_nsat,
             fee: facts.fee,
             reserve: facts.base_reserve,
+            reserveFloor: facts.account_reserve_floor,
           });
           shortfall = transferShortfall({
             amount: payment.amount_nsat,
             balance: facts.balance,
             fee: facts.fee,
             reserve: facts.base_reserve,
+            reserveFloor: facts.account_reserve_floor,
           });
         } catch {
           // Malformed account facts are paymentPreflight's call to refuse; the
@@ -197,6 +199,8 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
           baseFee: facts.fee,
           baseReserve: facts.base_reserve,
           destinationExists: facts.destination_exists,
+          destinationCreationMinimum: facts.destination_creation_minimum,
+          accountReserveFloor: facts.account_reserve_floor,
         });
         const signed = await buildSignedPayment({
           secret,
@@ -237,7 +241,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         envelope_payee_mismatch: "The signed payment went to the wrong address.",
         envelope_source_mismatch: "Sign in with the wallet linked to your account.",
         insufficient_balance_or_reserve: "Your wallet balance cannot cover this payment.",
-        destination_creation_reserve_too_low: "The recipient wallet is not activated. The listed price was not changed and no payment was sent.",
+        destination_creation_reserve_too_low: "The current NSAT Mainnet account-creation policy does not allow this amount. Refresh recipient status before trying again. No payment was sent.",
         payment_already_submitted: "This part of the order is already submitted.",
         order_expired: "This order expired. Start checkout again.",
         already_owned: "You already own this item through another order. Nothing was charged.",
