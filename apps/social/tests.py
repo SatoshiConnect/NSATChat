@@ -179,6 +179,10 @@ class SocialPostAPITests(TestCase):
         )
         self.assertEqual(reward.status_code, 201, reward.data)
         self.assertTrue(reward.data["is_reward"])
+        from apps.marketplace.models import CreatorNotification
+        notification = CreatorNotification.objects.get(recipient=self.author, event_type="social_sticker_reward")
+        self.assertEqual(notification.actor_id, self.contact.pk)
+        self.assertEqual(notification.item_id, pack.pk)
         self.assertEqual(
             self.author_client.post(
                 f"/api/social/posts/{post.pk}/comments/",
