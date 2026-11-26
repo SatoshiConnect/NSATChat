@@ -1,12 +1,21 @@
-import { ArrowUpRight, ExternalLink, Newspaper, RefreshCw, Search, TrendingUp } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { ArrowRight, BookOpen, Newspaper, RefreshCw, Search, TrendingUp, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { newsApi } from "../../api/endpoints";
 import { useApp } from "./AppContext";
 
 const formatNewsTime = (value) => {
+  if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }).format(date);
+};
+
+const formatNewsDateTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }).format(date);
 };
 
 /** Editorial/news destination. Member posts and Stories live in Social. */
@@ -18,6 +27,9 @@ export default function TodayNewsPanel() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [showMore, setShowMore] = useState(false);
+  const [activeStory, setActiveStory] = useState(null);
+  const closeReaderRef = useRef(null);
+  const returnFocusRef = useRef(null);
 
   const fetchFeed = useCallback(() => newsApi.today(), []);
   const globalNewsAvailable = feed?.global_available ?? String(feed?.source || "").includes("GDELT");
@@ -53,6 +65,46 @@ export default function TodayNewsPanel() {
     const interval = window.setInterval(refresh, 5 * 60 * 1000);
     return () => { active = false; window.clearInterval(interval); };
   }, [fetchFeed]);
+
+  useEffect(() => {
+    if (!activeStory) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeReaderRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setActiveStory(null);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const dialog = document.querySelector(".today-news__reader-dialog");
+      const focusable = dialog?.querySelectorAll('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])');
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+      returnFocusRef.current?.focus?.();
+      returnFocusRef.current = null;
+    };
+  }, [activeStory]);
+
+  const openStory = (item, event) => {
+    returnFocusRef.current = event.currentTarget;
+    setActiveStory(item);
+  };
 
   return (
     <section className="today-news panel" aria-labelledby="today-news-title">
@@ -93,7 +145,7 @@ export default function TodayNewsPanel() {
         {!loading && !error && featuredItem ? (
           <>
             <article className="today-news__featured">
-              <a className={`today-news__featured-media${featuredItem.image_url ? " has-image" : ""}`} href={featuredItem.url} target="_blank" rel="noopener noreferrer">
+              <button type="button" className={`today-news__featured-media${featuredItem.image_url ? " has-image" : ""}`} onClick={(event) => openStory(featuredItem, event)} aria-label={`Read summary in app: ${featuredItem.title}`}>
                 <span className="today-news__image-fallback"><Newspaper size={30} /></span>
                 {featuredItem.image_url ? <img src={featuredItem.image_url} alt="" fetchPriority="high" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
                 <span className="today-news__featured-shade" />
@@ -101,10 +153,11 @@ export default function TodayNewsPanel() {
                 <span className="today-news__featured-copy">
                   <span>{featuredItem.source} · {formatNewsTime(featuredItem.published_at)}</span>
                   <strong>{featuredItem.title}</strong>
-                  <span className="today-news__featured-link">Read story <ArrowUpRight size={15} /></span>
+                  <span className="today-news__featured-link">Read in app <BookOpen size={15} /></span>
                 </span>
-              </a>
+              </button>
               {featuredItem.summary ? <p className="today-news__featured-summary">{featuredItem.summary}</p> : null}
+              <button type="button" className="today-news__read-inline" onClick={(event) => openStory(featuredItem, event)}>Read summary <ArrowRight size={15} /></button>
             </article>
             <div className="today-news__section-heading">
               <div><h3>More stories</h3><span>{visibleItems.length} updates</span></div>
@@ -113,16 +166,16 @@ export default function TodayNewsPanel() {
             <div className="today-news__stories">
               {storyItems.map((item) => (
                 <article className="today-news__story" key={item.id}>
-                  <a className={`today-news__story-image${item.image_url ? " has-image" : ""}`} href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`Read: ${item.title}`}>
+                  <button type="button" className={`today-news__story-image${item.image_url ? " has-image" : ""}`} onClick={(event) => openStory(item, event)} aria-label={`Read summary in app: ${item.title}`}>
                     <span className="today-news__image-fallback"><Newspaper size={20} /></span>
                     {item.image_url ? <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
-                  </a>
+                  </button>
                   <div className="today-news__story-body">
                     <div className="today-news__story-meta">
                       <span>{item.category_label}{item.region && item.region !== item.category ? ` · ${item.region_label}` : ""} · {item.source}</span>
                       <time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time>
                     </div>
-                    <h4><a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}<ExternalLink size={13} /></a></h4>
+                    <h4><button type="button" onClick={(event) => openStory(item, event)}>{item.title}</button></h4>
                     {item.summary ? <p>{item.summary}</p> : null}
                     {Number.isFinite(Number(item.interest_rating)) ? <span className="today-news__rating-mini"><TrendingUp size={12} /> {item.coverage_count || 1} sources</span> : null}
                   </div>
@@ -144,9 +197,29 @@ export default function TodayNewsPanel() {
       </div>
 
       <footer className="today-news__footer">
-        <span>Coverage rating reflects distinct publishers, not fact-checking. Headlines link to publishers. Global coverage: <a href="https://www.gdeltproject.org/" target="_blank" rel="noopener noreferrer">GDELT Project</a>.</span>
-        <button type="button" onClick={() => app.setSection("status")}>Go to Social <ArrowUpRight size={15} /></button>
+        <span>Coverage rating reflects distinct publishers, not fact-checking. Stories open here in Today.</span>
+        <button type="button" onClick={() => app.setSection("status")}>Go to Social <ArrowRight size={15} /></button>
       </footer>
+      {activeStory ? createPortal(
+        <div className="today-news__reader-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveStory(null); }}>
+          <section className="today-news__reader-dialog" role="dialog" aria-modal="true" aria-labelledby="today-news-reader-title" tabIndex={-1}>
+            <header className="today-news__reader-header">
+              <div><span><BookOpen size={16} /> Today reader</span><small>{activeStory.category_label}{activeStory.region && activeStory.region !== activeStory.category ? ` · ${activeStory.region_label}` : ""}</small></div>
+              <button ref={closeReaderRef} type="button" onClick={() => setActiveStory(null)} aria-label="Close news reader"><X size={21} /></button>
+            </header>
+            <div className="today-news__reader-scroll">
+              {activeStory.image_url ? <img className="today-news__reader-image" src={activeStory.image_url} alt="" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+              <div className="today-news__reader-body">
+                <div className="today-news__reader-byline"><span>{activeStory.source}</span><time dateTime={activeStory.published_at}>{formatNewsDateTime(activeStory.published_at)}</time></div>
+                <h2 id="today-news-reader-title">{activeStory.title}</h2>
+                <div className="today-news__reader-section"><span>News summary</span><p>{activeStory.summary || "A summary is not available from this publisher’s feed."}</p></div>
+                <p className="today-news__reader-note">This in-app reader shows the headline and summary supplied by the news feed. It will not open an external website.</p>
+              </div>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      ) : null}
     </section>
   );
 }

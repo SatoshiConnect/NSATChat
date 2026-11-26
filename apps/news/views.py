@@ -41,8 +41,8 @@ FEEDS = (
     {"url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "label": "BBC News Culture", "category": "culture", "category_label": "Culture", "region": "world", "global_source": True},
 )
 FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · more"
-FRESH_CACHE_KEY = "today-news:thailand-prd:v7"
-STALE_CACHE_KEY = "today-news:thailand-prd:stale:v7"
+FRESH_CACHE_KEY = "today-news:thailand-prd:v8"
+STALE_CACHE_KEY = "today-news:thailand-prd:stale:v8"
 FRESH_TTL_SECONDS = 300
 STALE_TTL_SECONDS = 86400
 MAX_FEED_BYTES = 1_500_000
@@ -224,7 +224,7 @@ def _fetch_feed(feed):
         if link in seen:
             continue
         seen.add(link)
-        summary = _plain_text(_child_text(entry, "description", "summary", "content"), 420) if feed.get("summary", True) else ""
+        summary = _plain_text(_child_text(entry, "description", "summary", "content"), 1000) if feed.get("summary", True) else ""
         category = _classify_headline(title, feed["category"]) if feed.get("classify", False) else feed["category"]
         image_url = _entry_image(entry)
         items.append({
