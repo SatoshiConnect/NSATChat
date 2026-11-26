@@ -287,12 +287,13 @@ export default function MainLayout({ onLogout }) {
   // Phones show one pane: a panel opened from inside a chat (e.g. "Add to
   // contacts") brings the side pane forward; closing it returns to the chat.
   const panelOnTop = Boolean(top && top.name !== "archived");
-  const mobileShowsMain = compact && (showChat || section === "ai" || section === "aiChat" || section === "today") && !panelOnTop;
+  const mobileShowsMain = compact && (showChat || section === "ai" || section === "aiChat") && !panelOnTop;
+  const mobileShowsToday = compact && section === "today" && !panelOnTop;
 
   return (
     <AppContext.Provider value={app}>
       <CallProvider>
-        <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""} ${showWallet ? "is-wallet-view" : ""} ${showMarketplace ? "is-marketplace-view" : ""}`}>
+        <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""} ${mobileShowsToday ? "is-mobile-today" : ""} ${showWallet ? "is-wallet-view" : ""} ${showMarketplace ? "is-marketplace-view" : ""}`}>
           <NavRail section={section === "aiChat" ? "chats" : section} onChange={setSection} onOpenMedia={openMedia} />
           {!showWallet && !showMarketplace && section !== "today" ? (
             <aside className="sidebar">

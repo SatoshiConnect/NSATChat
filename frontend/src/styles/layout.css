@@ -325,6 +325,15 @@
     min-height: 0;
     height: 100%;
   }
+  .app.is-mobile-today .sidebar {
+    display: none;
+  }
+  .app.is-mobile-today .main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+  }
   .drawer {
     position: fixed;
     inset: 0;
