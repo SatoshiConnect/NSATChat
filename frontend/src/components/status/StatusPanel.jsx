@@ -9,6 +9,7 @@ import PresenceAvatar from "../common/PresenceAvatar";
 import { normalizeFiles, validateFiles } from "../../utils/files";
 import { statusApi } from "../../api/endpoints";
 import { mediaUrl } from "../../api/client";
+import { loadStatus } from "../../store/actions";
 import { useMediaQuery } from "../../hooks";
 import StatusComposer from "./StatusComposer";
 import StatusMain from "./StatusMain";
@@ -247,12 +248,22 @@ export default function StatusPanel() {
 }
 
 function StoryCardMedia({ status }) {
+  const [failedSrc, setFailedSrc] = useState("");
+  const [refreshed, setRefreshed] = useState(false);
   const src = mediaUrl(status.media);
+  const showPreview = Boolean(src) && failedSrc !== src;
+  const retryMedia = () => {
+    setFailedSrc(src);
+    if (!refreshed) {
+      setRefreshed(true);
+      void loadStatus();
+    }
+  };
   return <>
-    {status.status_type === "VIDEO"
-      ? <video className="status-story__preview" src={src} muted playsInline preload="metadata" aria-hidden="true" tabIndex={-1} />
-      : <img className="status-story__preview" src={src} alt="" loading="lazy" decoding="async" />}
-    <span className="status-story__shade" aria-hidden="true" />
-    {status.status_type === "VIDEO" ? <span className="status-story__video-indicator" aria-hidden="true"><Play size={18} fill="currentColor" /></span> : null}
+    {showPreview ? status.status_type === "VIDEO"
+      ? <video className="status-story__preview" src={src} muted playsInline preload="metadata" aria-hidden="true" tabIndex={-1} onError={retryMedia} />
+      : <img className="status-story__preview" src={src} alt="" loading="lazy" decoding="async" onError={retryMedia} /> : null}
+    {showPreview ? <span className="status-story__shade" aria-hidden="true" /> : null}
+    {showPreview && status.status_type === "VIDEO" ? <span className="status-story__video-indicator" aria-hidden="true"><Play size={18} fill="currentColor" /></span> : null}
   </>;
 }
