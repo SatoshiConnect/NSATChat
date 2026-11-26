@@ -374,6 +374,22 @@ class StatusMediaPrivacyTests(TestCase):
     def token_url(self, user):
         return status_media_url(self.story, user.id)
 
+    def test_contacts_feed_returns_a_playable_capability_url(self):
+        response = self.viewer_client.get("/api/status/")
+
+        self.assertEqual(response.status_code, 200)
+        item = next(
+            status
+            for group in response.data
+            for status in group["statuses"]
+            if status["id"] == self.story.id
+        )
+        self.assertIn(f"/api/status/{self.story.id}/media/?token=", item["media"])
+
+        media_response = self.viewer_client.get(item["media"])
+        self.assertEqual(media_response.status_code, 200)
+        self.assertEqual(b"".join(media_response.streaming_content), b"story-bytes")
+
     def test_capability_url_rechecks_original_audience_and_expires(self):
         viewer_url = self.token_url(self.viewer)
         allowed = self.viewer_client.get(viewer_url)
