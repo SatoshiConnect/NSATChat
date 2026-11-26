@@ -44,6 +44,13 @@
 .social-comment-sticker-picker img { width: 100%; height: 100%; object-fit: contain; }
 .social-comment-sticker-picker > span { color: var(--muted); font-size: var(--fs-sm); }
 .social-comment-sticker-picker > .social-comment-sticker-note { flex: 0 0 100%; font-size: var(--fs-xs); }
+.social-comment-reward-note {
+  flex: 0 0 100%;
+  margin: -2px 4px 4px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
 .social-comment-sticker-selected {
   display: inline-flex;
   align-items: center;

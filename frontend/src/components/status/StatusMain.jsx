@@ -84,13 +84,14 @@ function SocialStickerComposer({ onSubmit, busy, userId, placeholder = "Write a 
       {loadingStickers ? <Spinner size={16} /> : stickers.length ? <>
         <input className="social-comment-sticker-search" type="search" value={stickerQuery} onChange={(event) => setStickerQuery(event.target.value)} placeholder="Search your stickers" aria-label="Search your stickers" />
         {filteredStickers.length ? filteredStickers.map((sticker) => <button key={sticker.id} type="button" className={selected?.id === sticker.id ? "is-selected" : ""} title={sticker.pack_title} aria-label={`Choose sticker from ${sticker.pack_title}`} onClick={() => setSelected((current) => current?.id === sticker.id ? null : sticker)}><img src={mediaUrl(sticker.file)} alt={sticker.pack_title} loading="lazy" /></button>) : <span>No matching stickers.</span>}
-        <span className="social-comment-sticker-note">Sending a sticker leaves the reusable pack in your library.</span>
+        <span className="social-comment-sticker-note">{isReward ? "Sticker reward only: no NSAT or other payment is sent, and the reusable pack stays in your library." : "Sending a sticker leaves the reusable pack in your library."}</span>
       </> : <span>No purchased stickers yet. Find packs in Marketplace.</span>}
     </div> : null}
     {selected ? <div className={`social-comment-sticker-selected${isReward ? " is-reward" : ""}`}><img src={mediaUrl(selected.file)} alt={selected.pack_title} /><span>{isReward ? `Reward · ${selected.pack_title}` : selected.pack_title}</span><button type="button" aria-label="Remove selected sticker" onClick={() => setSelected(null)}>×</button></div> : null}
     <input value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} placeholder={isReward ? "Choose a sticker to reward this post" : placeholder} aria-label={placeholder} disabled={isReward} />
     <button type="button" className="social-post__comment-sticker-toggle" onClick={togglePicker} aria-label={open ? "Close sticker picker" : "Add a purchased sticker"} aria-expanded={open}><Smile size={18} /></button>
-    {allowReward ? <button type="button" className={`social-post__comment-sticker-toggle${isReward ? " is-reward" : ""}`} onClick={() => { setIsReward((value) => !value); setText(""); if (!open) void togglePicker(); }} aria-label={isReward ? "Cancel post reward" : "Reward this post with a sticker"} aria-pressed={isReward}><Gift size={17} /></button> : null}
+    {allowReward ? <button type="button" className={`social-post__comment-sticker-toggle${isReward ? " is-reward" : ""}`} onClick={() => { setIsReward((value) => !value); setText(""); if (!open) void togglePicker(); }} aria-label={isReward ? "Cancel sticker reward" : "Send a sticker reward (no payment)"} aria-pressed={isReward}><Gift size={17} /></button> : null}
+    {isReward ? <span className="social-comment-reward-note" role="note">No payment is made. This sends a reusable sticker and notifies the post creator.</span> : null}
     <button type="submit" disabled={(!text.trim() && !selected) || busy} aria-label="Post comment">{busy ? <Spinner size={16} /> : <Send size={17} />}</button>
   </form>;
 }
