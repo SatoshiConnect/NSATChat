@@ -95,7 +95,7 @@ export default function TodayNewsPanel() {
             <article className="today-news__featured">
               <a className={`today-news__featured-media${featuredItem.image_url ? " has-image" : ""}`} href={featuredItem.url} target="_blank" rel="noopener noreferrer">
                 <span className="today-news__image-fallback"><Newspaper size={30} /></span>
-                {featuredItem.image_url ? <img src={featuredItem.image_url} alt="" fetchPriority="high" decoding="async" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+                {featuredItem.image_url ? <img src={featuredItem.image_url} alt="" fetchPriority="high" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
                 <span className="today-news__featured-shade" />
                 <span className="today-news__featured-tag">Top story · {featuredItem.category_label}</span>
                 <span className="today-news__featured-copy">
@@ -115,7 +115,7 @@ export default function TodayNewsPanel() {
                 <article className="today-news__story" key={item.id}>
                   <a className={`today-news__story-image${item.image_url ? " has-image" : ""}`} href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`Read: ${item.title}`}>
                     <span className="today-news__image-fallback"><Newspaper size={20} /></span>
-                    {item.image_url ? <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+                    {item.image_url ? <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
                   </a>
                   <div className="today-news__story-body">
                     <div className="today-news__story-meta">
