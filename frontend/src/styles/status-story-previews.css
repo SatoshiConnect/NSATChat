@@ -1,0 +1,45 @@
+@media (max-width: 520px) {
+  .status-stories--mobile .status-story__preview {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .status-stories--mobile .status-story__shade {
+    position: absolute;
+    z-index: 0;
+    inset: 35% 0 0;
+    background: linear-gradient(transparent, rgb(0 0 0 / 68%));
+    pointer-events: none;
+  }
+
+  .status-stories--mobile .status-story__avatar,
+  .status-stories--mobile .status-story__name {
+    z-index: 1;
+  }
+
+  .status-stories--mobile .status-story.status-story--has-media .status-story__name {
+    color: #fff;
+    text-align: left;
+    text-shadow: 0 1px 3px rgb(0 0 0 / 65%);
+  }
+
+  .status-stories--mobile .status-story__video-indicator {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    left: 50%;
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 48%);
+    color: #fff;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+}

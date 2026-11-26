@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Image as ImageIcon, Lock, MoreVertical, Pencil, Plus } from "lucide-react";
+import { Image as ImageIcon, Lock, MoreVertical, Pencil, Play, Plus } from "lucide-react";
 import { useStore } from "../../store/store";
 import { toast } from "../../services/toast";
 import { detailTime } from "../../utils/format";
@@ -8,12 +8,14 @@ import { Avatar, EmptyState, IconButton, Menu, MenuButton, PanelHeader, Spinner 
 import PresenceAvatar from "../common/PresenceAvatar";
 import { normalizeFiles, validateFiles } from "../../utils/files";
 import { statusApi } from "../../api/endpoints";
+import { mediaUrl } from "../../api/client";
 import { useMediaQuery } from "../../hooks";
 import StatusComposer from "./StatusComposer";
 import StatusMain from "./StatusMain";
 import StatusViewer from "./StatusViewer";
 import { getStatusPrivacy, setStatusPrivacy } from "./statusPrefs";
 import StatusPrivacyEditor from "./StatusPrivacyEditor";
+import "../../styles/status-story-previews.css";
 
 function PrivacyView({ onBack }) {
   const me = useStore((state) => state.me);
@@ -102,6 +104,7 @@ export default function StatusPanel() {
   viewed.sort(sortByLatest);
 
   const myGroup = mine.length ? { user: me, statuses: [...mine].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((s) => ({ ...s, is_viewed: true })), unseen_count: 0 } : null;
+  const storyMedia = (group) => group?.statuses?.find((item) => item.media && (item.status_type === "IMAGE" || item.status_type === "VIDEO"));
 
   const openGroup = (list, index) => {
     const groups = list.map((group) => ({ ...group, statuses: [...group.statuses].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)) }));
@@ -118,16 +121,18 @@ export default function StatusPanel() {
     <section className="status-stories status-stories--mobile" aria-label="Stories">
       <h2>Stories</h2>
       <div className="status-stories__rail">
-        <button type="button" className="status-story" onClick={() => (myGroup ? openGroup([myGroup], 0) : fileRef.current?.click())} aria-label={myGroup ? "View your status" : "Add a status update"}>
+        <button type="button" className={`status-story${storyMedia(myGroup) ? " status-story--has-media" : ""}`} onClick={() => (myGroup ? openGroup([myGroup], 0) : fileRef.current?.click())} aria-label={myGroup ? "View your status" : "Add a status update"}>
+          {storyMedia(myGroup) ? <StoryCardMedia status={storyMedia(myGroup)} /> : null}
           <span className="status-story__avatar">
             <Avatar src={me.profile?.profile_picture} name={me.profile?.display_name} size={52} ring={myGroup ? "seen" : undefined} />
             {!myGroup ? <span className="status-row__plus"><Plus size={14} strokeWidth={3} /></span> : null}
           </span>
-          <span className="status-story__name">Create story</span>
+          <span className="status-story__name">{myGroup ? "My status" : "Create story"}</span>
           <span className="status-story__meta">{myGroup ? `${mine.length} updates` : "Share a moment"}</span>
         </button>
         {[...recent, ...viewed].map((group, index, groups) => (
-          <button key={group.user.id} type="button" className="status-story" onClick={() => openGroup(groups, index)} aria-label={`View ${displayUserName(group.user, contactMap)}'s status`}>
+          <button key={group.user.id} type="button" className={`status-story${storyMedia(group) ? " status-story--has-media" : ""}`} onClick={() => openGroup(groups, index)} aria-label={`View ${displayUserName(group.user, contactMap)}'s status`}>
+            {storyMedia(group) ? <StoryCardMedia status={storyMedia(group)} /> : null}
             <span className="status-story__avatar">
               <PresenceAvatar user={group.user} src={group.user.profile?.profile_picture} name={displayUserName(group.user, contactMap)} size={52} ring={group.unseen_count > 0 ? "new" : "seen"} />
             </span>
@@ -239,4 +244,15 @@ export default function StatusPanel() {
       </>
     </section>
   );
+}
+
+function StoryCardMedia({ status }) {
+  const src = mediaUrl(status.media);
+  return <>
+    {status.status_type === "VIDEO"
+      ? <video className="status-story__preview" src={src} muted playsInline preload="metadata" aria-hidden="true" tabIndex={-1} />
+      : <img className="status-story__preview" src={src} alt="" loading="lazy" decoding="async" />}
+    <span className="status-story__shade" aria-hidden="true" />
+    {status.status_type === "VIDEO" ? <span className="status-story__video-indicator" aria-hidden="true"><Play size={18} fill="currentColor" /></span> : null}
+  </>;
 }
