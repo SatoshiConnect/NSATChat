@@ -1,8 +1,20 @@
-import { ArrowRight, BookOpen, Newspaper, RefreshCw, Search, TrendingUp, X } from "lucide-react";
+import { ArrowRight, BookOpen, BriefcaseBusiness, Cpu, FlaskConical, Globe, HeartPulse, MapPin, Newspaper, Palette, RefreshCw, Search, TrendingUp, Trophy, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { newsApi } from "../../api/endpoints";
 import { useApp } from "./AppContext";
+
+const CATEGORY_ICONS = {
+  all: Newspaper,
+  thailand: MapPin,
+  world: Globe,
+  business: BriefcaseBusiness,
+  technology: Cpu,
+  science: FlaskConical,
+  health: HeartPulse,
+  sports: Trophy,
+  culture: Palette,
+};
 
 const formatNewsTime = (value) => {
   if (!value) return "";
@@ -40,7 +52,13 @@ export default function TodayNewsPanel() {
     return matchesCategory && matchesQuery;
   });
   const featuredItem = visibleItems.find((item) => item.image_url) || visibleItems[0];
-  const remainingItems = featuredItem ? visibleItems.filter((item) => item.id !== featuredItem.id) : [];
+  const visualCandidates = visibleItems.filter((item) => item.id !== featuredItem?.id && item.image_url);
+  const diverseVisualItems = visualCandidates.filter((item, index, all) => all.findIndex((candidate) => candidate.category === item.category) === index);
+  const visualItems = [...diverseVisualItems, ...visualCandidates]
+    .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+    .slice(0, 4);
+  const visualItemIds = new Set(visualItems.map((item) => item.id));
+  const remainingItems = featuredItem ? visibleItems.filter((item) => item.id !== featuredItem.id && !visualItemIds.has(item.id)) : [];
   const storyItems = showMore ? remainingItems : remainingItems.slice(0, 12);
 
   const load = useCallback(async () => {
@@ -134,9 +152,15 @@ export default function TodayNewsPanel() {
             { id: "all", label: "All" }, { id: "thailand", label: "Thailand" }, { id: "world", label: "World" },
             { id: "business", label: "Business" }, { id: "technology", label: "Technology" }, { id: "science", label: "Science" },
             { id: "health", label: "Health" }, { id: "sports", label: "Sports" }, { id: "culture", label: "Culture" },
-          ]).map((item) => (
-            <button key={item.id} type="button" className={category === item.id ? "is-active" : ""} aria-pressed={category === item.id} onClick={() => { setCategory(item.id); setShowMore(false); }}>{item.label}</button>
-          ))}
+          ]).map((item) => {
+            const Icon = CATEGORY_ICONS[item.id] || Newspaper;
+            return (
+              <button key={item.id} type="button" className={category === item.id ? "is-active" : ""} aria-pressed={category === item.id} onClick={() => { setCategory(item.id); setShowMore(false); }}>
+                <Icon size={15} aria-hidden="true" />
+                {item.label}
+              </button>
+            );
+          })}
         </div>
         {feed?.stale ? <p className="today-news__notice">Showing the last saved update. It could not be refreshed just now.</p> : null}
         {feed && !globalNewsAvailable ? <p className="today-news__notice">Some international news sources are temporarily unavailable. Showing headlines from sources that responded.</p> : null}
@@ -159,8 +183,27 @@ export default function TodayNewsPanel() {
               {featuredItem.summary ? <p className="today-news__featured-summary">{featuredItem.summary}</p> : null}
               <button type="button" className="today-news__read-inline" onClick={(event) => openStory(featuredItem, event)}>Read summary <ArrowRight size={15} /></button>
             </article>
+            {visualItems.length >= 2 ? (
+              <section className="today-news__visuals" aria-label="Photo stories">
+                <div className="today-news__visuals-heading"><div><span>IN FOCUS</span><h3>Stories in pictures</h3></div><small>{visualItems.length} photo stories</small></div>
+                <div className="today-news__visuals-rail">
+                  {visualItems.map((item) => (
+                    <article className="today-news__visual-card" key={item.id}>
+                      <button type="button" className="today-news__visual-media" onClick={(event) => openStory(item, event)} aria-label={`Read summary in app: ${item.title}`}>
+                        <span className="today-news__image-fallback"><Newspaper size={24} /></span>
+                        <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} />
+                        <span className="today-news__visual-shade" />
+                        <span className="today-news__visual-category">{item.category_label}</span>
+                        <strong>{item.title}</strong>
+                      </button>
+                      <div className="today-news__visual-meta"><span>{item.source}</span><time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time></div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
             <div className="today-news__section-heading">
-              <div><h3>More stories</h3><span>{visibleItems.length} updates</span></div>
+              <div><h3>More stories</h3><span>{remainingItems.length} stories</span></div>
               {Number.isFinite(Number(featuredItem.interest_rating)) ? <span className="today-news__rating" title="Based on the number of distinct publishers reporting similar headlines; this is not a fact-check."><TrendingUp size={13} /> Coverage {featuredItem.interest_rating}/5</span> : null}
             </div>
             <div className="today-news__stories">
