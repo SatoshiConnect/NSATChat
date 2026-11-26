@@ -81,8 +81,13 @@ export default function WalletPanel({ launch = null }) {
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const signingSecretRef = useRef("");
   const postedReceiptHashesRef = useRef(new Set());
+  const walletUnlockRef = useRef(null);
 
   useEffect(() => () => { signingSecretRef.current = ""; }, []);
+
+  useEffect(() => {
+    if (keyFlow === "unlock") walletUnlockRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [keyFlow]);
 
   useEffect(() => {
     let active = true;
@@ -529,7 +534,7 @@ export default function WalletPanel({ launch = null }) {
               <p>This key controls the wallet. Anyone with it can spend the funds. Save it somewhere private; it will only be shown here now.</p>
               <code className="wallet-native__recovery-key">{pendingWallet.secret}</code>
               <label className="wallet-native__check"><input type="checkbox" checked={backupConfirmed} onChange={(event) => setBackupConfirmed(event.target.checked)} /> I saved this recovery key somewhere safe.</label>
-              <label>Device password<input type="password" autoComplete="new-password" minLength={10} value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} placeholder="At least 10 characters" required /></label>
+              <label>Create wallet password on this device<input type="password" autoComplete="new-password" minLength={10} value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} placeholder="At least 10 characters" required /></label>
               <label>Confirm password<input type="password" autoComplete="new-password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} required /></label>
               <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => { setKeyFlow(""); setPendingWallet(null); }}>Cancel</button><button type="submit" className="btn btn--primary" disabled={!backupConfirmed || keyBusy}>{keyBusy ? "Securing…" : "Secure wallet"}</button></div>
             </form> : null}
@@ -537,14 +542,15 @@ export default function WalletPanel({ launch = null }) {
             {keyFlow === "restore" ? <form className="wallet-native__key-form" onSubmit={submitRestoreWallet}>
               <h2>Restore wallet</h2>
               <label>Recovery key<input value={recoveryKey} onChange={(event) => setRecoveryKey(event.target.value)} placeholder="S…" autoCapitalize="characters" autoComplete="off" spellCheck="false" required /></label>
-              <label>Create device password<input type="password" autoComplete="new-password" minLength={10} value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
+              <label>Create wallet password on this device<input type="password" autoComplete="new-password" minLength={10} value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
               <label>Confirm password<input type="password" autoComplete="new-password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} required /></label>
               <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setKeyFlow("")}>Cancel</button><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Restoring…" : "Restore wallet"}</button></div>
             </form> : null}
 
             {keyFlow === "unlock" ? <form className="wallet-native__key-form" onSubmit={submitUnlockWallet}>
               <h2>Unlock wallet</h2>
-              <label>Device password<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
+              <p className="wallet-native__privacy">Your SatoshiCore account is already linked. This wallet password only decrypts the signing key on this device; it is never sent to the server.</p>
+              <label>Wallet password on this device<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
               <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setKeyFlow("")}>Cancel</button><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button></div>
             </form> : null}
 
@@ -587,6 +593,13 @@ export default function WalletPanel({ launch = null }) {
                 <button type="button" className="btn btn--secondary" onClick={connectWalletToAccount} disabled={linkBusy || accountLink.loading}>{linkBusy ? "Connecting…" : unlocked ? "Connect wallet" : "Unlock & connect"}</button>
               ) : null}
             </div>
+
+            {keyFlow === "unlock" ? <form ref={walletUnlockRef} className="wallet-native__inline-unlock wallet-native__inline-unlock--top" onSubmit={submitUnlockWallet}>
+              <label>Wallet password on this device<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label>
+              <p className="wallet-native__privacy">This unlocks your locally encrypted signing key; it does not sign in to chat or send your password to the server.</p>
+              <button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button>
+              {keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}
+            </form> : null}
 
             <section className="wallet-native__balance-card" aria-label="Wallet balance">
               <div className="wallet-native__balance-label"><span>NSAT balance</span><span className="wallet-native__network-dot" />{wallet?.account_status === "active" ? "Mainnet" : wallet?.account_status === "not_found" ? "Not activated" : "Checking"}</div>
@@ -661,7 +674,6 @@ export default function WalletPanel({ launch = null }) {
               </section>
             ) : null}
 
-            {keyFlow === "unlock" ? <form className="wallet-native__inline-unlock" onSubmit={submitUnlockWallet}><label>Device password<input type="password" autoComplete="current-password" value={walletPassword} onChange={(event) => setWalletPassword(event.target.value)} required /></label><button type="submit" className="btn btn--primary" disabled={keyBusy}>{keyBusy ? "Unlocking…" : "Unlock"}</button>{keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}</form> : null}
             {selfOpenReview ? <div className="wallet-native__review" role="dialog" aria-modal="true" aria-label="Review free wallet activation">
               <h3>Open this wallet for free?</h3><dl><div><dt>Wallet</dt><dd>{shortAddress(address)}</dd></div><div><dt>Starting balance</dt><dd>0 NSAT</dd></div><div><dt>Network fee</dt><dd>0 NSAT</dd></div><div><dt>Mainnet ledger version</dt><dd>{selfOpenReview.protocol_version}</dd></div></dl>
               <p>This signs only the NSAT Core self-open operation for this wallet. It sends no NSAT and the private key stays on this device.</p>

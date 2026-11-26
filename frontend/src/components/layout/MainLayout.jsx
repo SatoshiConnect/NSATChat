@@ -1,17 +1,21 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
-import { MessageCircle, Phone, ShoppingBag, WalletCards } from "lucide-react";
+import { ShoppingBag, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { realtime } from "../../services/realtime";
 import { setTitleBadge } from "../../services/notify";
 import { consumeLaunchRoom } from "../../services/pwa";
-import { acknowledgeMissedCalls, loadCalls, loadMessages, loadStatus, markRoomRead, setActiveRoom } from "../../store/actions";
+import { loadMessages, loadStatus, markRoomRead, setActiveRoom } from "../../store/actions";
 import { getState, useStore } from "../../store/store";
 import NavRail from "../navigation/NavRail";
 import ChatListPanel from "../chat-list/ChatListPanel";
+import OpenChatPanel from "../chat-list/OpenChatPanel";
+import HomePanel from "./HomePanel";
+import MobileChatsPanel from "./MobileChatsPanel";
 import ArchivedPanel from "../chat-list/ArchivedPanel";
 import NewChatPanel from "../chat-list/NewChatPanel";
 import NewContactPanel from "../chat-list/NewContactPanel";
 import NewGroupPanel from "../chat-list/NewGroupPanel";
+import OpenCommunityCreatePanel from "../chat-list/OpenCommunityCreatePanel";
 import Conversation from "../conversation/Conversation";
 import SearchMessages from "../info/SearchMessages";
 import { CallProvider } from "../calls/CallManager";
@@ -24,8 +28,7 @@ import { Spinner } from "../common/ui";
 // Less-used screens load on demand to keep the first download small.
 const StatusPanel = lazy(() => import("../status/StatusPanel"));
 const StatusMain = lazy(() => import("../status/StatusMain"));
-const CallsPanel = lazy(() => import("../calls/CallsPanel"));
-const CallsMain = lazy(() => import("../calls/CallsMain"));
+const TodayNewsPanel = lazy(() => import("./TodayNewsPanel"));
 const AssistantPanel = lazy(() => import("../assistant/AssistantPanel"));
 const AssistantChat = lazy(() => import("../assistant/AssistantChat"));
 const AllMediaDialog = lazy(() => import("../media/AllMediaDialog"));
@@ -37,7 +40,6 @@ const GroupInfo = lazy(() => import("../info/GroupInfo"));
 const MessageInfo = lazy(() => import("../info/MessageInfo"));
 const SharedMedia = lazy(() => import("../info/SharedMedia"));
 const StarredPanel = lazy(() => import("../chat-list/StarredPanel"));
-const CallInfoPanel = lazy(() => import("../calls/CallInfoPanel"));
 const AddFriendsPanel = lazy(() => import("../chat-list/AddFriendsPanel"));
 const WalletPanel = lazy(() => import("../../features/wallet").then((module) => ({ default: module.WalletPanel })));
 const MarketplacePanel = lazy(() => import("../marketplace/MarketplacePanel"));
@@ -45,21 +47,16 @@ const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 const fallback = <div className="panel panel--loading"><Spinner /></div>;
 
-function MobileSectionSwitcher({ type, section, onChange }) {
-  const options = type === "communications"
+function MobileSectionSwitcher({ section, onChange }) {
+  const options = WALLET_UI_ENABLED
     ? [
-      { id: "chats", label: "Chats", icon: MessageCircle },
-      { id: "calls", label: "Calls", icon: Phone },
+      { id: "wallet", label: "Wallet", icon: WalletCards },
+      { id: "marketplace", label: "Marketplace", icon: ShoppingBag },
     ]
-    : WALLET_UI_ENABLED
-      ? [
-        { id: "wallet", label: "Wallet", icon: WalletCards },
-        { id: "marketplace", label: "Marketplace", icon: ShoppingBag },
-      ]
-      : [{ id: "marketplace", label: "Marketplace", icon: ShoppingBag }];
+    : [{ id: "marketplace", label: "Marketplace", icon: ShoppingBag }];
 
   return (
-    <nav className={`mobile-section-switcher mobile-section-switcher--${type}`} aria-label={type === "communications" ? "Chats and calls" : "Wallet and marketplace"} role="tablist">
+    <nav className="mobile-section-switcher mobile-section-switcher--commerce" aria-label="Wallet and marketplace" role="tablist">
       {options.map(({ id, label, icon: Icon }) => (
         <button key={id} type="button" role="tab" aria-selected={section === id} className={section === id ? "is-active" : ""} onClick={() => onChange(id)}>
           <Icon size={17} strokeWidth={1.9} />
@@ -72,18 +69,20 @@ function MobileSectionSwitcher({ type, section, onChange }) {
 
 const PANELS = {
   archived: ArchivedPanel,
-  callInfo: CallInfoPanel,
   newChat: NewChatPanel,
   newContact: NewContactPanel,
   addFriends: AddFriendsPanel,
   newGroup: NewGroupPanel,
+  newOpenCommunity: OpenCommunityCreatePanel,
   starred: StarredPanel,
 };
 
 const SECTION_PANELS = {
-  chats: ChatListPanel,
+  home: HomePanel,
+  chats: MobileChatsPanel,
+  openChat: OpenChatPanel,
+  today: TodayNewsPanel,
   status: StatusPanel,
-  calls: CallsPanel,
   contacts: ContactsPanel,
   profile: ProfilePanel,
   settings: SettingsPanel,
@@ -101,11 +100,12 @@ const DRAWERS = {
 };
 
 export default function MainLayout({ onLogout }) {
-  const [section, setSectionState] = useState("chats");
+  const [section, setSectionState] = useState("home");
   const [stack, setStack] = useState([]);
   const [drawer, setDrawer] = useState(null);
   const [mediaOpen, setMediaOpen] = useState(false);
   const [walletLaunch, setWalletLaunch] = useState(null);
+  const [walletPanelMounted, setWalletPanelMounted] = useState(false);
   const activeRoomId = useStore((state) => state.activeRoomId);
   const activeExists = useStore((state) => Boolean(state.activeRoomId && state.rooms[state.activeRoomId]));
   const totalUnread = useStore((state) => Object.values(state.rooms).filter((room) => !room.isArchived && room.unread > 0).length);
@@ -130,12 +130,17 @@ export default function MainLayout({ onLogout }) {
 
   const setSection = useCallback((next) => {
     if (next === "wallet" && !WALLET_UI_ENABLED) return;
-    if (next === "wallet") setWalletLaunch(null);
+    if (next === "wallet") {
+      setWalletLaunch(null);
+      setWalletPanelMounted(true);
+    } else if (next === "marketplace") {
+      setWalletLaunch(null);
+    } else {
+      setWalletLaunch(null);
+      setWalletPanelMounted(false);
+    }
     setSectionState(next);
     setStack([]);
-    if (next === "calls") {
-      loadCalls().then(acknowledgeMissedCalls);
-    }
     if (next === "status") loadStatus();
   }, []);
 
@@ -252,6 +257,7 @@ export default function MainLayout({ onLogout }) {
 
   const showWallet = section === "wallet";
   const showMarketplace = section === "marketplace";
+  const retainWalletPanel = WALLET_UI_ENABLED && (showWallet || (walletPanelMounted && showMarketplace));
   const SectionPanel = SECTION_PANELS[section] || ChatListPanel;
   const top = stack[stack.length - 1];
   const OverlayPanel = top ? PANELS[top.name] : null;
@@ -259,10 +265,14 @@ export default function MainLayout({ onLogout }) {
 
   const showChat = section === "chats" && activeRoomId && activeExists;
   let main;
-  if (showWallet) main = <WalletPanel launch={walletLaunch} />;
-  else if (showMarketplace) main = <MarketplacePanel />;
+  if (showWallet || showMarketplace) main = (
+    <>
+      {retainWalletPanel ? <div hidden={!showWallet} aria-hidden={!showWallet}><WalletPanel launch={showWallet ? walletLaunch : null} /></div> : null}
+      {showMarketplace ? <MarketplacePanel /> : null}
+    </>
+  );
   else if (section === "status") main = compact ? null : <StatusMain />;
-  else if (section === "calls") main = <CallsMain />;
+  else if (section === "today") main = <TodayNewsPanel />;
   else if (section === "ai" || section === "aiChat") main = <AssistantChat />;
   else if (showChat) main = <Conversation key={activeRoomId} roomId={activeRoomId} />;
   else
@@ -270,25 +280,24 @@ export default function MainLayout({ onLogout }) {
       <IntroPane
         onNewChat={() => { setSectionState("chats"); setStack([{ name: "newChat", props: {} }]); }}
         onNewContact={() => { setSectionState("chats"); setStack([{ name: "addFriends", props: {} }]); }}
-        onCalls={() => setSection("calls")}
+        onAssistant={openAssistant}
       />
     );
 
   // Phones show one pane: a panel opened from inside a chat (e.g. "Add to
   // contacts") brings the side pane forward; closing it returns to the chat.
   const panelOnTop = Boolean(top && top.name !== "archived");
-  const mobileShowsMain = compact && (showChat || section === "ai" || section === "aiChat") && !panelOnTop;
+  const mobileShowsMain = compact && (showChat || section === "ai" || section === "aiChat" || section === "today") && !panelOnTop;
 
   return (
     <AppContext.Provider value={app}>
       <CallProvider>
         <div className={`app ${drawer ? "has-drawer" : ""} ${mobileShowsMain ? "is-mobile-main" : ""} ${showWallet ? "is-wallet-view" : ""} ${showMarketplace ? "is-marketplace-view" : ""}`}>
           <NavRail section={section === "aiChat" ? "chats" : section} onChange={setSection} onOpenMedia={openMedia} />
-          {!showWallet && !showMarketplace ? (
+          {!showWallet && !showMarketplace && section !== "today" ? (
             <aside className="sidebar">
-              {compact && (section === "chats" || section === "calls") ? <MobileSectionSwitcher type="communications" section={section} onChange={setSection} /> : null}
               <div className="sidebar__stack">
-                <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} /></Suspense>
+                <Suspense fallback={fallback}><SectionPanel key={section === "aiChat" ? "chats" : section} {...(section === "chats" ? { FriendsPanel: ContactsPanel } : {})} {...(section === "contacts" ? { onBack: () => setSection("home") } : {})} /></Suspense>
                 {OverlayPanel ? (
                   <div className="sidebar__overlay" key={`${top.name}-${stack.length}`}>
                     <Suspense fallback={fallback}><OverlayPanel {...top.props} /></Suspense>
@@ -298,7 +307,7 @@ export default function MainLayout({ onLogout }) {
             </aside>
           ) : null}
           <main className={`main ${showWallet ? "main--wallet" : ""} ${section === "status" && !compact ? "main--status" : ""}`}>
-            {compact && (showWallet || showMarketplace) ? <MobileSectionSwitcher type="commerce" section={showMarketplace ? "marketplace" : "wallet"} onChange={setSection} /> : null}
+            {compact && (showWallet || showMarketplace) ? <MobileSectionSwitcher section={showMarketplace ? "marketplace" : "wallet"} onChange={setSection} /> : null}
             <Suspense fallback={fallback}>{main}</Suspense>
           </main>
           {Drawer && showChat ? (

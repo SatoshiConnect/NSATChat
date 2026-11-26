@@ -30,7 +30,8 @@ def can_view_status(status_obj, user, contact_ids, saved_me_ids=None, chat_partn
             contact_user_id=user.id,
         ).exists()
 
-    # Everyone still means a known relationship, never an arbitrary stranger.
+    # EVERYONE includes saved/chat contacts and accepted social followers, never
+    # an arbitrary stranger. Other visibility modes retain their stricter rules.
     if visibility == StatusVisibility.EVERYONE:
         return status_obj.user_id in contact_ids or owner_has_saved_viewer
 

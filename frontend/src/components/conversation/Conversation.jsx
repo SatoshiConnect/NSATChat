@@ -23,6 +23,7 @@ import { rememberSticker } from "../../utils/stickers";
 import { canDeleteForEveryone, canEdit } from "../../utils/rules";
 import Composer from "./Composer";
 import ConversationHeader from "./ConversationHeader";
+import ConversationAdSlot from "./ConversationAdSlot";
 import MessageList from "./MessageList";
 import PinnedBar from "./PinnedBar";
 import ReactionPicker from "./ReactionPicker";
@@ -78,7 +79,9 @@ export default function Conversation({ roomId }) {
   const nameOf = useCallback(
     (userId) => {
       if (Number(userId) === Number(me.id)) return "You";
-      const user = room?.participants.find((p) => Number(p.user?.id) === Number(userId))?.user;
+      const participant = room?.participants.find((p) => Number(p.user?.id) === Number(userId));
+      if (participant?.community_display_name) return participant.community_display_name;
+      const user = participant?.user;
       return user ? displayUserName(user, contactMap) : "Unknown";
     },
     [room?.participants, contactMap, me.id],
@@ -480,6 +483,7 @@ export default function Conversation({ roomId }) {
         onClose={app.closeRoom}
         onCall={(type) => calls.startCall(room, type)}
       />
+      <ConversationAdSlot onActivate={() => app.setSection("marketplace")} />
 
       <GroupCallBanner room={room} />
       <PinnedBar room={room} me={me} canPin={isMember && !blocked} />

@@ -22,6 +22,73 @@
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220' fill='none' stroke='%23ffffff' stroke-opacity='0.045' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 30h28a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H34l-8 7v-7h-4a6 6 0 0 1-6-6V36a6 6 0 0 1 6-6Z'/%3E%3Ccircle cx='150' cy='40' r='14'/%3E%3Cpath d='M144 38h.01M156 38h.01M145 45c3 3 7 3 10 0'/%3E%3Cpath d='M95 95l6 12 13 2-9 9 2 13-12-6-12 6 2-13-9-9 13-2Z'/%3E%3Cpath d='M180 120c0-8 12-8 12 0 0 7-12 14-12 14s-12-7-12-14c0-8 12-8 12 0Z'/%3E%3Crect x='30' y='130' width='34' height='26' rx='5'/%3E%3Ccircle cx='47' cy='143' r='7'/%3E%3Cpath d='M60 128l4 2'/%3E%3Cpath d='M120 170l14 14m0-14-14 14'/%3E%3Cpath d='M190 190a10 10 0 1 1-10-10'/%3E%3Cpath d='M80 20c6 0 10 4 10 10s-4 10-10 10'/%3E%3Cpath d='M15 95c5-6 10 6 15 0s10 6 15 0'/%3E%3Cpath d='M100 200v-14l12-4v14'/%3E%3Ccircle cx='97' cy='200' r='3'/%3E%3Ccircle cx='109' cy='196' r='3'/%3E%3Cpath d='M160 80l6-6 6 6-6 6Z'/%3E%3C/svg%3E");
   background-size: 260px;
 }
+.conversation-ad {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px 14px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 7%, var(--header-bg));
+  border-bottom: 1px solid var(--divider);
+  flex: none;
+}
+.conversation-ad__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  border-radius: 10px;
+}
+.conversation-ad__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.2;
+}
+.conversation-ad__copy span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.conversation-ad__copy strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-ad__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 5px 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: none;
+}
+.conversation-ad__action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
 /* Light theme: dark doodles on WhatsApp's beige wallpaper. */
 :root[data-theme="light"] .conversation__body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220' fill='none' stroke='%23000000' stroke-opacity='0.05' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 30h28a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H34l-8 7v-7h-4a6 6 0 0 1-6-6V36a6 6 0 0 1 6-6Z'/%3E%3Ccircle cx='150' cy='40' r='14'/%3E%3Cpath d='M144 38h.01M156 38h.01M145 45c3 3 7 3 10 0'/%3E%3Cpath d='M95 95l6 12 13 2-9 9 2 13-12-6-12 6 2-13-9-9 13-2Z'/%3E%3Cpath d='M180 120c0-8 12-8 12 0 0 7-12 14-12 14s-12-7-12-14c0-8 12-8 12 0Z'/%3E%3Crect x='30' y='130' width='34' height='26' rx='5'/%3E%3Ccircle cx='47' cy='143' r='7'/%3E%3Cpath d='M60 128l4 2'/%3E%3Cpath d='M120 170l14 14m0-14-14 14'/%3E%3Cpath d='M190 190a10 10 0 1 1-10-10'/%3E%3Cpath d='M80 20c6 0 10 4 10 10s-4 10-10 10'/%3E%3Cpath d='M15 95c5-6 10 6 15 0s10 6 15 0'/%3E%3Cpath d='M100 200v-14l12-4v14'/%3E%3Ccircle cx='97' cy='200' r='3'/%3E%3Ccircle cx='109' cy='196' r='3'/%3E%3Cpath d='M160 80l6-6 6 6-6 6Z'/%3E%3C/svg%3E");

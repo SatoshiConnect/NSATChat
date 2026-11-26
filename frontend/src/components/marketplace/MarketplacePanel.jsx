@@ -3,12 +3,14 @@ import { Gift, Library, Search, Sparkles, Store, Upload } from "lucide-react";
 import { errorMessage } from "../../api/client";
 import { marketplaceApi } from "../../api/endpoints";
 import { toast } from "../../services/toast";
+import { walletApi } from "../../features/wallet/api";
 import { useApp } from "../layout/AppContext";
 import { EmptyState, PanelHeader, Spinner } from "../common/ui";
+import AdPlacement from "../common/AdPlacement";
 
 const CATEGORIES = ["all", "gift", "sticker_pack", "profile_frame", "badge", "theme", "avatar", "pixel_world"];
 const PURCHASE_ERRORS = {
-  wallet_not_linked: "Connect your NSAT wallet in the Wallet tab before buying.",
+  wallet_not_linked: "Your wallet is not linked to this account yet. Connect it, then return here to buy.",
   creator_wallet_unavailable: "This creator has not connected an NSAT wallet yet.",
   already_owned: "You already own this item.",
   order_already_open: "You already have an open order for this item. Continue it from the banner at the top of Explore.",
@@ -35,6 +37,7 @@ export default function MarketplacePanel() {
   const [giftHistory, setGiftHistory] = useState({ received: [], sent: [] });
   const [busy, setBusy] = useState(true);
   const [config, setConfig] = useState(null);
+  const [walletStatus, setWalletStatus] = useState({ state: "checking", address: "", balance: null });
   // Unknown config keeps the demo sections visible; a live deployment hides
   // them, so a shopper never sees an empty simulation history.
   const simulationsEnabled = config ? Boolean(config.simulations) : true;
@@ -141,6 +144,30 @@ export default function MarketplacePanel() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    walletApi.linkMe().then(async (link) => {
+      if (!active) return;
+      if (!link.connected || !link.address) {
+        setWalletStatus({ state: "unlinked", address: "", balance: null });
+        return;
+      }
+      setWalletStatus({ state: "linked", address: link.address, balance: undefined });
+      try {
+        const wallet = await walletApi.read(link.address);
+        if (!active) return;
+        if (wallet.address !== link.address || wallet.network !== "NSAT Mainnet ; October 2026 ; bc3098829fffc717") throw new Error("wallet_identity_mismatch");
+        const balance = wallet.account_status === "active" && wallet.balance != null ? String(wallet.balance) : wallet.account_status === "not_found" ? "0" : null;
+        setWalletStatus({ state: "linked", address: link.address, balance });
+      } catch {
+        if (active) setWalletStatus({ state: "linked", address: link.address, balance: null });
+      }
+    }).catch(() => {
+      if (active) setWalletStatus({ state: "unavailable", address: "", balance: null });
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     // A confirmed payment may arrive while checkout is closed; the inbox
     // socket nudges this screen so the library unlocks without a reload.
     const unlock = () => { void refresh(); };
@@ -237,6 +264,26 @@ export default function MarketplacePanel() {
           <p>Gifts, stickers and creator collections for your SatoshiCore profile.</p>
           <div className="marketplace__notice">Prices in NSAT · Items unlock only after an on-chain payment is confirmed</div>
         </div>
+
+        <div className={`marketplace__wallet-status is-${walletStatus.state}`} role="status" aria-live="polite">
+          <div>
+            <strong>{walletStatus.state === "checking" ? "Checking your wallet…" : walletStatus.state === "linked" ? "Wallet linked to your account" : walletStatus.state === "unlinked" ? "Connect a wallet to trade" : "Wallet status unavailable"}</strong>
+            <span>{walletStatus.state === "linked"
+              ? `${walletStatus.address.slice(0, 8)}…${walletStatus.address.slice(-6)}${walletStatus.balance === undefined ? " · checking balance…" : walletStatus.balance === null ? " · balance unavailable" : ` · ${BigInt(walletStatus.balance).toLocaleString("en-US")} NSAT`} · review the total and network fee before signing`
+              : walletStatus.state === "unlinked"
+                ? "Link your wallet once to buy items and receive creator payments."
+                : walletStatus.state === "unavailable"
+                  ? "Refresh this page or check your connection before starting a trade."
+                  : "Preparing your wallet status."}</span>
+          </div>
+          {walletStatus.state === "unlinked"
+            ? <button type="button" onClick={() => app.openWallet()}>Connect wallet</button>
+            : walletStatus.state === "linked"
+              ? <button type="button" onClick={() => app.openWallet()}>Manage wallet</button>
+              : null}
+        </div>
+
+        {tab === "catalog" ? <AdPlacement placement="marketplace-discovery" /> : null}
 
         {/* Shown above the tabs so an unpaid order is one tap away from every
             marketplace section, not only from Explore. */}

@@ -35,6 +35,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
   const [stage, setStage] = useState("");
   const [recipientReadiness, setRecipientReadiness] = useState(null);
   const secretRef = useRef("");
+  const loadInFlightRef = useRef(false);
 
   const recipientCheckKey = order
     ? JSON.stringify([
@@ -46,12 +47,17 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     : "";
 
   const load = async () => {
+    if (loadInFlightRef.current) return null;
+    loadInFlightRef.current = true;
     try {
       const fresh = await marketplaceApi.order(orderId);
       setOrder(fresh);
+      return fresh;
     } catch (failure) {
       setError(errorMessage(failure));
+      return null;
     } finally {
+      loadInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -76,11 +82,11 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
   }, [orderId]);
 
   useEffect(() => {
-    if (!order || order.state !== "partially_paid") return undefined;
-    const timer = window.setInterval(() => { load(); }, 8_000);
+    if (!order || order.state !== "partially_paid" || busy) return undefined;
+    const timer = window.setInterval(() => { load(); }, 3_000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.state, orderId]);
+  }, [order?.state, orderId, busy]);
 
   useEffect(() => {
     if (!order || !recipientCheckKey || order.state === "paid" || ["expired", "failed"].includes(order.state)) return undefined;
@@ -163,7 +169,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
     let available = "0";
     let payingLabel = "";
     try {
-      for (const payment of order.payments || []) {
+      for (const payment of (order.payments || []).filter((entry) => entry.state !== "confirmed" && !entry.tx_hash)) {
         if (payment.state === "confirmed") continue;
         if (!ADDRESS_RE.test(payment.payee_address)) throw new Error("invalid_payee");
         payingLabel = ROLE_LABEL[payment.role] || payment.role;
@@ -218,9 +224,18 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         return;
       }
       setStage("Waiting for the NSAT network to confirm…");
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 5_000));
-        latest = await marketplaceApi.order(order.id);
+      // The payment submission response has already performed one chain check.
+      // Check promptly after that, then back off to avoid hammering the indexer.
+      const confirmationDelays = [750, 1_000, 1_250, 1_500, 2_000, ...Array(12).fill(3_000)];
+      for (const delay of confirmationDelays) {
+        await new Promise((resolve) => window.setTimeout(resolve, delay));
+        try {
+          latest = await marketplaceApi.order(order.id);
+        } catch {
+          // A transient status request failure must not put a submitted
+          // transaction back into the signing flow or invite a duplicate pay.
+          continue;
+        }
         setOrder(latest);
         if (latest.state === "paid") {
           toast.success(
@@ -233,7 +248,7 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
         }
         if (latest.state === "failed") throw new Error("payment_failed");
       }
-      toast("The network is still confirming. Reopen this order in a moment.");
+      toast("Still confirming. Your submitted payment will not be sent again; status checks continue automatically.");
     } catch (failure) {
       const code = failure?.response?.data?.code || failure?.message || "";
       const messages = {
@@ -268,6 +283,8 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
   if (!order) return <div className="wallet-native__empty">{error || "Order unavailable."}</div>;
 
   const pending = (order.payments || []).filter((payment) => payment.state !== "confirmed");
+  const unsignedPending = pending.filter((payment) => !payment.tx_hash);
+  const awaitingSettlement = pending.some((payment) => Boolean(payment.tx_hash));
   const paid = order.state === "paid";
   const closed = ["expired", "failed"].includes(order.state);
   const networkFees = pending.length * NETWORK_FEE_NSAT;
@@ -321,36 +338,45 @@ export default function MarketplaceCheckout({ orderId, onDone }) {
             <p className="wallet-native__error">This order is {order.state}. Start a new checkout from the marketplace.</p>
           ) : (
             <>
-              {readinessState === "checking" ? (
+              {readinessState === "checking" && unsignedPending.length ? (
                 <p className="wallet-checkout__hint">Checking recipient wallets on NSAT Mainnet before enabling payment…</p>
               ) : null}
-              {readinessState === "blocked" ? (
+              {readinessState === "blocked" && unsignedPending.length ? (
                 <div className="wallet-native__error" role="alert">
                   {checkoutRecipientMessage(recipientReadiness.issue, ROLE_LABEL[recipientReadiness.issue.role] || recipientReadiness.issue.role)}
                 </div>
               ) : null}
-              {readinessState === "unavailable" ? (
+              {readinessState === "unavailable" && unsignedPending.length ? (
                 <div className="wallet-native__error" role="alert">
                   Recipient wallet status could not be verified. Payment is disabled until NSAT Mainnet can confirm it. No payment has been sent.
                   <button type="button" className="wallet-native__refresh" onClick={() => load()}>Retry</button>
                 </div>
               ) : null}
               <form className="wallet-native__key-form" onSubmit={pay}>
-              <h2>Pay {amountLabel(order.total_due_nsat)} NSAT</h2>
-              {readinessState === "ready" ? <>
+              <h2>{(busy && stage.startsWith("Waiting")) || (awaitingSettlement && !unsignedPending.length) ? "Confirming purchase" : unsignedPending.length < pending.length ? "Complete remaining payment" : `Pay ${amountLabel(order.total_due_nsat)} NSAT`}</h2>
+              {awaitingSettlement ? (
+                <p className="wallet-checkout__hint" role="status">A signed payment is on the NSAT network. It will not be submitted again; we are checking for ledger confirmation.</p>
+              ) : null}
+              {readinessState === "ready" && !busy && unsignedPending.length ? <>
                 <label>Wallet password
                   <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Unlock to sign" autoComplete="current-password" />
                 </label>
                 <p className="wallet-checkout__hint"><ShieldCheck size={16} /> Signed on this device. NSATChat never sends your key.</p>
                 <p className="wallet-checkout__disclosure">
                   Payment is final: NSAT transfers cannot be reversed or refunded by NSATChat. A {NETWORK_FEE_NSAT} NSAT
-                  network fee applies to each of the {pending.length} transfer(s), and the rest is paid directly to the creator.
+                  network fee applies to each of the {unsignedPending.length} remaining transfer(s), and the rest is paid directly to the creator.
                 </p>
               </> : null}
               {error ? <p className="wallet-native__error">{error}</p> : null}
-              {stage ? <p className="wallet-checkout__hint">{stage}</p> : null}
-              {readinessState === "ready" ? (
-                <button type="submit" className="btn btn--primary" disabled={busy}>{busy ? "Processing…" : "Sign and pay"}</button>
+              {stage && !stage.startsWith("Waiting") ? <p className="wallet-checkout__hint">{stage}</p> : null}
+              {busy && stage.startsWith("Waiting") ? (
+                <p className="wallet-checkout__hint" role="status">Your signed payment was submitted. We’re checking the NSAT ledger; you do not need to submit it again.</p>
+              ) : null}
+              {readinessState === "ready" && !busy && unsignedPending.length ? (
+                <button type="submit" className="btn btn--primary">Sign and pay</button>
+              ) : null}
+              {busy && !stage.startsWith("Waiting") ? (
+                <button type="button" className="btn btn--primary" disabled>Processing…</button>
               ) : null}
               </form>
             </>

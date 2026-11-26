@@ -77,6 +77,13 @@ export const chatApi = {
   recentStickers: () => api.get("chat/stickers/recent/").then((r) => r.data.results || []),
   gifs: (q = "", offset = 0) => api.get("chat/gifs/", { params: { q, offset } }).then((r) => r.data),
   rooms: () => api.get("chat/rooms/", { params: { archived: "all" } }).then((r) => asList(r.data)),
+  openCommunities: (params = {}) => api.get("chat/openchat/communities/", { params }).then((r) => r.data),
+  createOpenCommunity: (fields) => api.post("chat/openchat/communities/create/", fields).then((r) => r.data),
+  openCommunity: (id) => api.get(`chat/openchat/communities/${id}/`).then((r) => r.data),
+  joinOpenCommunity: (id, fields) => api.post(`chat/openchat/communities/${id}/join/`, fields).then((r) => r.data),
+  openCommunityRequests: (id) => api.get(`chat/openchat/communities/${id}/requests/`).then((r) => asList(r.data)),
+  decideOpenCommunityRequest: (id, requestId, decision) => api.post(`chat/openchat/communities/${id}/requests/`, { request_id: requestId, decision }).then((r) => r.data),
+  reportOpenCommunity: (id, reason, details = "") => api.post(`chat/openchat/communities/${id}/report/`, { reason, details }).then((r) => r.data),
   roomInfo: (roomId) => api.get(`chat/rooms/${roomId}/info/`).then((r) => r.data),
   openPrivate: (userId) => api.post("chat/rooms/private/", { user_id: userId }).then((r) => r.data),
   createGroup: ({ name, description, photo, participants }) =>
@@ -112,6 +119,10 @@ export const chatApi = {
   block: (userId) => api.post("chat/users/block/", { user: userId }),
   unblock: (userId) => api.post("chat/users/unblock/", { user: userId }),
   blocked: () => api.get("chat/users/blocked/").then((r) => asList(r.data)),
+};
+
+export const newsApi = {
+  today: () => api.get("news/today/").then((r) => r.data),
 };
 
 export const messageApi = {
@@ -210,7 +221,12 @@ export const socialApi = {
   unsavePost: (id) => api.delete(`social/posts/${id}/save/`),
   reportPost: (id, payload) => api.post(`social/posts/${id}/report/`, payload).then((r) => r.data),
   comments: (id) => api.get(`social/posts/${id}/comments/`).then((r) => asList(r.data)),
-  addComment: (id, text, parent_id) => api.post(`social/posts/${id}/comments/`, { text, ...(parent_id ? { parent_id } : {}) }).then((r) => r.data),
+  addComment: (id, payload, parent_id, sticker_asset_id, is_reward = false) => {
+    const body = payload && typeof payload === "object"
+      ? payload
+      : { text: payload || "", ...(parent_id ? { parent_id } : {}), ...(sticker_asset_id ? { sticker_asset_id } : {}), ...(is_reward ? { is_reward } : {}) };
+    return api.post(`social/posts/${id}/comments/`, body).then((r) => r.data);
+  },
   editComment: (postId, commentId, text) => api.patch(`social/posts/${postId}/comments/${commentId}/`, { text }).then((r) => r.data),
   removeComment: (postId, commentId) => api.delete(`social/posts/${postId}/comments/${commentId}/`),
 };

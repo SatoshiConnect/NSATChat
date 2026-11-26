@@ -13,6 +13,7 @@ pinned or deleted for everyone.
 """
 
 import json
+from django.core.exceptions import ObjectDoesNotExist
 
 from .choices import MessageType
 from .models import Message
@@ -47,11 +48,20 @@ def is_group_event(message):
 
 def create_group_event(room, actor, event, text, **extra):
     """Persist a system message in ``room`` (no broadcast)."""
+    actor_name = actor_display_name(actor)
+    try:
+        room.open_community
+        is_community = True
+    except (AttributeError, ObjectDoesNotExist):
+        is_community = False
+    if is_community:
+        alias = room.participants.filter(user_id=actor.pk).values_list("community_display_name", flat=True).first()
+        actor_name = alias or "Member"
     payload = {
         "kind": "group_event",
         "event": event,
         "actor_id": actor.pk,
-        "actor_name": actor_display_name(actor),
+        "actor_name": actor_name,
         "text": text,
         **extra,
     }

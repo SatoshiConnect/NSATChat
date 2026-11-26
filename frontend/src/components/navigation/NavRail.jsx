@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Contact, Images, Phone, Settings, ShoppingBag, Sparkles, WalletCards } from "lucide-react";
+import { Contact, Home, Images, Newspaper, Settings, ShoppingBag, Sparkles, Users, WalletCards } from "lucide-react";
 import { useMediaQuery } from "../../hooks";
 import { useStore } from "../../store/store";
 import { Avatar } from "../common/ui";
@@ -9,12 +9,12 @@ import { useAppUpdate } from "../../services/appUpdate";
 const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
 
 /**
- * Compact vertical navigation on desktop; on phones a condensed bottom
- * tab bar (Chats, Updates, Contacts, Wallet, You). Calls live inside Chats,
- * and Marketplace lives inside Wallet. SatoshiCore AI and
- * Media move to the floating button / chat menu on phones.
- * Badges are derived from real state: unread chats (non-archived), unseen
- * statuses and unacknowledged missed calls.
+ * Compact vertical navigation on desktop; on phones the LINE-inspired
+ * Home, Chats, OpenChat, Today, Social and Wallet destinations. Calls live inside
+ * Chats, Marketplace lives inside Wallet, and Friends are available from Home
+ * and the Chats/Friends switcher.
+ * Badges are derived from real state: unread chats (non-archived) and unseen
+ * statuses. Missed calls appear as call cards in their conversation.
  */
 function NavRail({ section, onChange, onOpenMedia }) {
   const me = useStore((state) => state.me);
@@ -22,26 +22,23 @@ function NavRail({ section, onChange, onOpenMedia }) {
     Object.values(state.rooms).filter((room) => !room.isArchived && room.unread > 0 && room.id !== state.activeRoomId).length,
   );
   const unseenStatus = useStore((state) => state.statusFeed.some((group) => Number(group.unseen_count) > 0));
-  const missed = useStore((state) => state.missedUnseen);
   const compact = useMediaQuery("(max-width: 900px)");
   const update = useAppUpdate();
 
   if (compact) {
-    const marketplaceTab = WALLET_UI_ENABLED
-      ? { id: "wallet", label: "Wallet", match: ["wallet", "marketplace"], icon: () => <WalletCards size={22} strokeWidth={1.8} /> }
-      : { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> };
     const tabs = [
-      { id: "chats", label: "Chats", match: ["chats", "calls"], icon: (active) => <ChatsIcon filled={active} />, badge: (unreadChats + missed) || null, ariaLabel: `Chats and calls${unreadChats || missed ? `, ${unreadChats} unread chats and ${missed} missed calls` : ""}` },
-      { id: "status", label: "Updates", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
-      { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
-      marketplaceTab,
+      { id: "home", label: "Home", match: ["home", "contacts", "profile", "settings"], icon: () => <Home size={22} strokeWidth={1.8} /> },
+      { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
+      { id: "openChat", label: "OpenChat", icon: () => <Users size={22} strokeWidth={1.8} /> },
+      { id: "today", label: "Today", icon: () => <Newspaper size={22} strokeWidth={1.8} /> },
+      { id: "status", label: "Social", ariaLabel: "Social media", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
       {
-        id: "settings",
-        label: "You",
-        match: ["settings", "profile"],
+        id: WALLET_UI_ENABLED ? "wallet" : "marketplace",
+        label: WALLET_UI_ENABLED ? "Wallet" : "Market",
+        match: ["wallet", "marketplace"],
         dot: update.available,
         dotLabel: "New version available",
-        icon: () => <Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={26} />,
+        icon: () => WALLET_UI_ENABLED ? <WalletCards size={22} strokeWidth={1.8} /> : <ShoppingBag size={22} strokeWidth={1.8} />,
       },
     ];
     return (
@@ -71,9 +68,11 @@ function NavRail({ section, onChange, onOpenMedia }) {
   }
 
   const items = [
+    { id: "home", label: "Home", match: ["home", "contacts"], icon: () => <Home size={22} strokeWidth={1.8} /> },
     { id: "chats", label: "Chats", icon: (active) => <ChatsIcon filled={active} />, badge: unreadChats || null },
-    { id: "calls", label: "Calls", icon: () => <Phone size={22} strokeWidth={1.8} />, badge: missed || null },
-    { id: "status", label: "Status", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
+    { id: "openChat", label: "OpenChat", icon: () => <Users size={22} strokeWidth={1.8} /> },
+    { id: "today", label: "Today", icon: () => <Newspaper size={22} strokeWidth={1.8} /> },
+    { id: "status", label: "Social", ariaLabel: "Social media", icon: (active) => <StatusIcon filled={active} />, dot: unseenStatus },
     { id: "marketplace", label: "Market", icon: () => <ShoppingBag size={22} strokeWidth={1.8} /> },
     { id: "contacts", label: "Contacts", icon: () => <Contact size={22} strokeWidth={1.8} /> },
     ...(WALLET_UI_ENABLED ? [{ id: "wallet", label: "Wallet", icon: () => <WalletCards size={22} strokeWidth={1.8} /> }] : []),
@@ -84,7 +83,7 @@ function NavRail({ section, onChange, onOpenMedia }) {
     <nav className="rail" aria-label="Main navigation">
       <div className="rail__group">
         {items.map((item) => {
-          const active = section === item.id;
+          const active = (item.match || [item.id]).includes(section);
           return (
             <button
               key={item.id}

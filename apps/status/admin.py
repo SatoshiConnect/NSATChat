@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.db import transaction
 from django.utils import timezone
+from .choices import StatusVisibility
 
 from .models import (
     Status,
@@ -80,7 +81,7 @@ class StatusReportAdmin(admin.ModelAdmin):
                         media.delete(save=False)
                     self.log_change(request, story, "Hidden by a moderator after a status report.")
                     from .utils import notify_status_feed_changed
-                    transaction.on_commit(lambda owner=story.user: notify_status_feed_changed(owner, "moderated"))
+                    transaction.on_commit(lambda owner=story.user, public=story.visibility == StatusVisibility.EVERYONE: notify_status_feed_changed(owner, "moderated", everyone=public))
             for report in reports:
                 report.state = StatusReport.ACTIONED
                 report.reviewed_by = request.user

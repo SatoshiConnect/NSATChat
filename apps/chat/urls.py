@@ -60,10 +60,24 @@ from .feature_views import (
     PollVoteAPIView,
     ViewOnceMediaAPIView,
 )
+from .openchat_views import (
+    OpenCommunityCatalogAPIView,
+    OpenCommunityCreateAPIView,
+    OpenCommunityDetailAPIView,
+    OpenCommunityJoinAPIView,
+    OpenCommunityJoinRequestsAPIView,
+    OpenCommunityReportAPIView,
+)
 
 app_name = "chat"
 
 urlpatterns = [
+    path("openchat/communities/", OpenCommunityCatalogAPIView.as_view(), name="openchat-community-catalog"),
+    path("openchat/communities/create/", OpenCommunityCreateAPIView.as_view(), name="openchat-community-create"),
+    path("openchat/communities/<int:pk>/", OpenCommunityDetailAPIView.as_view(), name="openchat-community-detail"),
+    path("openchat/communities/<int:pk>/join/", OpenCommunityJoinAPIView.as_view(), name="openchat-community-join"),
+    path("openchat/communities/<int:pk>/requests/", OpenCommunityJoinRequestsAPIView.as_view(), name="openchat-community-requests"),
+    path("openchat/communities/<int:pk>/report/", OpenCommunityReportAPIView.as_view(), name="openchat-community-report"),
     # ==========================
     # Polls, disappearing messages, view once, link previews
     # ==========================

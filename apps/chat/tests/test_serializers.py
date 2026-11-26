@@ -114,6 +114,7 @@ class ParticipantSerializerTest(TestCase):
                 "is_admin",
                 "is_muted",
                 "is_archived",
+                "community_display_name",
                 "joined_at",
                 "muted_until",
             },

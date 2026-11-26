@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Eye, Flag, Gift, MoreVertical, Pause, Pencil, Play, Send, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, Flag, Gift, MoreVertical, Pause, Pencil, Play, Send, Share2, Trash2, UserCheck, UserPlus, Volume2, VolumeX, X } from "lucide-react";
 import { errorMessage, mediaUrl } from "../../api/client";
-import { marketplaceApi, statusApi } from "../../api/endpoints";
+import { marketplaceApi, socialApi, statusApi } from "../../api/endpoints";
 import { loadStatus } from "../../store/actions";
 import { dispatch, getState, useStore } from "../../store/store";
 import { toast } from "../../services/toast";
@@ -13,6 +13,7 @@ import PresenceAvatar from "../common/PresenceAvatar";
 import { confirmAction } from "../common/dialogs";
 import { useApp } from "../layout/AppContext";
 import StatusReplyBar from "./StatusReplyBar";
+import "../../styles/status-media-errors.css";
 
 const IMAGE_MS = 6000;
 
@@ -94,6 +95,9 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [viewers, setViewers] = useState(null);
+  const [mediaOverrides, setMediaOverrides] = useState({});
+  const [mediaUnavailable, setMediaUnavailable] = useState({});
+  const mediaRefreshAttempts = useRef(new Set());
   const [giftItems, setGiftItems] = useState(null);
   const [giftMode, setGiftMode] = useState("simulation");
   const [giftBusy, setGiftBusy] = useState(false);
@@ -106,6 +110,8 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [editBusy, setEditBusy] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [editBackground, setEditBackground] = useState("#075E54");
+  const [followState, setFollowState] = useState(null);
+  const [followBusy, setFollowBusy] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const videoRef = useRef(null);
@@ -116,6 +122,37 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const viewsCount = liveViews ?? status?.views_count ?? 0;
   const owner = group?.user;
   const ownerName = isMine ? "My status" : displayUserName(owner, contactMap);
+  const currentFollow = followState?.ownerId === Number(owner?.id) ? followState : null;
+
+  useEffect(() => {
+    if (!owner?.id || isMine) return undefined;
+    let active = true;
+    socialApi.followStatus(owner.id).then((value) => {
+      if (active) setFollowState({ ...value, ownerId: Number(owner.id) });
+    }).catch(() => {
+      if (active) setFollowState({ unavailable: true, ownerId: Number(owner.id) });
+    });
+    return () => { active = false; };
+  }, [owner?.id, isMine]);
+
+  const toggleFollow = async () => {
+    if (!owner?.id || followBusy || !currentFollow || currentFollow.unavailable) return;
+    setFollowBusy(true);
+    try {
+      if (currentFollow.following || currentFollow.request_pending) {
+        await socialApi.unfollow(owner.id);
+        await loadStatus();
+        toast.success("Follow removed.");
+        onClose();
+        return;
+      }
+      const next = await socialApi.follow(owner.id);
+      setFollowState({ ...next, ownerId: Number(owner.id) });
+      await loadStatus();
+      toast.success(next.request_pending ? "Follow request sent." : "Following this account.");
+    } catch (error) { toast.error(errorMessage(error, "Couldn't update follow status.")); }
+    finally { setFollowBusy(false); }
+  };
 
   // A live marketplace sells gifts as paid orders addressed to the Story
   // owner; a demo deployment still records the free simulation instead.
@@ -343,7 +380,23 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
     });
   }
 
-  const media = mediaUrl(status.media);
+  const media = mediaUrl(mediaOverrides[status.id] || status.media);
+  const refreshStatusMedia = async () => {
+    if (mediaRefreshAttempts.current.has(status.id)) {
+      setMediaUnavailable((current) => ({ ...current, [status.id]: true }));
+      return;
+    }
+    mediaRefreshAttempts.current.add(status.id);
+    await loadStatus();
+    const state = getState();
+    const freshStatus = [...state.myStatuses, ...state.statusFeed.flatMap((item) => item.statuses || [])]
+      .find((item) => Number(item.id) === Number(status.id));
+    if (freshStatus?.media && freshStatus.media !== status.media) {
+      setMediaOverrides((current) => ({ ...current, [status.id]: freshStatus.media }));
+      return;
+    }
+    setMediaUnavailable((current) => ({ ...current, [status.id]: true }));
+  };
 
   return createPortal(
     <div className="status-viewer" role="dialog" aria-label={`${ownerName} status`}>
@@ -380,7 +433,10 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
               <MenuButton
                 icon={MoreVertical}
                 label="Status options"
-                items={[{ label: "Report status", icon: Flag, danger: true, onClick: () => setReportOpen(true) }]}
+                items={[
+                  !currentFollow?.unavailable && { label: currentFollow?.following ? "Unfollow account" : currentFollow?.request_pending ? "Cancel follow request" : "Follow account", icon: currentFollow?.following || currentFollow?.request_pending ? UserCheck : UserPlus, disabled: followBusy || !currentFollow, onClick: toggleFollow },
+                  { label: "Report status", icon: Flag, danger: true, onClick: () => setReportOpen(true) },
+                ].filter(Boolean)}
               />
             </span>
           )}
@@ -395,17 +451,20 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
           onPointerCancel={onContentPointerUp}
         >
           {status.status_type === "TEXT" ? <p className="status-viewer__text">{status.content}</p> : null}
-          {status.status_type === "IMAGE" ? <img src={media} alt="Status" /> : null}
+          {status.status_type === "IMAGE" ? (mediaUnavailable[status.id] ? <p className="status-viewer__media-error" role="status">Couldn't load this photo. Check your connection and reopen the story.</p> : <img src={media} alt="Status" onError={refreshStatusMedia} />) : null}
           {status.status_type === "VIDEO" ? (
-            <video
-              ref={videoRef}
-              src={media}
-              autoPlay
-              playsInline
-              muted={muted}
-              onTimeUpdate={(event) => event.currentTarget.duration && setProgress(event.currentTarget.currentTime / event.currentTarget.duration)}
-              onEnded={next}
-            />
+            mediaUnavailable[status.id]
+              ? <p className="status-viewer__media-error" role="status">Couldn't load this video. Check your connection and reopen the story.</p>
+              : <video
+                ref={videoRef}
+                src={media}
+                autoPlay
+                playsInline
+                muted={muted}
+                onTimeUpdate={(event) => event.currentTarget.duration && setProgress(event.currentTarget.currentTime / event.currentTarget.duration)}
+                onEnded={next}
+                onError={refreshStatusMedia}
+              />
           ) : null}
           {status.status_type !== "TEXT" && status.content ? <p className="status-viewer__caption">{status.content}</p> : null}
         </div>

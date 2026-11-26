@@ -465,6 +465,7 @@ class StatusPrivacySerializer(serializers.Serializer):
 
 class StatusItemSerializer(serializers.ModelSerializer):
 
+    media = serializers.SerializerMethodField()
     views_count = serializers.SerializerMethodField()
 
     is_viewed = serializers.SerializerMethodField()
@@ -494,6 +495,13 @@ class StatusItemSerializer(serializers.ModelSerializer):
         if not request or request.user.id != obj.user_id:
             return None
         return obj.views.count()
+
+    def get_media(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated or not obj.media:
+            return None
+        from .media import status_media_url
+        return status_media_url(obj, request.user.pk)
 
     def get_is_viewed(self, obj):
         request = self.context.get("request")

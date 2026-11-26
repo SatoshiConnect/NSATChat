@@ -133,7 +133,7 @@ def broadcast_reaction(message, user, emoji):
             "type": "message.reaction",
             "message_id": message.id,
             "user_id": user.id,
-            "sender_phone": user.phone_number,
+            "sender_phone": "" if getattr(message.room, "open_community_id", None) else user.phone_number,
             "emoji": emoji,
         },
     )
@@ -194,6 +194,7 @@ class MessageInfoAPIView(APIView):
         # in private chats where read receipts are off (groups always show).
         privacy = viewer_from_context({"request": request})
         hide_reads = message.room.room_type == RoomType.PRIVATE and bool(receipts_hidden_room_ids([message.room_id]))
+        is_open_community = bool(getattr(message.room, "open_community_id", None))
         records = []
         for receipt in receipt_rows:
             user = receipt.recipient
@@ -203,6 +204,8 @@ class MessageInfoAPIView(APIView):
             profile = getattr(user, "profile", None)
             if user.is_deleted:
                 display_name = DELETED_ACCOUNT_NAME
+            elif is_open_community:
+                display_name = Participant.objects.filter(room_id=message.room_id, user_id=user.id).values_list("community_display_name", flat=True).first() or "Member"
             else:
                 display_name = (saved_names.get(user.id) or "").strip() or (getattr(profile, "display_name", "") or "").strip() or user.phone_number
             show_photo = profile is not None and not user.is_deleted and can_see_photo(profile, user.id, privacy)
@@ -211,7 +214,7 @@ class MessageInfoAPIView(APIView):
             records.append({
                 "user_id": user.id,
                 "name": display_name,
-                "phone_number": "" if user.is_deleted else user.phone_number,
+                "phone_number": "" if user.is_deleted or is_open_community else user.phone_number,
                 "profile_picture": profile.profile_picture.url if show_photo and profile.profile_picture else None,
                 "is_online": bool(profile.is_online) if show_online else False,
                 "last_seen": profile.last_seen.isoformat() if show_last_seen and profile.last_seen else None,
@@ -634,19 +637,14 @@ class SearchMessagesAPIView(APIView):
             )
 
 
-        messages = (
+        messages = with_message_relations(
             Message.objects.filter(
                 room=room,
                 is_deleted=False,
             )
-            .select_related(
-                "sender__profile",
-                "reply_to__sender",
-            )
-            .prefetch_related(
-                "attachments",
-                "reply_to__attachments",
-            )
+        )
+        messages = (
+            messages
             .exclude(
                 deleted_for_users__user=request.user,
             )
@@ -2801,7 +2799,7 @@ class GlobalMessageSearchAPIView(APIView):
                 ).exclude(content__startswith="__MHTALK_"),
                 request.user,
             )
-            .select_related("sender", "sender__profile")
+            .select_related("room", "room__open_community", "sender", "sender__profile")
             .distinct()
             .order_by("-created_at")[:50]
         )
@@ -2810,7 +2808,7 @@ class GlobalMessageSearchAPIView(APIView):
                 "id": message.id,
                 "room_id": message.room_id,
                 "sender_id": message.sender_id,
-                "sender_phone": message.sender.phone_number,
+                "sender_phone": "" if getattr(message.room, "open_community_id", None) else message.sender.phone_number,
                 "content": message.content,
                 "created_at": message.created_at,
             }

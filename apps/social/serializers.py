@@ -2,7 +2,7 @@ import os
 import re
 
 from django.core import signing
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 from apps.accounts.serializers import UserSerializer
@@ -52,19 +52,34 @@ class PostCommentSerializer(serializers.ModelSerializer):
     author = UserSerializer(read_only=True)
     parent_id = serializers.IntegerField(read_only=True)
     replies = serializers.SerializerMethodField()
+    sticker = serializers.SerializerMethodField()
 
     class Meta:
         model = PostComment
-        fields = ("id", "author", "parent_id", "text", "created_at", "replies")
+        fields = ("id", "author", "parent_id", "text", "sticker", "is_reward", "created_at", "replies")
         read_only_fields = fields
 
+    def get_sticker(self, obj):
+        asset = getattr(obj, "sticker_asset", None)
+        if not asset:
+            return None
+        request = self.context.get("request")
+        image = asset.image.url
+        return {
+            "id": asset.pk,
+            "pack_title": asset.item.title,
+            "image": request.build_absolute_uri(image) if request else image,
+        }
+
     def get_replies(self, obj):
-        replies = list(obj.replies.filter(deleted_at__isnull=True).select_related("author", "author__profile").order_by("created_at", "id"))
+        replies = list(obj.replies.filter(deleted_at__isnull=True).select_related("author", "author__profile", "sticker_asset", "sticker_asset__item").order_by("created_at", "id"))
         return [{
             "id": reply.id,
             "parent_id": reply.parent_id,
             "author": UserSerializer(reply.author, context=self.context).data,
             "text": reply.text,
+            "sticker": self.get_sticker(reply),
+            "is_reward": reply.is_reward,
             "created_at": reply.created_at,
             "replies": [],
         } for reply in replies]
@@ -82,11 +97,13 @@ class PostSerializer(serializers.ModelSerializer):
     image = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
     hashtags = serializers.SerializerMethodField()
+    author_following = serializers.SerializerMethodField()
+    author_follow_request_pending = serializers.SerializerMethodField()
     uploads = serializers.ListField(child=serializers.FileField(), write_only=True, required=False, max_length=9)
 
     class Meta:
         model = Post
-        fields = ("id", "author", "text", "image", "attachments", "hashtags", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "my_reaction", "reactions", "comments")
+        fields = ("id", "author", "text", "image", "attachments", "hashtags", "uploads", "visibility", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "my_reaction", "reactions", "comments", "author_following", "author_follow_request_pending")
         read_only_fields = ("id", "author", "created_at", "updated_at", "likes_count", "comments_count", "is_liked", "is_saved", "comments")
 
     def get_is_liked(self, obj):
@@ -115,6 +132,24 @@ class PostSerializer(serializers.ModelSerializer):
         counts = obj.likes.values("reaction").annotate(count=Count("id"))
         return {row["reaction"]: row["count"] for row in counts}
 
+    def get_author_following(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated or obj.author_id == request.user.id:
+            return False
+        if hasattr(obj, "_author_following"):
+            return obj._author_following
+        from .models import SocialFollow
+        return SocialFollow.objects.filter(follower=request.user, following_id=obj.author_id, status=SocialFollow.ACCEPTED).exists()
+
+    def get_author_follow_request_pending(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated or obj.author_id == request.user.id:
+            return False
+        if hasattr(obj, "_author_follow_request_pending"):
+            return obj._author_follow_request_pending
+        from .models import SocialFollow
+        return SocialFollow.objects.filter(follower=request.user, following_id=obj.author_id, status=SocialFollow.PENDING).exists()
+
     def _media_url(self, obj, attachment=None):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
@@ -139,7 +174,9 @@ class PostSerializer(serializers.ModelSerializer):
 
     def get_comments(self, obj):
         # Keep feed response size bounded even for posts with long comment histories.
-        recent = list(obj.comments.filter(deleted_at__isnull=True, parent__isnull=True).select_related("author", "author__profile").order_by("-created_at", "-id")[:3])
+        recent = list(obj.comments.filter(deleted_at__isnull=True, parent__isnull=True).select_related(
+            "author", "author__profile", "sticker_asset", "sticker_asset__item"
+        ).order_by("-created_at", "-id")[:3])
         recent.reverse()
         return PostCommentSerializer(recent, many=True, context=self.context).data
 
@@ -182,13 +219,20 @@ class PostSerializer(serializers.ModelSerializer):
 
 
 class CreateCommentSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=1000, trim_whitespace=True)
+    text = serializers.CharField(max_length=1000, trim_whitespace=True, required=False, allow_blank=True, default="")
     parent_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    sticker_asset_id = serializers.IntegerField(min_value=1, required=False)
+    is_reward = serializers.BooleanField(required=False, default=False)
 
     def validate_text(self, value):
-        if not value.strip():
-            raise serializers.ValidationError("Comment cannot be empty.")
         return value.strip()
+
+    def validate(self, attrs):
+        if not attrs.get("text") and not attrs.get("sticker_asset_id") and not self.context.get("allow_existing_sticker"):
+            raise serializers.ValidationError("Add text or choose a sticker.")
+        if attrs.get("is_reward") and (not attrs.get("sticker_asset_id") or attrs.get("text")):
+            raise serializers.ValidationError("A post reward must be a sticker without comment text.")
+        return attrs
 
 
 class CreatePostReportSerializer(serializers.ModelSerializer):

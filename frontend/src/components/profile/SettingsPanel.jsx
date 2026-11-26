@@ -18,6 +18,8 @@ import AppUpdateView from "./AppUpdateView";
 import { APP_VERSION, takeOpenUpdate, useAppUpdate } from "../../services/appUpdate";
 import { clearOfflineData } from "../../services/offlineCache";
 
+const WALLET_UI_ENABLED = import.meta.env.VITE_FEATURE_WALLET_UI !== "false";
+
 const SHORTCUTS = [
   ["New chat", "Ctrl + Alt + N"],
   ["Send message", "Enter"],
@@ -312,7 +314,7 @@ export default function SettingsPanel() {
     { key: "account", icon: KeyRound, title: "Account", subtitle: "Phone number, delete account", onClick: () => setView("account") },
     { key: "privacy", icon: Lock, title: "Privacy", subtitle: "Last seen, profile photo, read receipts, blocked contacts", onClick: () => setView("privacy") },
     { key: "chats", icon: MessageSquareText, title: "Chats", subtitle: "Theme, Enter is send", onClick: () => setView("chats") },
-    { key: "wallet", icon: WalletCards, title: "Wallet", subtitle: "View NSAT balance and public transaction history", onClick: () => app.setSection("wallet") },
+    ...(!app.compact ? [{ key: "wallet", icon: WalletCards, title: "Wallet", subtitle: "View NSAT balance and public transaction history", onClick: () => app.setSection("wallet") }] : []),
     { key: "offline", icon: Database, title: "Offline data", subtitle: "Saved chats and media on this device", onClick: () => setModal("offline") },
     { key: "notifications", icon: Bell, title: "Notifications", subtitle: "Message sounds, desktop alerts", onClick: () => setView("notifications") },
     !install.installed
@@ -339,13 +341,14 @@ export default function SettingsPanel() {
           <Avatar src={me.profile?.profile_picture} name={me.profile?.display_name} size={64} />
           <span className="settings-row__body">
             <span className="settings-profile__name">{me.profile?.display_name || formatPhone(me.phone_number)}</span>
-            <span className="settings-row__subtitle">{me.profile?.about}</span>
+            <span className="settings-row__subtitle">{me.public_id ? `@${me.public_id}` : me.profile?.about}</span>
           </span>
         </button>
+        {app.compact ? <SettingRow icon={WalletCards} title="Wallet & Marketplace" subtitle="NSAT balance, activity and creator items" onClick={() => app.setSection(WALLET_UI_ENABLED ? "wallet" : "marketplace")} /> : null}
         {rows.map((row) => (
           <SettingRow key={row.key} icon={row.icon} title={row.title} subtitle={row.subtitle} dot={row.dot} onClick={row.onClick} />
         ))}
-        <SettingRow icon={ShoppingBag} title="Creator marketplace" subtitle="Gifts, stickers and digital items" onClick={() => app.setSection("marketplace")} />
+        {!app.compact ? <SettingRow icon={ShoppingBag} title="Creator marketplace" subtitle="Gifts, stickers and digital items" onClick={() => app.setSection("marketplace")} /> : null}
         {!rows.length ? <EmptyState icon={Search} text="No settings found" /> : null}
         <SettingRow
           icon={LogOut}

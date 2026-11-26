@@ -18,5 +18,7 @@ test_media/
 dump.rdb
 frontend/node_modules/
 frontend/dist/
+# Local production rollback bundles are host-side artifacts, not app source.
+frontend/dist.*
 .vscode/
 .idea/

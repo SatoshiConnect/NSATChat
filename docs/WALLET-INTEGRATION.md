@@ -18,6 +18,8 @@ The browser transaction builder is checked against the NSAT transaction vector i
 
 ## Safety and trust boundaries
 
+- Chat sign-in authenticates the SatoshiCore account. A wallet is linked to that account once with a local Ed25519 ownership signature; the wallet password is separate and only decrypts the locally encrypted signing key before a user-authorized transaction. Do not silently treat chat credentials as permission to spend or send the wallet password to the server.
+- Keep the mounted Wallet panel alive while switching between the mobile Wallet and Marketplace tabs so an unlocked wallet does not prompt again just because the user browsed the marketplace. Leaving the commerce section unmounts the panel and clears its in-memory signing key; preserve that security boundary unless a reviewed auto-lock policy replaces it.
 - Payment requests carry a public address and amount only. They are not identity verification or spending authorization.
 - Each transfer requires an explicit review and confirmation. Opening a request never sends funds.
 - The server permits only authenticated requests and applies a per-user `wallet_send` throttle. The upstream destination is fixed in server code; arbitrary proxy URLs are not accepted.

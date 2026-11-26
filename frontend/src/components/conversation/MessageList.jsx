@@ -67,7 +67,9 @@ export default function MessageList({ room, me, contactMap, selectMode, selected
   const nameOf = useCallback(
     (userId) => {
       if (Number(userId) === Number(me.id)) return "You";
-      const user = room.participants.find((p) => Number(p.user?.id) === Number(userId))?.user;
+      const participant = room.participants.find((p) => Number(p.user?.id) === Number(userId));
+      if (participant?.community_display_name) return participant.community_display_name;
+      const user = participant?.user;
       return user ? displayUserName(user, contactMap) : "Unknown";
     },
     [room.participants, contactMap, me.id],
@@ -296,7 +298,7 @@ export default function MessageList({ room, me, contactMap, selectMode, selected
                   myId={me.id}
                   isOwn={isOwn}
                   showTail={first}
-                  senderName={room.isGroup && first && !isOwn ? displayUserName(senderUser, contactMap) : isOwn ? "" : ""}
+                  senderName={room.isGroup && first && !isOwn ? (room.participants.find((p) => Number(p.user?.id) === Number(senderUser?.id))?.community_display_name || displayUserName(senderUser, contactMap)) : ""}
                   senderColor={senderColor(senderUser?.id)}
                   senderAvatar={senderUser?.profile?.profile_picture}
                   nameOf={nameOf}
