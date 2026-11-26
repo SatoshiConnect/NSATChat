@@ -9,7 +9,7 @@ import re
 from difflib import SequenceMatcher
 from urllib.error import URLError
 from urllib.request import Request, urlopen
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
@@ -41,8 +41,8 @@ FEEDS = (
     {"url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "label": "BBC News Culture", "category": "culture", "category_label": "Culture", "region": "world", "global_source": True},
 )
 FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · more"
-FRESH_CACHE_KEY = "today-news:thailand-prd:v6"
-STALE_CACHE_KEY = "today-news:thailand-prd:stale:v6"
+FRESH_CACHE_KEY = "today-news:thailand-prd:v7"
+STALE_CACHE_KEY = "today-news:thailand-prd:stale:v7"
 FRESH_TTL_SECONDS = 300
 STALE_TTL_SECONDS = 86400
 MAX_FEED_BYTES = 1_500_000
@@ -50,6 +50,15 @@ MAX_ITEMS = 80
 MAX_ITEMS_PER_FEED = 30
 MAX_ITEMS_PER_CATEGORY = 12
 FETCH_TIMEOUT_SECONDS = 3
+IMAGE_HOSTS = (
+    "ichef.bbci.co.uk",
+    "i.guim.co.uk",
+    "nasa.gov",
+    "who.int",
+    "techcrunch.com",
+    "npr.org",
+    "thailand.go.th",
+)
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
 CATEGORY_LABELS = {
     "thailand": "Thailand",
@@ -127,6 +136,47 @@ def _safe_article_link(raw):
     return ""
 
 
+def _safe_image_link(raw, content_type=""):
+    """Allow only HTTPS raster images from the configured editorial publishers."""
+    value = str(raw or "").strip()
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").lower()
+        is_known_publisher = any(host == root or host.endswith(f".{root}") for root in IMAGE_HOSTS)
+        if parsed.scheme != "https" or not is_known_publisher or parsed.username or parsed.password:
+            return ""
+        if parsed.port not in (None, 443):
+            return ""
+        if content_type and not content_type.lower().startswith("image/"):
+            return ""
+        if not re.search(r"\.(?:jpe?g|png|webp|avif)(?:$|[?#])", value, re.IGNORECASE):
+            return ""
+        return value[:2048]
+    except (TypeError, ValueError):
+        return ""
+
+
+def _entry_image(entry):
+    candidates = []
+    for node in entry.iter():
+        tag = _local_name(node.tag)
+        if tag not in {"thumbnail", "content", "enclosure", "image"}:
+            continue
+        raw = node.attrib.get("url") or node.attrib.get("href")
+        if not raw and tag == "image":
+            raw = "".join(node.itertext()).strip()
+        content_type = node.attrib.get("type", "")
+        image_url = _safe_image_link(raw, content_type)
+        if not image_url:
+            continue
+        try:
+            width = int(node.attrib.get("width", "0"))
+        except (TypeError, ValueError):
+            width = 0
+        candidates.append((width, tag != "thumbnail", image_url))
+    return max(candidates, default=(0, False, ""))[2]
+
+
 def _classify_headline(title, fallback):
     """Assign broad topics to aggregator headlines without rewriting their content."""
     text = str(title or "").casefold()
@@ -176,10 +226,12 @@ def _fetch_feed(feed):
         seen.add(link)
         summary = _plain_text(_child_text(entry, "description", "summary", "content"), 420) if feed.get("summary", True) else ""
         category = _classify_headline(title, feed["category"]) if feed.get("classify", False) else feed["category"]
+        image_url = _entry_image(entry)
         items.append({
             "id": link,
             "title": title,
             "summary": summary,
+            "image_url": image_url,
             "url": link,
             "source": source_name or feed["label"],
             "category": category,

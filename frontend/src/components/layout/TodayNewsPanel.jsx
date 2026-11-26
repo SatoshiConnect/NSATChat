@@ -17,6 +17,7 @@ export default function TodayNewsPanel() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
+  const [showMore, setShowMore] = useState(false);
 
   const fetchFeed = useCallback(() => newsApi.today(), []);
   const globalNewsAvailable = feed?.global_available ?? String(feed?.source || "").includes("GDELT");
@@ -26,6 +27,9 @@ export default function TodayNewsPanel() {
     const matchesQuery = !needle || `${item.title} ${item.summary || ""}`.toLocaleLowerCase().includes(needle);
     return matchesCategory && matchesQuery;
   });
+  const featuredItem = visibleItems.find((item) => item.image_url) || visibleItems[0];
+  const remainingItems = featuredItem ? visibleItems.filter((item) => item.id !== featuredItem.id) : [];
+  const storyItems = showMore ? remainingItems : remainingItems.slice(0, 12);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,13 +69,13 @@ export default function TodayNewsPanel() {
 
       <div className="today-news__feed">
         <div className="today-news__feed-heading">
-          <div><h2>What’s happening today</h2><span>{feed?.date ? new Date(`${feed.date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: "Asia/Bangkok" }) : "Today"}</span></div>
+          <div><h2>Today’s briefing</h2><span>{feed?.date ? new Date(`${feed.date}T12:00:00Z`).toLocaleDateString(undefined, { timeZone: "Asia/Bangkok", weekday: "short", day: "numeric", month: "short" }) : "Today"}</span></div>
           {feed?.fetched_at ? <small>Updated {formatNewsTime(feed.fetched_at)} · {feed.sources?.length || 1} sources</small> : null}
         </div>
         <label className="today-news__search">
           <Search size={18} aria-hidden="true" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search today’s headlines" aria-label="Search today's headlines" />
-          {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear search">×</button> : null}
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setShowMore(false); }} placeholder="Search today’s news" aria-label="Search today's news" />
+          {query ? <button type="button" onClick={() => { setQuery(""); setShowMore(false); }} aria-label="Clear search">×</button> : null}
         </label>
         <div className="today-news__filters" role="group" aria-label="Filter news category">
           {(feed?.categories || [
@@ -79,32 +83,56 @@ export default function TodayNewsPanel() {
             { id: "business", label: "Business" }, { id: "technology", label: "Technology" }, { id: "science", label: "Science" },
             { id: "health", label: "Health" }, { id: "sports", label: "Sports" }, { id: "culture", label: "Culture" },
           ]).map((item) => (
-            <button key={item.id} type="button" className={category === item.id ? "is-active" : ""} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.label}</button>
+            <button key={item.id} type="button" className={category === item.id ? "is-active" : ""} aria-pressed={category === item.id} onClick={() => { setCategory(item.id); setShowMore(false); }}>{item.label}</button>
           ))}
         </div>
         {feed?.stale ? <p className="today-news__notice">Showing the last saved update. It could not be refreshed just now.</p> : null}
         {feed && !globalNewsAvailable ? <p className="today-news__notice">Some international news sources are temporarily unavailable. Showing headlines from sources that responded.</p> : null}
         {loading && !feed ? <div className="today-news__state" role="status">Loading today’s news…</div> : null}
         {error ? <div className="today-news__state today-news__state--error" role="alert">{error}<button type="button" onClick={load}>Retry</button></div> : null}
-        {!loading && !error && visibleItems.length ? (
-          <div className="today-news__stories">
-            {visibleItems.map((item) => (
-              <article className="today-news__story" key={item.id}>
-                <div className="today-news__story-meta">
-                  <span>{item.category_label}{item.region && item.region !== item.category ? ` · ${item.region_label}` : ""} · {item.source}</span>
-                  <time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time>
-                </div>
-                {Number.isFinite(Number(item.interest_rating)) ? (
-                  <div className="today-news__rating" title="Coverage rating is based on the number of distinct publishers reporting similar headlines. It is not a fact-check or quality score.">
-                    <TrendingUp size={14} /> Coverage {item.interest_rating}/5 · {item.coverage_count || 1} {Number(item.coverage_count) === 1 ? "publisher" : "publishers"}
+        {!loading && !error && featuredItem ? (
+          <>
+            <article className="today-news__featured">
+              <a className={`today-news__featured-media${featuredItem.image_url ? " has-image" : ""}`} href={featuredItem.url} target="_blank" rel="noopener noreferrer">
+                <span className="today-news__image-fallback"><Newspaper size={30} /></span>
+                {featuredItem.image_url ? <img src={featuredItem.image_url} alt="" fetchPriority="high" decoding="async" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+                <span className="today-news__featured-shade" />
+                <span className="today-news__featured-tag">Top story · {featuredItem.category_label}</span>
+                <span className="today-news__featured-copy">
+                  <span>{featuredItem.source} · {formatNewsTime(featuredItem.published_at)}</span>
+                  <strong>{featuredItem.title}</strong>
+                  <span className="today-news__featured-link">Read story <ArrowUpRight size={15} /></span>
+                </span>
+              </a>
+              {featuredItem.summary ? <p className="today-news__featured-summary">{featuredItem.summary}</p> : null}
+            </article>
+            <div className="today-news__section-heading">
+              <div><h3>More stories</h3><span>{visibleItems.length} updates</span></div>
+              {Number.isFinite(Number(featuredItem.interest_rating)) ? <span className="today-news__rating" title="Based on the number of distinct publishers reporting similar headlines; this is not a fact-check."><TrendingUp size={13} /> Coverage {featuredItem.interest_rating}/5</span> : null}
+            </div>
+            <div className="today-news__stories">
+              {storyItems.map((item) => (
+                <article className="today-news__story" key={item.id}>
+                  <a className={`today-news__story-image${item.image_url ? " has-image" : ""}`} href={item.url} target="_blank" rel="noopener noreferrer" aria-label={`Read: ${item.title}`}>
+                    <span className="today-news__image-fallback"><Newspaper size={20} /></span>
+                    {item.image_url ? <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+                  </a>
+                  <div className="today-news__story-body">
+                    <div className="today-news__story-meta">
+                      <span>{item.category_label}{item.region && item.region !== item.category ? ` · ${item.region_label}` : ""} · {item.source}</span>
+                      <time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time>
+                    </div>
+                    <h4><a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}<ExternalLink size={13} /></a></h4>
+                    {item.summary ? <p>{item.summary}</p> : null}
+                    {Number.isFinite(Number(item.interest_rating)) ? <span className="today-news__rating-mini"><TrendingUp size={12} /> {item.coverage_count || 1} sources</span> : null}
                   </div>
-                ) : null}
-                <h3><a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}<ExternalLink size={14} /></a></h3>
-                {item.summary ? <p>{item.summary}</p> : null}
-                <a className="today-news__read" href={item.url} target="_blank" rel="noopener noreferrer">Read at source <ArrowUpRight size={15} /></a>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+            {!showMore && remainingItems.length > storyItems.length ? (
+              <button className="today-news__more" type="button" onClick={() => setShowMore(true)}>Show {remainingItems.length - storyItems.length} more stories</button>
+            ) : null}
+          </>
         ) : null}
         {!loading && !error && !visibleItems.length ? (
           <div className="today-news__state">
