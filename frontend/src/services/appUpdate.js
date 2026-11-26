@@ -101,10 +101,32 @@ export async function applyUpdate() {
     return;
   }
   try {
-    const keys = (await window.caches?.keys?.()) || [];
-    await Promise.all(keys.map((key) => window.caches.delete(key)));
     const registrations = (await navigator.serviceWorker?.getRegistrations?.()) || [];
     await Promise.all(registrations.map((registration) => registration.update().catch(() => {})));
+    const installing = registrations.find((registration) => registration.installing)?.installing;
+    if (installing) {
+      await new Promise((resolve) => {
+        let timer;
+        const finish = () => {
+          window.clearTimeout(timer);
+          installing.removeEventListener("statechange", onStateChange);
+          resolve();
+        };
+        const onStateChange = () => {
+          if (installing.state === "installed" || installing.state === "redundant") finish();
+        };
+        installing.addEventListener("statechange", onStateChange);
+        timer = window.setTimeout(finish, 30000);
+        onStateChange();
+      });
+    }
+    const waiting = registrations.find((registration) => registration.waiting)?.waiting;
+    if (waiting) {
+      reloadHook?.();
+      waiting.postMessage({ type: "SKIP_WAITING" });
+      window.setTimeout(() => window.location.reload(), 4000);
+      return;
+    }
   } catch {
     /* nothing cached */
   }
@@ -124,7 +146,7 @@ export function takeOpenUpdate() {
 
 if (typeof window !== "undefined" && import.meta.env.PROD) {
   window.setTimeout(checkForUpdate, 8000);
-  window.setInterval(checkForUpdate, 30 * 60 * 1000);
+  window.setInterval(checkForUpdate, 5 * 60 * 1000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") checkForUpdate();
   });

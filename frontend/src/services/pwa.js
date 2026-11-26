@@ -94,9 +94,10 @@ function watchForUpdates(registration) {
       }
     });
   });
-  // Long-lived tabs / installed apps: look for new deploys now and then.
+  // Long-lived tabs / installed apps: surface deploys promptly without
+  // waiting for the browser's infrequent automatic service-worker check.
   const check = () => registration.update().catch(() => {});
-  window.setInterval(check, 60 * 60 * 1000);
+  window.setInterval(check, 5 * 60 * 1000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") check();
   });
