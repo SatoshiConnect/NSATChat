@@ -1,0 +1,13 @@
+.status-viewer__media-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(88%, 420px);
+  margin: 0;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 62%);
+  color: #fff;
+  text-align: center;
+  transform: translate(-50%, -50%);
+}

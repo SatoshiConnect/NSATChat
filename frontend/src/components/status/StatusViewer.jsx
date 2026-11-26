@@ -13,6 +13,7 @@ import PresenceAvatar from "../common/PresenceAvatar";
 import { confirmAction } from "../common/dialogs";
 import { useApp } from "../layout/AppContext";
 import StatusReplyBar from "./StatusReplyBar";
+import "../../styles/status-media-errors.css";
 
 const IMAGE_MS = 6000;
 
@@ -94,6 +95,9 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [viewers, setViewers] = useState(null);
+  const [mediaOverrides, setMediaOverrides] = useState({});
+  const [mediaUnavailable, setMediaUnavailable] = useState({});
+  const mediaRefreshAttempts = useRef(new Set());
   const [giftItems, setGiftItems] = useState(null);
   const [giftMode, setGiftMode] = useState("simulation");
   const [giftBusy, setGiftBusy] = useState(false);
@@ -376,7 +380,23 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
     });
   }
 
-  const media = mediaUrl(status.media);
+  const media = mediaUrl(mediaOverrides[status.id] || status.media);
+  const refreshStatusMedia = async () => {
+    if (mediaRefreshAttempts.current.has(status.id)) {
+      setMediaUnavailable((current) => ({ ...current, [status.id]: true }));
+      return;
+    }
+    mediaRefreshAttempts.current.add(status.id);
+    await loadStatus();
+    const state = getState();
+    const freshStatus = [...state.myStatuses, ...state.statusFeed.flatMap((item) => item.statuses || [])]
+      .find((item) => Number(item.id) === Number(status.id));
+    if (freshStatus?.media && freshStatus.media !== status.media) {
+      setMediaOverrides((current) => ({ ...current, [status.id]: freshStatus.media }));
+      return;
+    }
+    setMediaUnavailable((current) => ({ ...current, [status.id]: true }));
+  };
 
   return createPortal(
     <div className="status-viewer" role="dialog" aria-label={`${ownerName} status`}>
@@ -431,17 +451,20 @@ export default function StatusViewer({ groups, startGroup = 0, startStatusId, on
           onPointerCancel={onContentPointerUp}
         >
           {status.status_type === "TEXT" ? <p className="status-viewer__text">{status.content}</p> : null}
-          {status.status_type === "IMAGE" ? <img src={media} alt="Status" /> : null}
+          {status.status_type === "IMAGE" ? (mediaUnavailable[status.id] ? <p className="status-viewer__media-error" role="status">Couldn't load this photo. Check your connection and reopen the story.</p> : <img src={media} alt="Status" onError={refreshStatusMedia} />) : null}
           {status.status_type === "VIDEO" ? (
-            <video
-              ref={videoRef}
-              src={media}
-              autoPlay
-              playsInline
-              muted={muted}
-              onTimeUpdate={(event) => event.currentTarget.duration && setProgress(event.currentTarget.currentTime / event.currentTarget.duration)}
-              onEnded={next}
-            />
+            mediaUnavailable[status.id]
+              ? <p className="status-viewer__media-error" role="status">Couldn't load this video. Check your connection and reopen the story.</p>
+              : <video
+                ref={videoRef}
+                src={media}
+                autoPlay
+                playsInline
+                muted={muted}
+                onTimeUpdate={(event) => event.currentTarget.duration && setProgress(event.currentTarget.currentTime / event.currentTarget.duration)}
+                onEnded={next}
+                onError={refreshStatusMedia}
+              />
           ) : null}
           {status.status_type !== "TEXT" && status.content ? <p className="status-viewer__caption">{status.content}</p> : null}
         </div>
