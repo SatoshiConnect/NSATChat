@@ -166,6 +166,25 @@ export default function TodayNewsPanel() {
         {feed && !globalNewsAvailable ? <p className="today-news__notice">Some international news sources are temporarily unavailable. Showing headlines from sources that responded.</p> : null}
         {loading && !feed ? <div className="today-news__state" role="status">Loading today’s news…</div> : null}
         {error ? <div className="today-news__state today-news__state--error" role="alert">{error}<button type="button" onClick={load}>Retry</button></div> : null}
+        {!loading && !error && visualItems.length >= 2 ? (
+          <section className="today-news__visuals" aria-label="Photo stories">
+            <div className="today-news__visuals-heading"><div><span>IN FOCUS</span><h3>Stories in pictures</h3></div><small>{visualItems.length} photo stories</small></div>
+            <div className="today-news__visuals-rail">
+              {visualItems.map((item) => (
+                <article className="today-news__visual-card" key={item.id}>
+                  <button type="button" className="today-news__visual-media" onClick={(event) => openStory(item, event)} aria-label={`Read summary in app: ${item.title}`}>
+                    <span className="today-news__image-fallback"><Newspaper size={24} /></span>
+                    <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} />
+                    <span className="today-news__visual-shade" />
+                    <span className="today-news__visual-category">{item.category_label}</span>
+                    <strong>{item.title}</strong>
+                  </button>
+                  <div className="today-news__visual-meta"><span>{item.source}</span><time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time></div>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
         {!loading && !error && featuredItem ? (
           <>
             <article className="today-news__featured">
@@ -183,25 +202,6 @@ export default function TodayNewsPanel() {
               {featuredItem.summary ? <p className="today-news__featured-summary">{featuredItem.summary}</p> : null}
               <button type="button" className="today-news__read-inline" onClick={(event) => openStory(featuredItem, event)}>Read summary <ArrowRight size={15} /></button>
             </article>
-            {visualItems.length >= 2 ? (
-              <section className="today-news__visuals" aria-label="Photo stories">
-                <div className="today-news__visuals-heading"><div><span>IN FOCUS</span><h3>Stories in pictures</h3></div><small>{visualItems.length} photo stories</small></div>
-                <div className="today-news__visuals-rail">
-                  {visualItems.map((item) => (
-                    <article className="today-news__visual-card" key={item.id}>
-                      <button type="button" className="today-news__visual-media" onClick={(event) => openStory(item, event)} aria-label={`Read summary in app: ${item.title}`}>
-                        <span className="today-news__image-fallback"><Newspaper size={24} /></span>
-                        <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} />
-                        <span className="today-news__visual-shade" />
-                        <span className="today-news__visual-category">{item.category_label}</span>
-                        <strong>{item.title}</strong>
-                      </button>
-                      <div className="today-news__visual-meta"><span>{item.source}</span><time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time></div>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null}
             <div className="today-news__section-heading">
               <div><h3>More stories</h3><span>{remainingItems.length} stories</span></div>
               {Number.isFinite(Number(featuredItem.interest_rating)) ? <span className="today-news__rating" title="Based on the number of distinct publishers reporting similar headlines; this is not a fact-check."><TrendingUp size={13} /> Coverage {featuredItem.interest_rating}/5</span> : null}
