@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { newsApi } from "../../api/endpoints";
 
-const PUBLISHER_CACHE_MS = 5 * 60 * 1000;
+const PUBLISHER_REFRESH_MS = 10 * 60 * 1000;
 let publisherCache = { expiresAt: 0, items: [] };
 let publisherRequest = null;
 
@@ -19,9 +19,14 @@ function getPublisherItems() {
   if (!publisherRequest) {
     publisherRequest = newsApi.today()
       .then((result) => {
-        const available = (result.items || []).filter((item) => item.title && secureUrl(item.url));
+        const available = (result.items || [])
+          .filter((item) => item.title && secureUrl(item.url) && (secureUrl(item.image_url) || (item.media_type === "VIDEO" && secureUrl(item.video_url))))
+          .sort((left, right) => {
+            const prominence = Number(right.interest_rating || right.coverage_count || 0) - Number(left.interest_rating || left.coverage_count || 0);
+            return prominence || (Date.parse(right.published_at || "") || 0) - (Date.parse(left.published_at || "") || 0);
+          });
         const latestVideo = available.find((item) => item.media_type === "VIDEO");
-        const selected = latestVideo ? [available[0], latestVideo, ...available.slice(1)] : available;
+        const selected = latestVideo ? [latestVideo, ...available] : available;
         const seen = new Set();
         const items = selected.filter((item) => {
           if (!item) return false;
@@ -30,7 +35,7 @@ function getPublisherItems() {
           seen.add(id);
           return true;
         }).slice(0, 6);
-        publisherCache = { expiresAt: Date.now() + PUBLISHER_CACHE_MS, items };
+        publisherCache = { expiresAt: Date.now() + PUBLISHER_REFRESH_MS, items };
         return items;
       })
       .finally(() => { publisherRequest = null; });
@@ -45,10 +50,20 @@ export default function usePublisherPosts(enabled) {
   useEffect(() => {
     if (!enabled) return undefined;
     let active = true;
-    getPublisherItems().then((nextItems) => { if (active) setItems(nextItems); })
-      .catch(() => { if (active) setItems([]); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    const refresh = () => {
+      getPublisherItems().then((nextItems) => { if (active) setItems(nextItems); })
+        .catch(() => { if (active && !publisherCache.items.length) setItems([]); })
+        .finally(() => { if (active) setLoading(false); });
+    };
+    const onVisibilityChange = () => { if (!document.hidden) refresh(); };
+    refresh();
+    const timer = window.setInterval(refresh, PUBLISHER_REFRESH_MS);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [enabled]);
 
   return { items, loading };

@@ -26,12 +26,16 @@ function youtubeVideoId(value) {
   return url.searchParams.get("v") || url.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]{11})(?:\/|$)/)?.[1] || "";
 }
 
+function youtubeThumbnail(videoId) {
+  return videoId ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg` : "";
+}
+
 export default function PublisherSystemPost({ item }) {
   const [playEmbeddedVideo, setPlayEmbeddedVideo] = useState(false);
   const sourceUrl = secureUrl(item.url);
-  const imageUrl = secureUrl(item.image_url);
   const videoUrl = publisherVideo(item);
   const youtubeId = youtubeVideoId(videoUrl);
+  const imageUrl = secureUrl(item.image_url) || youtubeThumbnail(youtubeId);
   return (
     <article className="social-post social-post--publisher">
       <header className="social-post__author">
@@ -42,12 +46,9 @@ export default function PublisherSystemPost({ item }) {
         </div>
         <span className="social-system-post__badge">SYSTEM</span>
       </header>
-      <p className="social-system-post__category">{item.category_label || item.region_label || "News & discovery"}</p>
-      <h3 className="social-system-post__title">{item.title}</h3>
-      {item.summary ? <p className="social-post__text social-system-post__summary">{item.summary}</p> : null}
       {youtubeId ? playEmbeddedVideo ? <iframe className="social-system-post__media social-system-post__video-frame" src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&playsinline=1`} title={`Play ${item.title}`} allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /> : <button type="button" className="social-system-post__video-preview" onClick={() => setPlayEmbeddedVideo(true)} aria-label={`Play video: ${item.title}`}>
         {imageUrl ? <img className="social-system-post__media" src={imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" /> : <span className="social-system-post__video-placeholder"><Newspaper size={28} /></span>}
-        <span className="social-system-post__video-play"><Play size={20} fill="currentColor" /> Play video</span>
+        <span className="social-system-post__video-play"><Play size={20} fill="currentColor" /> Play</span>
       </button> : videoUrl ? <video className="social-post__image social-post__image--video social-system-post__media" controls playsInline preload="none" poster={imageUrl || undefined}>
         <source src={videoUrl} />
         Your browser cannot play this video. Open the source to watch it.
@@ -55,9 +56,11 @@ export default function PublisherSystemPost({ item }) {
         <img className="social-post__image social-system-post__media" src={imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} />
         <span><ExternalLink size={15} /> Open at publisher</span>
       </a> : null}
+      <p className="social-system-post__category">{item.category_label || item.region_label || "News & discovery"}</p>
+      <h3 className="social-system-post__title">{item.title}</h3>
       <footer className="social-system-post__footer">
-        <span>Automatically selected from a public publisher feed</span>
-        <a href={sourceUrl} target="_blank" rel="noopener noreferrer">{youtubeId || videoUrl ? "Watch source" : "Read source"} <ExternalLink size={14} /></a>
+        <span>{Number(item.coverage_count) > 1 ? `Covered by ${item.coverage_count} publishers` : "Latest publisher update"}</span>
+        <a href={sourceUrl} target="_blank" rel="noopener noreferrer">{youtubeId || videoUrl ? "Watch video" : "Read story"} <ExternalLink size={14} /></a>
       </footer>
     </article>
   );
