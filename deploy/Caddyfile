@@ -11,6 +11,13 @@
 	}
 
 	# Backend: REST API, WebSockets (chat + call signalling), admin, API docs assets.
+	@livekit path /rtc /rtc/* /twirp/*
+	handle @livekit {
+		reverse_proxy livekit:7880 {
+			flush_interval -1
+		}
+	}
+
 	@backend path /api/* /ws/* /admin/* /static/*
 	handle @backend {
 		reverse_proxy web:8000 {

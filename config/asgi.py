@@ -25,6 +25,7 @@ from apps.chat.routing import (  # noqa: E402
 from apps.calls.routing import (  # noqa: E402
     websocket_urlpatterns as call_websocket_urlpatterns,
 )
+from apps.social.routing import websocket_urlpatterns as social_websocket_urlpatterns  # noqa: E402
 
 
 def _reset_stale_presence():
@@ -51,6 +52,7 @@ _reset_stale_presence()
 websocket_urlpatterns = [
     *chat_websocket_urlpatterns,
     *call_websocket_urlpatterns,
+    *social_websocket_urlpatterns,
 ]
 
 application = ProtocolTypeRouter(

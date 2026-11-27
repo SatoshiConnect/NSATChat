@@ -140,6 +140,49 @@ services:
       timeout: 3s
       retries: 20
 
+  # SFU media plane. Configure the matching API key/secret in .env.prod before
+  # deploying; the same host/domain serves signaling over TLS while media uses
+  # the dedicated UDP/TCP ports below.
+  livekit-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    volumes:
+      - livekit_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: info
+        keys:
+          ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env.prod}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env.prod}
+        redis:
+          address: livekit-redis:6379
+        room:
+          max_participants: ${LIVEKIT_MAX_PARTICIPANTS:-1001}
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+    ports:
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    depends_on:
+      livekit-redis:
+        condition: service_healthy
+
   turn:
     image: coturn/coturn:4.7
     profiles: ["turn"]
@@ -179,3 +222,4 @@ volumes:
   media:
   caddy_data:
   caddy_config:
+  livekit_redis_data:

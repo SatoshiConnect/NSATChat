@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, Check, Flag, Gift, HeartHandshake, Image as ImageIcon, MessageCircle, Pencil, Send, Share2, Smile, Trash2, UserPlus, X } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bookmark, Check, Flag, Gift, HeartHandshake, Image as ImageIcon, MessageCircle, Pencil, Radio, Send, Share2, Smile, Trash2, UserPlus, X } from "lucide-react";
 import { marketplaceApi, socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
 import { loadStatus } from "../../store/actions";
@@ -17,6 +17,8 @@ import { walletApi } from "../../features/wallet/api";
 import PublisherSystemPost from "./PublisherSystemPost";
 import usePublisherPosts from "./usePublisherPosts";
 import "../../styles/social-comment-stickers.css";
+
+const LiveRoom = lazy(() => import("./LiveRoom"));
 
 const SOCIAL_IMAGE_LIMIT = 8 * 1024 * 1024;
 const SOCIAL_VIDEO_LIMIT = 50 * 1024 * 1024;
@@ -332,6 +334,9 @@ export default function StatusMain({ storiesSlot = null }) {
   const [requestsBusy, setRequestsBusy] = useState(false);
   const [sharingPostId, setSharingPostId] = useState(null);
   const [shareBusy, setShareBusy] = useState(false);
+  const [liveStreams, setLiveStreams] = useState([]);
+  const [liveRoom, setLiveRoom] = useState(null);
+  const liveOpeningRef = useRef(null);
   const feedListRef = useRef(null);
   const scrollToNewestRef = useRef(false);
   const load = useCallback(async (options = {}) => {
@@ -364,6 +369,32 @@ export default function StatusMain({ storiesSlot = null }) {
     socialApi.followRequests().then((items) => { if (active) setFollowRequests(items); }).catch(() => {});
     return () => { active = false; };
   }, []);
+  const refreshLiveStreams = useCallback(async () => {
+    try { setLiveStreams(await socialApi.liveStreams()); } catch { /* Keep the regular feed usable if live is temporarily unavailable. */ }
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const loadLive = () => { socialApi.liveStreams().then((items) => { if (active) setLiveStreams(items); }).catch(() => {}); };
+    loadLive();
+    const timer = window.setInterval(loadLive, 20_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  const openLiveStream = useCallback(async (id) => {
+    const liveId = Number(id);
+    if (!liveId || liveOpeningRef.current === liveId) return;
+    liveOpeningRef.current = liveId;
+    try { const stream = await socialApi.liveStream(liveId); setLiveRoom({ mode: "viewer", stream }); }
+    catch (error) { toast.error(errorMessage(error, "This live is no longer available.")); }
+    finally { if (liveOpeningRef.current === liveId) liveOpeningRef.current = null; }
+  }, []);
+  useEffect(() => {
+    const handler = (event) => { void openLiveStream(event.detail?.live_id ?? event.detail); };
+    window.addEventListener("mhtalk:focus-live", handler);
+    const pendingId = window.__mhtalkPendingLiveId;
+    if (pendingId) { window.__mhtalkPendingLiveId = null; window.setTimeout(() => { void openLiveStream(pendingId); }, 0); }
+    return () => window.removeEventListener("mhtalk:focus-live", handler);
+  }, [openLiveStream]);
+  const closeLiveRoom = useCallback(() => { setLiveRoom(null); void refreshLiveStreams(); }, [refreshLiveStreams]);
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -436,11 +467,13 @@ export default function StatusMain({ storiesSlot = null }) {
 
   const feedHeading = <header className="social-feed__heading"><div><h2>Posts</h2><p>Share updates and follow posts and public statuses from people.</p></div></header>;
   const feedTabs = <nav className="social-feed__tabs" aria-label="Post feed"><button type="button" className={scope === "all" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("all"); }}>All posts</button><button type="button" className={scope === "following" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("following"); }}>Following</button><button type="button" className={scope === "saved" ? "is-active" : ""} onClick={() => { setLoading(true); setScope("saved"); }}>Saved</button>{hashtagFilter ? <button type="button" className="is-active" onClick={() => setHashtagFilter("")}>#{hashtagFilter} <X size={14} /></button> : null}</nav>;
+  const liveSection = <section className="social-live-lobby" aria-label="Live video"><div className="social-live-lobby__heading"><div><h2>Live</h2><span>Watch creators or start a vertical live</span></div><button type="button" onClick={() => setLiveRoom({ mode: "host" })}><Radio size={17} /> Go live</button></div>{liveStreams.length ? <div className="social-live-lobby__list">{liveStreams.map((item) => <button type="button" className="social-live-lobby__card" key={item.id} onClick={() => setLiveRoom({ mode: "viewer", stream: item })}><span className="social-live-lobby__avatar"><Avatar src={item.host?.profile_picture} name={item.host?.display_name} size={42} /><i>LIVE</i></span><span className="social-live-lobby__details"><strong>{item.host?.display_name || "Creator"}</strong><small>{item.title || "Live now"}</small><small>{item.viewer_count || 0} watching</small></span><span className="social-live-lobby__watch">Watch</span></button>)}</div> : <p className="social-live-lobby__empty">No one is live right now. Start a live and invite your community.</p>}</section>;
 
   return (
     <section className="social-feed" aria-label="Social posts">
       {!storiesSlot ? feedHeading : null}
       {!storiesSlot ? feedTabs : null}
+      {!storiesSlot ? liveSection : null}
       {followRequests.length ? <section className="social-follow-requests" aria-label="Follow requests"><h3><UserPlus size={17} /> Follow requests <span>{followRequests.length}</span></h3>{followRequests.map((request) => <div key={request.id} className="social-follow-requests__row"><PresenceAvatar user={request.user} src={request.user?.profile?.profile_picture} name={request.user?.profile?.display_name || request.user?.public_id || "Member"} size={36} /><span>{request.user?.profile?.display_name || request.user?.public_id || "Member"}</span><button type="button" aria-label="Accept follow request" disabled={requestsBusy} onClick={() => answerFollow(request, "accept")}><Check size={17} /></button><button type="button" aria-label="Decline follow request" disabled={requestsBusy} onClick={() => answerFollow(request, "decline")}><X size={17} /></button></div>)}</section> : null}
       <form className="social-compose" onSubmit={publish}>
         <div className="social-compose__row"><Avatar src={me?.profile?.profile_picture} name={me?.profile?.display_name} size={40} /><textarea value={text} onChange={(event) => setText(event.target.value)} maxLength={2000} rows={3} placeholder="What's on your mind?" aria-label="Post text" disabled={busy} /></div>
@@ -451,9 +484,11 @@ export default function StatusMain({ storiesSlot = null }) {
       {storiesSlot}
       {storiesSlot ? feedHeading : null}
       {storiesSlot ? feedTabs : null}
+      {storiesSlot ? liveSection : null}
       <AdPlacement placement="social-feed-inline" />
       {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length || (showPublisherPosts && publisherItems.length) ? <><div className="social-feed__list" ref={feedListRef}>{interleavePublisherPosts(posts, showPublisherPosts ? publisherItems : []).map((entry, index) => entry.kind === "publisher" ? <PublisherSystemPost key={`publisher-${entry.item.id || entry.item.url}`} item={entry.item} /> : <PostCard key={entry.post.id || index} post={entry.post} me={me} onChange={load} onHashtag={(tag) => { setScope("all"); setHashtagFilter(tag); setLoading(true); }} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : showPublisherPosts && publisherLoading ? <div className="list-loading"><Spinner /></div> : <EmptyState text={hashtagFilter ? `No posts found for #${hashtagFilter}.` : scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
       {sharingPostId ? <div className="social-share-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !shareBusy) setSharingPostId(null); }}><section className="social-share-dialog" role="dialog" aria-modal="true" aria-labelledby="social-share-title"><header><h3 id="social-share-title">Share to chat</h3><button type="button" aria-label="Close share dialog" disabled={shareBusy} onClick={() => setSharingPostId(null)}><X size={18} /></button></header><div>{Object.values(rooms).filter((room) => !room.isArchived).map((room) => <button key={room.id} type="button" className="social-share-dialog__room" disabled={shareBusy} onClick={() => shareToRoom(room.id)}><Avatar src={room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture} name={roomTitle(room, contactMap, me)} group={room.isGroup} size={38} /><span>{roomTitle(room, contactMap, me)}</span>{shareBusy ? <Spinner size={15} /> : <Send size={15} />}</button>)}</div>{!Object.values(rooms).some((room) => !room.isArchived) ? <EmptyState text="No chats available." /> : null}<p>The post is shared only if everyone in the chat can view it.</p></section></div> : null}
+      {liveRoom ? <Suspense fallback={<div className="social-live-room__connecting"><Spinner size={16} /> Preparing live…</div>}><LiveRoom key={liveRoom.stream?.id || "new-live"} mode={liveRoom.mode} stream={liveRoom.stream || null} onClose={closeLiveRoom} /></Suspense> : null}
     </section>
   );
 }

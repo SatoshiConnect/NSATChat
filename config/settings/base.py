@@ -17,6 +17,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 
 SECRET_KEY = config("SECRET_KEY")
+LIVEKIT_PUBLIC_URL = config("LIVEKIT_PUBLIC_URL", default="").strip()
+LIVEKIT_API_KEY = config("LIVEKIT_API_KEY", default="").strip()
+LIVEKIT_API_SECRET = config("LIVEKIT_API_SECRET", default="").strip()
+SOCIAL_LIVE_MAX_VIEWERS = config("SOCIAL_LIVE_MAX_VIEWERS", default=1000, cast=int)
+if not 1 <= SOCIAL_LIVE_MAX_VIEWERS <= 2999:
+    raise ValueError("SOCIAL_LIVE_MAX_VIEWERS must be between 1 and 2999")
+LIVEKIT_MAX_PARTICIPANTS = config("LIVEKIT_MAX_PARTICIPANTS", default=1001, cast=int)
+if not SOCIAL_LIVE_MAX_VIEWERS + 1 <= LIVEKIT_MAX_PARTICIPANTS <= 3000:
+    raise ValueError("LIVEKIT_MAX_PARTICIPANTS must include the host and cover the configured viewer cap, up to 3000")
 GOOGLE_CLIENT_ID = config("GOOGLE_CLIENT_ID", default="")
 # Optional capability flags are independent from authentication and authorization.
 # Defaults preserve the current product behavior; experimental paths stay off.
@@ -203,6 +212,7 @@ REST_FRAMEWORK = {
         "social_post": config("THROTTLE_SOCIAL_POST", default="30/hour"),
         "social_comment": config("THROTTLE_SOCIAL_COMMENT", default="120/hour"),
         "social_interaction": config("THROTTLE_SOCIAL_INTERACTION", default="300/hour"),
+        "social_live": config("THROTTLE_SOCIAL_LIVE", default="120/min"),
         "wallet_read": config("THROTTLE_WALLET_READ", default="30/min"),
         "wallet_send": config("THROTTLE_WALLET_SEND", default="10/hour"),
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),

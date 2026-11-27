@@ -33,6 +33,12 @@ class JWTAuthMiddleware(BaseMiddleware):
             "token",
             [None],
         )[0]
+        # Browser WebSocket clients cannot set Authorization headers. Accept a
+        # bearer token via a dedicated subprotocol so new realtime features do
+        # not expose it in request URLs, while preserving existing clients.
+        subprotocols = scope.get("subprotocols", [])
+        if token is None and len(subprotocols) >= 2 and subprotocols[0] == "nsat.jwt":
+            token = subprotocols[1]
 
         if token is None:
             scope["user"] = AnonymousUser()

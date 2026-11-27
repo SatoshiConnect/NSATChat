@@ -222,14 +222,34 @@ class WalletSocialRecipientAPIView(APIView):
 
     def get(self, request):
         raw_post_id = request.query_params.get("post_id", "")
-        if not str(raw_post_id).isdigit():
-            return Response({"code": "invalid_post"}, status=status.HTTP_400_BAD_REQUEST)
-        from apps.social.policies import visible_posts_for
+        recipient = None
+        if str(raw_post_id).isdigit():
+            from apps.social.policies import visible_posts_for
 
-        post = visible_posts_for(request.user).filter(pk=int(raw_post_id)).select_related("author").first()
-        if not post or post.author_id == request.user.id:
+            post = visible_posts_for(request.user).filter(pk=int(raw_post_id)).select_related("author").first()
+            if post and post.author_id != request.user.id:
+                recipient = post.author
+        else:
+            raw_user_id = request.query_params.get("user_id", "")
+            if not str(raw_user_id).isdigit():
+                return Response({"code": "invalid_recipient"}, status=status.HTTP_400_BAD_REQUEST)
+            from apps.accounts.models import User
+            from apps.chat.utils import blocked_user_ids
+            from apps.social.models import SocialFollow
+
+            recipient = User.objects.filter(pk=int(raw_user_id), is_active=True, is_deleted=False).select_related("profile").first()
+            if recipient and recipient.id != request.user.id:
+                if recipient.id in blocked_user_ids(request.user.id) or request.user.id in blocked_user_ids(recipient.id):
+                    recipient = None
+                elif recipient.profile.social_private and not SocialFollow.objects.filter(
+                    follower=request.user, following=recipient, status=SocialFollow.ACCEPTED,
+                ).exists():
+                    recipient = None
+            else:
+                recipient = None
+        if not recipient:
             return Response({"code": "recipient_unavailable"}, status=status.HTTP_404_NOT_FOUND)
-        link = WalletLink.objects.filter(user=post.author).only("address").first()
+        link = WalletLink.objects.filter(user=recipient).only("address").first()
         if not link:
             return Response({"code": "recipient_wallet_not_connected"}, status=status.HTTP_404_NOT_FOUND)
         return Response({"address": link.address, "network": MAINNET_ID})

@@ -10,7 +10,7 @@ from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 from apps.accounts.models import Contact, User
-from apps.social.models import Post, PostComment, PostLike, PostReport, SocialFollow, SocialMute
+from apps.social.models import LiveStream, LiveStreamViewer, Post, PostComment, PostLike, PostReport, SocialFollow, SocialMute
 
 
 @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "social-test"}})
@@ -414,3 +414,61 @@ class SocialFollowTests(TestCase):
         BlockedUser.objects.create(blocked_by=self.owner, blocked_user=self.follower)
         self.assertEqual(self.follower_client.post(f"/api/social/users/{self.owner.id}/follow/").status_code, 404)
         self.assertEqual(self.owner_client.post(f"/api/social/users/{self.owner.id}/follow/").status_code, 404)
+
+
+@override_settings(
+    LIVEKIT_PUBLIC_URL="wss://live.example.test",
+    LIVEKIT_API_KEY="test-api-key",
+    LIVEKIT_API_SECRET="test-api-secret",
+)
+class LiveKitTokenTests(TestCase):
+    def setUp(self):
+        self.host = User.objects.create_user(phone_number="+66910000401", password="StrongPass123!")
+        self.viewer = User.objects.create_user(phone_number="+66910000402", password="StrongPass123!")
+        self.stream = LiveStream.objects.create(host=self.host)
+        self.host_client = APIClient()
+        self.host_client.force_authenticate(self.host)
+        self.viewer_client = APIClient()
+        self.viewer_client.force_authenticate(self.viewer)
+        self.url = f"/api/social/live/{self.stream.pk}/token/"
+
+    def _mock_token(self):
+        from unittest.mock import patch
+
+        patcher = patch("livekit.api.AccessToken")
+        access_token = patcher.start()
+        self.addCleanup(patcher.stop)
+        token = access_token.return_value
+        token.with_identity.return_value = token
+        token.with_grants.return_value = token
+        token.with_ttl.return_value = token
+        token.to_jwt.return_value = "short-lived-test-jwt"
+        return token
+
+    def test_host_gets_publish_capable_short_lived_room_token(self):
+        token = self._mock_token()
+        response = self.host_client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["url"], "wss://live.example.test")
+        self.assertEqual(response.data["token"], "short-lived-test-jwt")
+        grants = token.with_grants.call_args.args[0]
+        self.assertTrue(grants.can_publish)
+        self.assertTrue(grants.can_subscribe)
+        self.assertFalse(grants.can_publish_data)
+        self.assertEqual(grants.room, f"nsat-live-{self.stream.pk}")
+
+    def test_viewer_needs_active_membership_and_cannot_publish(self):
+        self.assertEqual(self.viewer_client.post(self.url).status_code, 403)
+        LiveStreamViewer.objects.create(stream=self.stream, user=self.viewer)
+        token = self._mock_token()
+        response = self.viewer_client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        grants = token.with_grants.call_args.args[0]
+        self.assertFalse(grants.can_publish)
+        self.assertTrue(grants.can_subscribe)
+
+    @override_settings(LIVEKIT_PUBLIC_URL="", LIVEKIT_API_KEY="", LIVEKIT_API_SECRET="")
+    def test_missing_sfu_credentials_fails_closed(self):
+        response = self.host_client.post(self.url)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], "live_media_unconfigured")

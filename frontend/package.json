@@ -16,6 +16,7 @@
     "@zxing/browser": "^0.2.1",
     "axios": "^1.20.0",
     "emojilib": "^4.0.3",
+    "livekit-client": "2.25.0",
     "lucide-react": "^1.61.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
