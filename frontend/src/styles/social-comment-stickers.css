@@ -23,6 +23,7 @@
   background: transparent;
   cursor: pointer;
 }
+.social-comment-sticker-picker .social-default-sticker { font-size: 27px; line-height: 1; }
 .social-comment-sticker-picker > button:hover,
 .social-comment-sticker-picker > button.is-selected {
   border-color: var(--accent);
@@ -61,6 +62,7 @@
   font-size: var(--fs-xs);
 }
 .social-comment-sticker-selected img { width: 30px; height: 30px; object-fit: contain; }
+.social-comment-sticker-selected .social-default-sticker { font-size: 27px; }
 .social-comment-sticker-selected button {
   width: 26px !important;
   height: 26px !important;
@@ -72,3 +74,5 @@
   color: var(--muted);
 }
 .social-comment-sticker { display: block; width: 76px; height: 76px; object-fit: contain; }
+.social-default-sticker { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; font-size: 38px; line-height: 1; }
+.social-default-sticker.is-reward { padding: 7px; border: 1px solid var(--accent); border-radius: 14px; background: var(--accent-soft); }
