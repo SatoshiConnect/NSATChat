@@ -87,6 +87,24 @@ function SocialStickerComposer({ onSubmit, busy, userId, placeholder = "Write a 
   const [selected, setSelected] = useState(null);
   const [isReward, setIsReward] = useState(false);
   const [stickerQuery, setStickerQuery] = useState("");
+  const submitLock = useRef(false);
+
+  const sendComment = async (sticker = selected) => {
+    if (busy || submitLock.current || (!text.trim() && !sticker)) return false;
+    submitLock.current = true;
+    try {
+      const success = await onSubmit({
+        text: isReward ? "" : text.trim(),
+        sticker_asset_id: sticker?.id,
+        sticker_code: sticker?.code,
+        is_reward: isReward,
+      });
+      if (success !== false) { setText(""); setSelected(null); setOpen(false); setIsReward(false); }
+      return success;
+    } finally {
+      submitLock.current = false;
+    }
+  };
 
   const togglePicker = async () => {
     if (open) { setOpen(false); return; }
@@ -104,9 +122,7 @@ function SocialStickerComposer({ onSubmit, busy, userId, placeholder = "Write a 
 
   const submit = async (event) => {
     event.preventDefault();
-    if ((!text.trim() && !selected) || busy) return;
-    const success = await onSubmit({ text: isReward ? "" : text.trim(), sticker_asset_id: selected?.id, sticker_code: selected?.code, is_reward: isReward });
-    if (success !== false) { setText(""); setSelected(null); setOpen(false); setIsReward(false); }
+    await sendComment();
   };
 
   const filteredStickers = stickers.filter((sticker) => !stickerQuery.trim() || `${sticker.label || ""} ${sticker.pack_title || ""}`.toLowerCase().includes(stickerQuery.trim().toLowerCase()));
@@ -114,7 +130,7 @@ function SocialStickerComposer({ onSubmit, busy, userId, placeholder = "Write a 
   return <form className="social-post__comment-form" onSubmit={submit}>
     {open ? <div className="social-comment-sticker-picker" aria-label="Free starter and owned stickers">
       <input className="social-comment-sticker-search" type="search" value={stickerQuery} onChange={(event) => setStickerQuery(event.target.value)} placeholder="Search stickers" aria-label="Search stickers" />
-      {filteredStickers.length ? filteredStickers.map((sticker) => <button key={sticker.code || sticker.id} type="button" className={(sticker.code ? selected?.code === sticker.code : selected?.id === sticker.id) ? "is-selected" : ""} title={sticker.label || sticker.pack_title} aria-label={`Choose ${sticker.label || sticker.pack_title} sticker`} onClick={() => setSelected((current) => (sticker.code ? current?.code === sticker.code : current?.id === sticker.id) ? null : sticker)}>{sticker.file ? <img src={mediaUrl(sticker.file)} alt={sticker.pack_title} loading="lazy" /> : sticker.image ? <img src={sticker.image} alt={sticker.label} loading="lazy" /> : <span className="social-default-sticker" aria-hidden="true">{sticker.emoji}</span>}</button>) : <span>No matching stickers.</span>}
+      {filteredStickers.length ? filteredStickers.map((sticker) => <button key={sticker.code || sticker.id} type="button" disabled={busy} className={(sticker.code ? selected?.code === sticker.code : selected?.id === sticker.id) ? "is-selected" : ""} title={`Send ${sticker.label || sticker.pack_title}`} aria-label={`Send ${sticker.label || sticker.pack_title} sticker`} onClick={() => { setSelected(sticker); void sendComment(sticker); }}>{sticker.file ? <img src={mediaUrl(sticker.file)} alt={sticker.pack_title} loading="lazy" /> : sticker.image ? <img src={sticker.image} alt={sticker.label} loading="lazy" /> : <span className="social-default-sticker" aria-hidden="true">{sticker.emoji}</span>}</button>) : <span>No matching stickers.</span>}
       {loadingStickers ? <span role="status">Loading your Marketplace stickers…</span> : null}
       <span className="social-comment-sticker-note">{isReward ? "Free sticker reward. No NSAT is sent; the creator is notified." : "Free starter stickers are ready. Marketplace stickers appear here when you own them."}</span>
     </div> : null}
@@ -123,7 +139,7 @@ function SocialStickerComposer({ onSubmit, busy, userId, placeholder = "Write a 
     <button type="button" className="social-post__comment-sticker-toggle" onClick={togglePicker} aria-label={open ? "Close sticker picker" : "Add a sticker"} aria-expanded={open}><Smile size={18} /></button>
     {allowReward ? <button type="button" className={`social-post__comment-sticker-toggle${isReward ? " is-reward" : ""}`} onClick={() => { setIsReward((value) => !value); setText(""); if (!open) void togglePicker(); }} aria-label={isReward ? "Cancel sticker reward" : "Send a sticker reward (no payment)"} aria-pressed={isReward}><Gift size={17} /></button> : null}
     {isReward ? <span className="social-comment-reward-note" role="note">No payment is made. This sends a reusable sticker and notifies the post creator.</span> : null}
-    <button type="submit" disabled={(!text.trim() && !selected) || busy} aria-label="Post comment">{busy ? <Spinner size={16} /> : <Send size={17} />}</button>
+    <button type="submit" disabled={(!text.trim() && !selected) || busy} aria-label={selected ? "Send sticker comment" : "Post comment"} title={selected ? "Send sticker comment" : "Post comment"}>{busy ? <Spinner size={16} /> : <Send size={17} />}</button>
   </form>;
 }
 
