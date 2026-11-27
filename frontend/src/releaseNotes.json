@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.42.0",
+    "date": "2026-11-27",
+    "title": "Free starter stickers and creator support",
+    "items": [
+      "Social comments now include an illustrated free starter sticker pack, with stickers you own from Marketplace in the same picker.",
+      "Send a free sticker reward to a creator, or open Wallet to send NSAT support. Wallet shows the transfer for your review and requires your signature; the app never sends it automatically."
+    ]
+  },
+  {
     "version": "1.41.1",
     "date": "2026-11-25",
     "title": "Restore grouped mobile navigation",
