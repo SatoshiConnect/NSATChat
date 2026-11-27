@@ -537,6 +537,18 @@
     background: var(--panel-bg);
     border-top: 1px solid var(--divider);
   }
+  /* Commerce screens have their own internal Wallet / Marketplace switcher,
+     but must keep the app-level destinations below it on phones. */
+  .app.is-wallet-view > .tabbar,
+  .app.is-marketplace-view > .tabbar {
+    display: flex;
+  }
+  .app.is-wallet-view > .main,
+  .app.is-marketplace-view > .main {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+  }
   .mobile-chat-switch {
     display: flex;
     flex: 0 0 auto;
