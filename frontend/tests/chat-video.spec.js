@@ -44,7 +44,7 @@ test("does not carry a playback failure to the next attachment", async ({ page }
   await page.getByRole("button", { name: "Play received attachment" }).click();
   const player = page.getByRole("dialog", { name: "Media viewer" });
   await expect(player.getByRole("alert")).toBeVisible();
-  await player.getByRole("button", { name: "Next", exact: true }).click();
+  await player.getByRole("button", { name: "Show item 2", exact: true }).click();
   await expect(player.getByRole("alert")).toHaveCount(0);
   await expect.poll(() => player.locator(".lightbox__stage video").evaluate((el) => el.videoWidth)).toBe(32);
 });
