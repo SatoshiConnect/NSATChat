@@ -1,6 +1,6 @@
 """Read-only, cached daily headlines from fixed and attributed news sources."""
 
-from datetime import datetime, timezone as datetime_timezone
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from email.utils import parsedate_to_datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
@@ -35,14 +35,16 @@ FEEDS = (
     {"url": "https://techcrunch.com/feed/", "label": "TechCrunch", "category": "technology", "category_label": "Technology", "region": "world", "global_source": True},
     {"url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "label": "BBC News Science & Environment", "category": "science", "category_label": "Science", "region": "world", "global_source": True},
     {"url": "https://www.nasa.gov/news-release/feed/", "label": "NASA", "category": "science", "category_label": "Science", "region": "world", "global_source": True},
+    {"url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC16niRr50-MSBwiO3YDb3RA", "label": "BBC News Video", "category": "world", "category_label": "World video", "region": "world", "global_source": True, "media_type": "VIDEO"},
+    {"url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCLA_DiR1FfKNvjuUpBHmylQ", "label": "NASA Video", "category": "science", "category_label": "Science video", "region": "world", "global_source": True, "media_type": "VIDEO"},
     {"url": "https://feeds.bbci.co.uk/news/health/rss.xml", "label": "BBC News Health", "category": "health", "category_label": "Health", "region": "world", "global_source": True},
     {"url": "https://www.who.int/rss-feeds/news-english.xml", "label": "World Health Organization", "category": "health", "category_label": "Health", "region": "world", "global_source": True},
     {"url": "https://feeds.bbci.co.uk/sport/rss.xml", "label": "BBC Sport", "category": "sports", "category_label": "Sports", "region": "world", "global_source": True},
     {"url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "label": "BBC News Culture", "category": "culture", "category_label": "Culture", "region": "world", "global_source": True},
 )
-FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · more"
-FRESH_CACHE_KEY = "today-news:thailand-prd:v8"
-STALE_CACHE_KEY = "today-news:thailand-prd:stale:v8"
+FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · YouTube · more"
+FRESH_CACHE_KEY = "today-news:thailand-prd:v9"
+STALE_CACHE_KEY = "today-news:thailand-prd:stale:v9"
 FRESH_TTL_SECONDS = 300
 STALE_TTL_SECONDS = 86400
 MAX_FEED_BYTES = 1_500_000
@@ -57,6 +59,7 @@ IMAGE_HOSTS = (
     "who.int",
     "techcrunch.com",
     "npr.org",
+    "i.ytimg.com",
     "thailand.go.th",
 )
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
@@ -177,6 +180,18 @@ def _entry_image(entry):
     return max(candidates, default=(0, False, ""))[2]
 
 
+def _entry_video(entry):
+    """Return a direct HTTPS video enclosure supplied by a configured publisher RSS feed."""
+    for node in entry.iter():
+        if _local_name(node.tag) not in {"content", "enclosure"}:
+            continue
+        content_type = node.attrib.get("type", "").lower()
+        raw = node.attrib.get("url") or node.attrib.get("href")
+        if content_type.startswith("video/") and _safe_article_link(raw):
+            return raw[:2048]
+    return ""
+
+
 def _classify_headline(title, fallback):
     """Assign broad topics to aggregator headlines without rewriting their content."""
     text = str(title or "").casefold()
@@ -219,7 +234,12 @@ def _fetch_feed(feed):
         if source_name and title.casefold().endswith(f" - {source_name}".casefold()):
             title = title[: -(len(source_name) + 3)].strip()
         published = _published_at(entry)
-        if not title or not link or not published or published.astimezone(BANGKOK_TZ).date() != today:
+        if not title or not link or not published:
+            continue
+        if feed.get("media_type") == "VIDEO":
+            if published < timezone.now() - timedelta(days=7):
+                continue
+        elif published.astimezone(BANGKOK_TZ).date() != today:
             continue
         if link in seen:
             continue
@@ -227,15 +247,19 @@ def _fetch_feed(feed):
         summary = _plain_text(_child_text(entry, "description", "summary", "content"), 1000) if feed.get("summary", True) else ""
         category = _classify_headline(title, feed["category"]) if feed.get("classify", False) else feed["category"]
         image_url = _entry_image(entry)
+        video_url = _entry_video(entry) or (link if feed.get("media_type") == "VIDEO" else "")
+        category_label = f"{CATEGORY_LABELS[category]} video" if feed.get("media_type") == "VIDEO" else CATEGORY_LABELS[category]
         items.append({
             "id": link,
             "title": title,
             "summary": summary,
             "image_url": image_url,
+            "video_url": video_url,
+            "media_type": feed.get("media_type", "ARTICLE"),
             "url": link,
             "source": source_name or feed["label"],
             "category": category,
-            "category_label": CATEGORY_LABELS[category],
+            "category_label": category_label,
             "region": feed.get("region", "world"),
             "region_label": CATEGORY_LABELS.get(feed.get("region", "world"), "World"),
             "published_at": published.isoformat(),
@@ -370,7 +394,17 @@ def _balance_categories(items):
     ordered_categories.extend(category for category in categories if category not in ordered_categories)
     balanced = []
     for category in ordered_categories:
-        balanced.extend(categories.get(category, [])[:MAX_ITEMS_PER_CATEGORY])
+        category_items = categories.get(category, [])
+        selected = category_items[:MAX_ITEMS_PER_CATEGORY]
+        # Preserve publisher videos for the mixed Social feed even when a
+        # category has more than the normal headline cap.
+        video = next((item for item in category_items if item.get("media_type") == "VIDEO"), None)
+        if video and video not in selected:
+            if selected:
+                selected[-1] = video
+            else:
+                selected = [video]
+        balanced.extend(selected)
     return balanced
 
 
