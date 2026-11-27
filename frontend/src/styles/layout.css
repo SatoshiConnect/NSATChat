@@ -530,6 +530,19 @@
     min-height: 0;
     height: auto;
   }
+  /* WalletPanel can be mounted directly by MainLayout when it is not being
+     retained between sections. Constrain that form to the space above the
+     global tab bar too; otherwise its intrinsic content height paints over
+     the tab bar and intercepts taps on Home/Chats/etc. */
+  .app.is-wallet-view > .main.main--wallet > .wallet-native {
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+  }
+  .app.is-wallet-view > .main.main--wallet > .wallet-native > .wallet-native__body {
+    flex: 1 1 0;
+    min-height: 0;
+  }
   .wallet-panel-mount:not([hidden]) > .wallet-native {
     flex: 1 1 auto;
     min-height: 0;
