@@ -12,6 +12,7 @@ import { contactsByUser, roomTitle } from "../../utils/messages";
 import { optimizeStatusImage } from "../../utils/statusImageOptimization";
 import LazyVideo from "../media/LazyVideo";
 import AdPlacement from "../common/AdPlacement";
+import PublisherHighlights from "./PublisherHighlights";
 import "../../styles/social-comment-stickers.css";
 
 const SOCIAL_IMAGE_LIMIT = 8 * 1024 * 1024;
@@ -387,6 +388,7 @@ export default function StatusMain({ storiesSlot = null }) {
       {storiesSlot}
       {storiesSlot ? feedHeading : null}
       {storiesSlot ? feedTabs : null}
+      {scope === "all" && !hashtagFilter ? <PublisherHighlights /> : null}
       <AdPlacement placement="social-feed-inline" />
       {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length ? <><div className="social-feed__list" ref={feedListRef}>{posts.map((post) => <PostCard key={post.id} post={post} me={me} onChange={load} onHashtag={(tag) => { setScope("all"); setHashtagFilter(tag); setLoading(true); }} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : <EmptyState text={hashtagFilter ? `No posts found for #${hashtagFilter}.` : scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
       {sharingPostId ? <div className="social-share-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !shareBusy) setSharingPostId(null); }}><section className="social-share-dialog" role="dialog" aria-modal="true" aria-labelledby="social-share-title"><header><h3 id="social-share-title">Share to chat</h3><button type="button" aria-label="Close share dialog" disabled={shareBusy} onClick={() => setSharingPostId(null)}><X size={18} /></button></header><div>{Object.values(rooms).filter((room) => !room.isArchived).map((room) => <button key={room.id} type="button" className="social-share-dialog__room" disabled={shareBusy} onClick={() => shareToRoom(room.id)}><Avatar src={room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture} name={roomTitle(room, contactMap, me)} group={room.isGroup} size={38} /><span>{roomTitle(room, contactMap, me)}</span>{shareBusy ? <Spinner size={15} /> : <Send size={15} />}</button>)}</div>{!Object.values(rooms).some((room) => !room.isArchived) ? <EmptyState text="No chats available." /> : null}<p>The post is shared only if everyone in the chat can view it.</p></section></div> : null}
