@@ -321,9 +321,18 @@
   }
   .app.is-mobile-main .main {
     display: flex;
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
-    height: 100%;
+    height: auto;
+  }
+  .app.is-mobile-today .sidebar {
+    display: none;
+  }
+  .app.is-mobile-today .main {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
   }
   .drawer {
     position: fixed;
@@ -631,10 +640,6 @@
   .rail {
     display: none;
   }
-  .app.is-mobile-main .tabbar {
-    display: none;
-  }
-
   .sidebar .panel {
     position: relative;
   }
