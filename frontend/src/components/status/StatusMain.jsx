@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, Check, Flag, Gift, HeartHandshake, Image as ImageIcon, MessageCircle, Pencil, Radio, Send, Share2, Smile, Trash2, UserPlus, X } from "lucide-react";
 import { marketplaceApi, socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
@@ -16,8 +16,9 @@ import { useApp } from "../layout/AppContext";
 import { walletApi } from "../../features/wallet/api";
 import PublisherSystemPost from "./PublisherSystemPost";
 import usePublisherPosts from "./usePublisherPosts";
-import LiveRoom from "./LiveRoom";
 import "../../styles/social-comment-stickers.css";
+
+const LiveRoom = lazy(() => import("./LiveRoom"));
 
 const SOCIAL_IMAGE_LIMIT = 8 * 1024 * 1024;
 const SOCIAL_VIDEO_LIMIT = 50 * 1024 * 1024;
@@ -487,7 +488,7 @@ export default function StatusMain({ storiesSlot = null }) {
       <AdPlacement placement="social-feed-inline" />
       {loading ? <div className="list-loading"><Spinner /></div> : error ? <div className="social-feed__error">{error} <button type="button" onClick={load}>Retry</button></div> : posts.length || (showPublisherPosts && publisherItems.length) ? <><div className="social-feed__list" ref={feedListRef}>{interleavePublisherPosts(posts, showPublisherPosts ? publisherItems : []).map((entry, index) => entry.kind === "publisher" ? <PublisherSystemPost key={`publisher-${entry.item.id || entry.item.url}`} item={entry.item} /> : <PostCard key={entry.post.id || index} post={entry.post} me={me} onChange={load} onHashtag={(tag) => { setScope("all"); setHashtagFilter(tag); setLoading(true); }} />)}</div>{hasMore ? <button className="social-feed__more" type="button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? <Spinner size={16} /> : "Load more posts"}</button> : null}</> : showPublisherPosts && publisherLoading ? <div className="list-loading"><Spinner /></div> : <EmptyState text={hashtagFilter ? `No posts found for #${hashtagFilter}.` : scope === "saved" ? "You have no saved posts yet." : scope === "following" ? "No posts from followed accounts yet." : "No posts yet. Share the first update with your contacts."} />}
       {sharingPostId ? <div className="social-share-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !shareBusy) setSharingPostId(null); }}><section className="social-share-dialog" role="dialog" aria-modal="true" aria-labelledby="social-share-title"><header><h3 id="social-share-title">Share to chat</h3><button type="button" aria-label="Close share dialog" disabled={shareBusy} onClick={() => setSharingPostId(null)}><X size={18} /></button></header><div>{Object.values(rooms).filter((room) => !room.isArchived).map((room) => <button key={room.id} type="button" className="social-share-dialog__room" disabled={shareBusy} onClick={() => shareToRoom(room.id)}><Avatar src={room.isGroup ? room.groupPhoto : room.otherUser?.profile?.profile_picture} name={roomTitle(room, contactMap, me)} group={room.isGroup} size={38} /><span>{roomTitle(room, contactMap, me)}</span>{shareBusy ? <Spinner size={15} /> : <Send size={15} />}</button>)}</div>{!Object.values(rooms).some((room) => !room.isArchived) ? <EmptyState text="No chats available." /> : null}<p>The post is shared only if everyone in the chat can view it.</p></section></div> : null}
-      {liveRoom ? <LiveRoom key={liveRoom.stream?.id || "new-live"} mode={liveRoom.mode} stream={liveRoom.stream || null} me={me} onClose={closeLiveRoom} /> : null}
+      {liveRoom ? <Suspense fallback={<div className="social-live-room__connecting"><Spinner size={16} /> Preparing live…</div>}><LiveRoom key={liveRoom.stream?.id || "new-live"} mode={liveRoom.mode} stream={liveRoom.stream || null} onClose={closeLiveRoom} /></Suspense> : null}
     </section>
   );
 }

@@ -183,7 +183,7 @@ class LiveStream(models.Model):
     started_at = models.DateTimeField(auto_now_add=True, db_index=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     last_heartbeat = models.DateTimeField(auto_now_add=True, db_index=True)
-    viewer_limit = models.PositiveSmallIntegerField(default=6)
+    viewer_limit = models.PositiveSmallIntegerField(default=1000)
 
     class Meta:
         db_table = "social_live_streams"

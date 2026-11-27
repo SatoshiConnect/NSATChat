@@ -40,6 +40,14 @@ services:
     volumes:
       - redis_data:/data
 
+  livekit:
+    ports:
+      - "127.0.0.1:17880:7880"
+
+  livekit-redis:
+    volumes:
+      - livekit_redis_data:/data
+
 volumes:
   postgres_data:
     name: nsat-mhtalk-prod-postgres
@@ -47,3 +55,5 @@ volumes:
     name: nsat-mhtalk-prod-redis
   media:
     name: nsat-mhtalk-prod-media
+  livekit_redis_data:
+    name: nsat-mhtalk-prod-livekit-redis

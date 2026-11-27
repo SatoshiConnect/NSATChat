@@ -1,10 +1,13 @@
 import mimetypes
+import hashlib
+import hmac
 import re
 from datetime import timedelta
 from uuid import uuid4
 
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
 from django.http import Http404
@@ -77,12 +80,15 @@ def _live_event_data(event, request):
 
 
 def _live_stream_data(stream, request):
+    viewer_count = getattr(stream, "active_viewer_count", None)
+    if viewer_count is None:
+        viewer_count = stream.viewers.filter(last_seen__gte=timezone.now() - timedelta(minutes=2)).count()
     return {
         "id": stream.pk,
         "title": stream.title,
         "host": _live_user(stream.host, request),
         "started_at": stream.started_at,
-        "viewer_count": stream.viewers.filter(last_seen__gte=timezone.now() - timedelta(minutes=2)).count(),
+        "viewer_count": viewer_count,
         "viewer_limit": stream.viewer_limit,
         "is_live": stream.status == LiveStream.LIVE,
     }
@@ -154,7 +160,11 @@ class LiveStreamListCreateAPIView(APIView):
 
     def get(self, request):
         cutoff = timezone.now() - timedelta(minutes=2)
-        streams = LiveStream.objects.filter(status=LiveStream.LIVE, last_heartbeat__gte=cutoff).select_related("host", "host__profile")[:30]
+        streams = LiveStream.objects.filter(status=LiveStream.LIVE, last_heartbeat__gte=cutoff).select_related(
+            "host", "host__profile"
+        ).annotate(
+            active_viewer_count=Count("viewers", filter=Q(viewers__last_seen__gte=cutoff))
+        )[:30]
         return Response([_live_stream_data(stream, request) for stream in streams if _can_join_live(request.user, stream)])
 
     def post(self, request):
@@ -168,8 +178,65 @@ class LiveStreamListCreateAPIView(APIView):
             LiveStreamViewer.objects.filter(stream_id__in=stale_ids).delete()
             if LiveStream.objects.select_for_update().filter(host=request.user, status=LiveStream.LIVE).exists():
                 return Response({"code": "live_already_active", "detail": "You already have an active live stream."}, status=status.HTTP_409_CONFLICT)
-            stream = LiveStream.objects.create(host=request.user, title=title)
+            stream = LiveStream.objects.create(
+                host=request.user,
+                title=title,
+                viewer_limit=settings.SOCIAL_LIVE_MAX_VIEWERS,
+            )
         return Response(_live_stream_data(stream, request), status=status.HTTP_201_CREATED)
+
+
+class LiveStreamTokenAPIView(APIView):
+    """Issue short-lived, role-limited credentials for the configured LiveKit SFU."""
+
+    permission_classes = (permissions.IsAuthenticated,)
+    throttle_scope = "social_live"
+
+    def post(self, request, pk):
+        if not (settings.LIVEKIT_PUBLIC_URL and settings.LIVEKIT_API_KEY and settings.LIVEKIT_API_SECRET):
+            return Response(
+                {"code": "live_media_unconfigured", "detail": "Live streaming is not enabled on this server yet."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        stream = get_object_or_404(
+            LiveStream.objects.select_related("host", "host__profile"),
+            pk=pk,
+            status=LiveStream.LIVE,
+        )
+        if stream.last_heartbeat < timezone.now() - timedelta(minutes=2) or not _can_join_live(request.user, stream):
+            raise Http404
+        is_host = request.user.pk == stream.host_id
+        if not is_host and not LiveStreamViewer.objects.filter(
+            stream=stream,
+            user=request.user,
+            last_seen__gte=timezone.now() - timedelta(minutes=2),
+        ).exists():
+            return Response({"detail": "Join this live before requesting media access."}, status=status.HTTP_403_FORBIDDEN)
+
+        from livekit import api
+
+        token = (
+            api.AccessToken(settings.LIVEKIT_API_KEY, settings.LIVEKIT_API_SECRET)
+            .with_identity(
+                "u" + hmac.new(
+                    settings.SECRET_KEY.encode(),
+                    f"live:{stream.pk}:{request.user.pk}".encode(),
+                    hashlib.sha256,
+                ).hexdigest()[:32]
+            )
+            .with_grants(
+                api.VideoGrants(
+                    room_join=True,
+                    room=f"nsat-live-{stream.pk}",
+                    can_publish=is_host,
+                    can_subscribe=True,
+                    can_publish_data=False,
+                )
+            )
+            .with_ttl(timedelta(minutes=10))
+            .to_jwt()
+        )
+        return Response({"url": settings.LIVEKIT_PUBLIC_URL, "token": token})
 
 
 class LiveStreamDetailAPIView(APIView):
@@ -238,9 +305,9 @@ class LiveStreamDetailAPIView(APIView):
             sticker_code=sticker_code if kind == LiveStreamEvent.STICKER else "",
             sticker_asset=sticker_asset,
         )
-        if stream.events.count() > 1000:
-            oldest_kept_id = stream.events.order_by("-id").values_list("id", flat=True)[999]
-            stream.events.filter(id__lt=oldest_kept_id).delete()
+        if event.pk % 100 == 0:
+            newest_event_ids = stream.events.order_by("-id").values("pk")[:1000]
+            LiveStreamEvent.objects.filter(stream=stream).exclude(pk__in=newest_event_ids).delete()
         payload = _live_event_data(event, request)
         _broadcast_live(stream.pk, "live_event", payload)
         return Response(payload, status=status.HTTP_201_CREATED)

@@ -20,6 +20,13 @@
 			flush_interval -1
 		}
 	}
+	@livekit path /rtc /rtc/* /twirp/*
+	handle @livekit {
+		reverse_proxy 127.0.0.1:17880 {
+			header_up X-Forwarded-Proto https
+			flush_interval -1
+		}
+	}
 	@pwa path /sw.js /manifest.webmanifest
 	handle @pwa {
 		root * /Users/migssa-ngakhaonu/Desktop/nsat-messenger/mhtalk-stage/frontend/dist

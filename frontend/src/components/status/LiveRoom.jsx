@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Room, RoomEvent, Track } from "livekit-client";
 import { ArrowDown, Camera, Gift, Heart, Mic, MicOff, Radio, Send, Share2, Sparkles, UserPlus, Video, VideoOff, Volume2, VolumeX, WalletCards, X } from "lucide-react";
 import { API_BASE, errorMessage, tokens } from "../../api/client";
 import { callApi, marketplaceApi, socialApi } from "../../api/endpoints";
@@ -22,7 +23,7 @@ function socketUrl(streamId) {
   return url.toString();
 }
 
-export default function LiveRoom({ mode, stream: initialStream = null, me, onClose }) {
+export default function LiveRoom({ mode, stream: initialStream = null, onClose }) {
   const app = useApp();
   const [stream, setStream] = useState(initialStream);
   const [localStream, setLocalStream] = useState(null);
@@ -46,9 +47,8 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const streamRef = useRef(null);
-  const peersRef = useRef(new Map());
-  const pendingIceRef = useRef(new Map());
-  const iceServersRef = useRef([{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }]);
+  const roomRef = useRef(null);
+  const remoteTracksRef = useRef(new Map());
   const endingRef = useRef(false);
   const ownedStickersLoadedRef = useRef(false);
   const hostMode = mode === "host";
@@ -72,10 +72,11 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
       .finally(() => setGiftLoading(false));
   }, [showGifts]);
 
-  const closePeers = useCallback(() => {
-    peersRef.current.forEach((peer) => peer.close());
-    peersRef.current.clear();
-    pendingIceRef.current.clear();
+  const closeRoom = useCallback(() => {
+    roomRef.current?.removeAllListeners();
+    void roomRef.current?.disconnect();
+    roomRef.current = null;
+    remoteTracksRef.current.clear();
   }, []);
 
   const closeMedia = useCallback(() => {
@@ -86,7 +87,8 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
   }, []);
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
-    peersRef.current.forEach((peer) => peer.close());
+    roomRef.current?.removeAllListeners();
+    void roomRef.current?.disconnect();
     socketRef.current?.close();
   }, []);
 
@@ -94,71 +96,6 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
   }, []);
-
-  const connectPeer = useCallback((peerId, publish = hostMode) => {
-    const key = Number(peerId);
-    const existing = peersRef.current.get(key);
-    if (existing && existing.connectionState !== "closed") return existing;
-    const peer = new RTCPeerConnection({ iceServers: iceServersRef.current });
-    peersRef.current.set(key, peer);
-    if (publish && streamRef.current) streamRef.current.getTracks().forEach((track) => {
-      const sender = peer.addTrack(track, streamRef.current);
-      if (track.kind === "video" && sender.setParameters) {
-        const parameters = sender.getParameters();
-        parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
-        parameters.encodings[0].maxBitrate = 500_000;
-        sender.setParameters(parameters).catch(() => {});
-      }
-    });
-    peer.ontrack = (event) => {
-      const incoming = event.streams?.[0] || new MediaStream([event.track]);
-      setRemoteStream(incoming);
-    };
-    peer.onicecandidate = (event) => {
-      if (event.candidate) sendWs({ type: "signal", target_id: key, signal: { type: "ice", candidate: event.candidate } });
-    };
-    peer.onconnectionstatechange = () => {
-      if (["failed", "disconnected"].includes(peer.connectionState)) {
-        setWarning("Video connection is unstable. This network may need a TURN relay.");
-      } else if (peer.connectionState === "connected") setWarning("");
-    };
-    return peer;
-  }, [hostMode, sendWs]);
-
-  const handleSignal = useCallback(async (from, signal) => {
-    try {
-      const peer = connectPeer(from, hostMode);
-      if (signal.type === "offer" && !hostMode) {
-        await peer.setRemoteDescription(signal.description);
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-        sendWs({ type: "signal", target_id: Number(from), signal: { type: "answer", description: peer.localDescription } });
-        const queued = pendingIceRef.current.get(Number(from)) || [];
-        for (const candidate of queued) await peer.addIceCandidate(candidate).catch(() => {});
-        pendingIceRef.current.delete(Number(from));
-      } else if (signal.type === "answer" && hostMode) {
-        await peer.setRemoteDescription(signal.description);
-        const queued = pendingIceRef.current.get(Number(from)) || [];
-        for (const candidate of queued) await peer.addIceCandidate(candidate).catch(() => {});
-        pendingIceRef.current.delete(Number(from));
-      } else if (signal.type === "ice") {
-        if (peer.remoteDescription) await peer.addIceCandidate(signal.candidate).catch(() => {});
-        else pendingIceRef.current.set(Number(from), [...(pendingIceRef.current.get(Number(from)) || []), signal.candidate]);
-      }
-    } catch {
-      setWarning("Could not establish the live video connection. Try again on another network.");
-    }
-  }, [connectPeer, hostMode, sendWs]);
-
-  const offerViewer = useCallback(async (userId) => {
-    try {
-      const peer = connectPeer(userId, true);
-      if (peer.signalingState !== "stable") return;
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      sendWs({ type: "signal", target_id: Number(userId), signal: { type: "offer", description: peer.localDescription } });
-    } catch { setWarning("Could not start the video connection for a viewer."); }
-  }, [connectPeer, sendWs]);
 
   const appendEvent = useCallback((event) => {
     if (!event?.id) return;
@@ -182,27 +119,71 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
         ]);
         if (!alive) return;
         if (details) { setStream(details); setEvents(details.events || []); setViewerCount(details.viewer_count || 0); }
-        if (Array.isArray(ice?.ice_servers) && ice.ice_servers.length) iceServersRef.current = ice.ice_servers;
         const socket = new WebSocket(socketUrl(stream.id), tokens.access ? ["nsat.jwt", tokens.access] : undefined);
         socketRef.current = socket;
-        socket.onopen = () => { setConnecting(false); if (hostMode) socket.send(JSON.stringify({ type: "heartbeat" })); };
+        socket.onopen = async () => {
+          if (hostMode) socket.send(JSON.stringify({ type: "heartbeat" }));
+          try {
+            const credentials = await socialApi.liveToken(stream.id);
+            if (!alive) return;
+            const room = new Room({
+              adaptiveStream: true,
+              dynacast: true,
+              ...(Array.isArray(ice?.ice_servers) && ice.ice_servers.length
+                ? { rtcConfig: { iceServers: ice.ice_servers } }
+                : {}),
+            });
+            roomRef.current = room;
+            const syncRemoteStream = () => {
+              const tracks = [...remoteTracksRef.current.values()];
+              setRemoteStream(tracks.length ? new MediaStream(tracks) : null);
+            };
+            room.on(RoomEvent.TrackSubscribed, (track) => {
+              remoteTracksRef.current.set(track.sid, track.mediaStreamTrack);
+              syncRemoteStream();
+            });
+            room.on(RoomEvent.TrackUnsubscribed, (track) => {
+              remoteTracksRef.current.delete(track.sid);
+              syncRemoteStream();
+            });
+            room.on(RoomEvent.Reconnecting, () => setWarning("Reconnecting to the live media server…"));
+            room.on(RoomEvent.Reconnected, () => setWarning(""));
+            room.on(RoomEvent.Disconnected, () => {
+              if (alive && !endingRef.current) setWarning("Live media connection closed. Check the network and rejoin.");
+            });
+            await room.connect(credentials.url, credentials.token);
+            if (!alive) { await room.disconnect(); return; }
+            if (hostMode) {
+              const media = streamRef.current;
+              if (!media) throw new Error("Camera and microphone are no longer available.");
+              const videoTrack = media.getVideoTracks()[0];
+              const audioTrack = media.getAudioTracks()[0];
+              if (videoTrack) await room.localParticipant.publishTrack(videoTrack, { source: Track.Source.Camera, simulcast: true });
+              if (audioTrack) await room.localParticipant.publishTrack(audioTrack, { source: Track.Source.Microphone });
+            }
+            setConnecting(false);
+            setWarning("");
+          } catch (error) {
+            if (!alive) return;
+            setConnecting(false);
+            setWarning(errorMessage(error, "Could not connect to the live media server. Please retry."));
+            if (hostMode) {
+              endingRef.current = true;
+              void socialApi.endLiveStream(stream.id).catch(() => {});
+            }
+            socket.close();
+          }
+        };
         socket.onmessage = async (message) => {
           let data;
           try { data = JSON.parse(message.data); } catch { return; }
           if (data.type === "ready") {
             setViewerCount(Number(data.payload?.viewer_count) || 0);
-            if (!hostMode) sendWs({ type: "viewer_ready" });
           } else if (data.type === "viewer_joined") {
             if (data.payload?.viewer_count != null) setViewerCount(Number(data.payload.viewer_count) || 0);
-            if (hostMode && Number(data.payload?.user_id) !== Number(me?.id)) await offerViewer(data.payload.user_id);
           } else if (data.type === "viewer_left") {
             if (data.payload?.viewer_count != null) setViewerCount(Number(data.payload.viewer_count) || 0);
-            peersRef.current.get(Number(data.payload?.user_id))?.close();
-            peersRef.current.delete(Number(data.payload?.user_id));
-          } else if (data.type === "signal") {
-            await handleSignal(data.payload?.from, data.payload?.signal || {});
           } else if (data.type === "live_event") appendEvent(data.payload);
-          else if (data.type === "host_ready" && !hostMode) sendWs({ type: "viewer_ready" });
           else if (data.type === "stream_ended") { setWarning("This live has ended."); window.setTimeout(onClose, 1200); }
         };
         socket.onerror = () => setWarning("Live connection interrupted. Check your network.");
@@ -222,10 +203,10 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
       alive = false;
       socketRef.current?.close();
       socketRef.current = null;
-      closePeers();
+      closeRoom();
       closeMedia();
     };
-  }, [stream?.id, hostMode, me?.id, appendEvent, closeMedia, closePeers, handleSignal, offerViewer, onClose, sendWs]);
+  }, [stream?.id, hostMode, appendEvent, closeMedia, closeRoom, onClose, sendWs]);
 
   const enableCamera = async () => {
     setBusy(true);
@@ -289,7 +270,7 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
     setBusy(true);
     try { if (stream?.id) await socialApi.endLiveStream(stream.id); }
     catch (error) { toast.error(errorMessage(error, "Could not end the live cleanly.")); }
-    finally { socketRef.current?.close(); closePeers(); closeMedia(); setBusy(false); onClose(); }
+    finally { socketRef.current?.close(); closeRoom(); closeMedia(); setBusy(false); onClose(); }
   };
 
   const toggleCamera = () => {
@@ -302,12 +283,20 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
     streamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
     setMuted(next);
   };
+  const toggleLiveAudio = async () => {
+    const next = !audioEnabled;
+    if (next) {
+      try { await roomRef.current?.startAudio(); } catch { /* The video element still gets a user-gesture play attempt below. */ }
+      await videoRef.current?.play().catch(() => {});
+    }
+    setAudioEnabled(next);
+  };
 
   return (
     <section className={`social-live-room${hostMode ? " is-host" : " is-viewer"}`} role="dialog" aria-modal="true" aria-label={hostMode ? "Start a live video" : "Watch live video"}>
-      <video ref={videoRef} className="social-live-room__video" autoPlay playsInline muted={hostMode || !audioEnabled} aria-label={hostMode ? "Camera preview" : "Live video"} onClick={() => { if (!hostMode) { setAudioEnabled(true); videoRef.current?.play().catch(() => {}); } }} />
+      <video ref={videoRef} className="social-live-room__video" autoPlay playsInline muted={hostMode || !audioEnabled} aria-label={hostMode ? "Camera preview" : "Live video"} onClick={() => { if (!hostMode && !audioEnabled) void toggleLiveAudio(); }} />
       {!hostMode && !remoteStream ? <div className="social-live-room__waiting"><Radio size={38} /><strong>{connecting ? "Connecting to live…" : "Waiting for the creator’s video…"}</strong><span>Keep this screen open while the connection is made.</span></div> : null}
-      {hostMode && !cameraReady ? <div className="social-live-room__preflight"><div className="social-live-room__preflight-card"><span className="social-live-room__eyebrow"><Radio size={15} /> VERTICAL LIVE</span><h2>Go live with your community</h2><p>Camera video streams directly between devices. In this initial version, a live supports up to 6 viewers.</p><label>Live title<input value={stream?.title || ""} onChange={(event) => setStream((current) => ({ ...(current || {}), title: event.target.value.slice(0, 100) }))} maxLength={100} placeholder="What are you sharing?" /></label><button type="button" className="social-live-room__primary" onClick={enableCamera} disabled={busy}>{busy ? <Spinner size={17} /> : <Camera size={17} />} Turn on camera</button><small>Only start after you allow camera and microphone access.</small></div></div> : null}
+      {hostMode && !cameraReady ? <div className="social-live-room__preflight"><div className="social-live-room__preflight-card"><span className="social-live-room__eyebrow"><Radio size={15} /> VERTICAL LIVE</span><h2>Go live with your community</h2><p>Live video is delivered through the NSAT media server. Audience capacity is configured for this server.</p><label>Live title<input value={stream?.title || ""} onChange={(event) => setStream((current) => ({ ...(current || {}), title: event.target.value.slice(0, 100) }))} maxLength={100} placeholder="What are you sharing?" /></label><button type="button" className="social-live-room__primary" onClick={enableCamera} disabled={busy}>{busy ? <Spinner size={17} /> : <Camera size={17} />} Turn on camera</button><small>Only start after you allow camera and microphone access.</small></div></div> : null}
       <header className="social-live-room__top">
         <button type="button" aria-label="Close live" onClick={endLive}><X size={22} /></button>
         {stream ? <div className="social-live-room__host"><Avatar src={stream.host?.profile_picture || stream.host?.profile?.profile_picture} name={stream.host?.display_name || stream.host?.profile?.display_name} size={38} /><span><strong>{stream.host?.display_name || stream.host?.profile?.display_name || "Creator"}</strong><small>{stream.title || "Live now"}</small></span>{!hostMode ? <button type="button" onClick={followHost} disabled={following}><UserPlus size={15} /> Follow</button> : null}</div> : <span className="social-live-room__draft-title">Preview</span>}
@@ -316,7 +305,7 @@ export default function LiveRoom({ mode, stream: initialStream = null, me, onClo
       </header>
       {stream ? <div className="social-live-room__rail" aria-label="Live reactions">{floating.map((item) => <span key={item.id} className="social-live-room__float">{item.icon}</span>)}</div> : null}
       {warning ? <div className="social-live-room__warning" role="status">{warning}</div> : null}
-      {stream && !hostMode ? <div className="social-live-room__actions"><button type="button" aria-label={following ? "Following creator" : "Follow creator"} aria-pressed={following} onClick={followHost} disabled={following || followBusy}><UserPlus size={18} /></button><button type="button" aria-label="Like live" onClick={() => void submitEvent("REACTION", { text: "❤️" })}><Heart size={18} /></button><button type="button" aria-label="Send NSAT support" onClick={tipHost}><WalletCards size={18} /> Support</button><button type="button" aria-label="Share live link" onClick={async () => { try { await navigator.clipboard?.writeText(`${location.origin}/?live=${stream.id}`); toast.success("Live link copied."); } catch { toast.error("Could not copy the live link."); } }}><Share2 size={18} /></button><button type="button" aria-label={audioEnabled ? "Mute live audio" : "Enable live audio"} aria-pressed={audioEnabled} onClick={() => { const next = !audioEnabled; setAudioEnabled(next); if (next) videoRef.current?.play().catch(() => {}); }}><span aria-hidden="true">{audioEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}</span></button></div> : null}
+      {stream && !hostMode ? <div className="social-live-room__actions"><button type="button" aria-label={following ? "Following creator" : "Follow creator"} aria-pressed={following} onClick={followHost} disabled={following || followBusy}><UserPlus size={18} /></button><button type="button" aria-label="Like live" onClick={() => void submitEvent("REACTION", { text: "❤️" })}><Heart size={18} /></button><button type="button" aria-label="Send NSAT support" onClick={tipHost}><WalletCards size={18} /> Support</button><button type="button" aria-label="Share live link" onClick={async () => { try { await navigator.clipboard?.writeText(`${location.origin}/?live=${stream.id}`); toast.success("Live link copied."); } catch { toast.error("Could not copy the live link."); } }}><Share2 size={18} /></button><button type="button" aria-label={audioEnabled ? "Mute live audio" : "Enable live audio"} aria-pressed={audioEnabled} onClick={() => void toggleLiveAudio()}><span aria-hidden="true">{audioEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}</span></button></div> : null}
       {stream ? <div className="social-live-room__chat" aria-label="Live comments">
         <div className="social-live-room__events">{events.slice(-10).map((event) => <div key={event.id} className={`social-live-room__event is-${event.kind.toLowerCase()}`}>
           {event.kind === "COMMENT" ? <><strong>{event.actor?.display_name || "Viewer"}</strong><span>{event.text}</span></> : event.kind === "REACTION" ? <><strong>{event.actor?.display_name || "Viewer"}</strong><span>{event.text}</span></> : <><strong>{event.actor?.display_name || "Viewer"}</strong><span>sent {event.sticker?.pack_title || STICKERS.find(([code]) => code === event.sticker_code)?.[2] || "a sticker"} {event.sticker ? <img className="social-live-room__event-sticker" src={event.sticker.file} alt={`${event.sticker.pack_title} sticker`} /> : STICKERS.find(([code]) => code === event.sticker_code)?.[1] || "✨"}</span></>}

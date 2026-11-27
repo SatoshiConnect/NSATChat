@@ -213,6 +213,7 @@ export const socialApi = {
   liveStreams: () => api.get("social/live/").then((r) => asList(r.data)),
   createLiveStream: (title) => api.post("social/live/", { title }).then((r) => r.data),
   liveStream: (id) => api.get(`social/live/${id}/`).then((r) => r.data),
+  liveToken: (id) => api.post(`social/live/${id}/token/`).then((r) => r.data),
   liveEvent: (id, payload) => api.post(`social/live/${id}/`, payload).then((r) => r.data),
   liveHeartbeat: (id) => api.post(`social/live/${id}/heartbeat/`).then((r) => r.data),
   endLiveStream: (id) => api.post(`social/live/${id}/end/`).then((r) => r.data),

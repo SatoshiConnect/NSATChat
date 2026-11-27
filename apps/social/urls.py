@@ -16,6 +16,7 @@ from .views import (
     LiveStreamDetailAPIView,
     LiveStreamEndAPIView,
     LiveStreamHeartbeatAPIView,
+    LiveStreamTokenAPIView,
 )
 
 app_name = "social"
@@ -23,6 +24,7 @@ urlpatterns = [
     path("live/", LiveStreamListCreateAPIView.as_view(), name="live-streams"),
     path("live/<int:pk>/", LiveStreamDetailAPIView.as_view(), name="live-stream-detail"),
     path("live/<int:pk>/heartbeat/", LiveStreamHeartbeatAPIView.as_view(), name="live-stream-heartbeat"),
+    path("live/<int:pk>/token/", LiveStreamTokenAPIView.as_view(), name="live-stream-token"),
     path("live/<int:pk>/end/", LiveStreamEndAPIView.as_view(), name="live-stream-end"),
     path("follow-requests/", SocialFollowRequestsAPIView.as_view(), name="follow-requests"),
     path("users/<int:user_id>/follow/", SocialFollowAPIView.as_view(), name="user-follow"),
