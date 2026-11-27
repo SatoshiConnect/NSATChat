@@ -75,6 +75,7 @@ class PostComment(models.Model):
         on_delete=models.SET_NULL,
         related_name="social_comments",
     )
+    sticker_code = models.CharField(max_length=24, blank=True, default="")
     is_reward = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
