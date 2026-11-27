@@ -43,10 +43,12 @@ FEEDS = (
     {"url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "label": "BBC News Culture", "category": "culture", "category_label": "Culture", "region": "world", "global_source": True},
 )
 FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · YouTube · more"
-FRESH_CACHE_KEY = "today-news:thailand-prd:v9"
-STALE_CACHE_KEY = "today-news:thailand-prd:stale:v9"
-FRESH_TTL_SECONDS = 300
+FRESH_CACHE_KEY = "today-news:thailand-prd:v10"
+STALE_CACHE_KEY = "today-news:thailand-prd:stale:v10"
+REFRESH_LOCK_KEY = "today-news:thailand-prd:refresh-lock:v10"
+FRESH_TTL_SECONDS = 600
 STALE_TTL_SECONDS = 86400
+REFRESH_LOCK_SECONDS = 120
 MAX_FEED_BYTES = 1_500_000
 MAX_ITEMS = 80
 MAX_ITEMS_PER_FEED = 30
@@ -59,7 +61,7 @@ IMAGE_HOSTS = (
     "who.int",
     "techcrunch.com",
     "npr.org",
-    "i.ytimg.com",
+    "ytimg.com",
     "thailand.go.th",
 )
 BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
@@ -139,13 +141,16 @@ def _safe_article_link(raw):
     return ""
 
 
-def _safe_image_link(raw, content_type=""):
-    """Allow only HTTPS raster images from the configured editorial publishers."""
+def _safe_image_link(raw, content_type="", publisher_domain=""):
+    """Allow HTTPS raster images from a known publisher or that article's publisher domain."""
     value = str(raw or "").strip()
     try:
         parsed = urlsplit(value)
         host = (parsed.hostname or "").lower()
-        is_known_publisher = any(host == root or host.endswith(f".{root}") for root in IMAGE_HOSTS)
+        trusted_host = any(host == root or host.endswith(f".{root}") for root in IMAGE_HOSTS)
+        publisher = str(publisher_domain or "").strip().lower().removeprefix("www.").rstrip(".")
+        same_publisher = bool(publisher and (host == publisher or host.endswith(f".{publisher}")))
+        is_known_publisher = trusted_host or same_publisher
         if parsed.scheme != "https" or not is_known_publisher or parsed.username or parsed.password:
             return ""
         if parsed.port not in (None, 443):
@@ -307,10 +312,14 @@ def _fetch_global_news():
         country = str(article.get("sourcecountry") or "").strip().casefold()
         domain = _plain_text(article.get("domain"), 120) or "News publisher"
         category = _classify_headline(title, "thailand" if country in {"th", "thailand"} else "world")
+        image_url = _safe_image_link(article.get("socialimage"), publisher_domain=domain)
         items.append({
             "id": link,
             "title": title,
             "summary": "",
+            "image_url": image_url,
+            "video_url": "",
+            "media_type": "ARTICLE",
             "url": link,
             "source": domain,
             "category": category,
@@ -320,6 +329,24 @@ def _fetch_global_news():
             "published_at": published.isoformat(),
         })
     return items
+
+
+def refresh_today_cache():
+    """Fetch and cache the publisher feed; a shared lock prevents parallel refreshes."""
+    if not cache.add(REFRESH_LOCK_KEY, "1", timeout=REFRESH_LOCK_SECONDS):
+        cached = cache.get(FRESH_CACHE_KEY) or cache.get(STALE_CACHE_KEY)
+        if cached:
+            return cached
+        raise URLError("A news refresh is already in progress")
+    try:
+        fresh = _fetch_today_items()
+        if not fresh.get("items"):
+            raise URLError("News sources returned no current items")
+        cache.set(FRESH_CACHE_KEY, fresh, FRESH_TTL_SECONDS)
+        cache.set(STALE_CACHE_KEY, fresh, STALE_TTL_SECONDS)
+        return fresh
+    finally:
+        cache.delete(REFRESH_LOCK_KEY)
 
 
 def _fetch_today_items():
@@ -420,7 +447,7 @@ class TodayNewsFeedAPIView(APIView):
         if cached:
             return Response(self._filtered(request, cached, stale=False))
         try:
-            fresh = _fetch_today_items()
+            fresh = refresh_today_cache()
         except Exception:
             stale = cache.get(STALE_CACHE_KEY)
             if stale:
@@ -429,9 +456,7 @@ class TodayNewsFeedAPIView(APIView):
                 {"detail": "Today's news source is temporarily unavailable.", "items": [], "source": FEED_LABEL},
                 status=503,
             )
-        cache.set(FRESH_CACHE_KEY, fresh, FRESH_TTL_SECONDS)
-        cache.set(STALE_CACHE_KEY, fresh, STALE_TTL_SECONDS)
-        return Response(self._filtered(request, fresh, stale=False))
+        return Response(self._filtered(request, fresh, stale=cache.get(FRESH_CACHE_KEY) is None))
 
     @staticmethod
     def _filtered(request, feed, *, stale):

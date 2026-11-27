@@ -67,9 +67,9 @@ services:
   # Periodic jobs. Same image as "web" but without its entrypoint (no
   # migrations, no uvicorn). Every minute it moves submitted NSAT transfers
   # forward, so a buyer who closes checkout still gets what they paid for; every
-  # 5 minutes it deletes disappeared messages and stories (and their files) plus
-  # view once media every recipient opened; hourly it audits the marketplace
-  # chain against the ledger and exits non-zero when it finds a disagreement.
+  # 5 minutes it deletes expired messages and stories (and their files) plus
+  # view-once media every recipient opened; every 10 minutes it refreshes the
+  # public news/video cache; hourly it audits the marketplace ledger.
   scheduler:
     build:
       context: .
@@ -93,6 +93,9 @@ services:
           if [ $$((minute % 5)) -eq 0 ]; then
             python manage.py purge_expired_messages || echo "purge_expired_messages failed"
             python manage.py purge_expired_statuses || echo "purge_expired_statuses failed"
+          fi
+          if [ $$((minute % 10)) -eq 0 ]; then
+            python manage.py refresh_today_news || echo "refresh_today_news failed; cached headlines are preserved"
           fi
           if [ $$((minute % 60)) -eq 0 ]; then
             python manage.py reconcile_marketplace --fail-on-issues \
