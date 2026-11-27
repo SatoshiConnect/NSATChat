@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, BriefcaseBusiness, Cpu, FlaskConical, Globe, HeartPulse, MapPin, Newspaper, Palette, RefreshCw, Search, TrendingUp, Trophy, X } from "lucide-react";
+import { ArrowRight, BookOpen, BriefcaseBusiness, Cpu, FlaskConical, Globe, HeartPulse, MapPin, Newspaper, Palette, Play, RefreshCw, Search, TrendingUp, Trophy, Video, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { newsApi } from "../../api/endpoints";
@@ -22,6 +22,8 @@ const formatNewsTime = (value) => {
   if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }).format(date);
 };
+
+const hasVideo = (item) => item?.video_provider === "youtube" && /^[A-Za-z0-9_-]{11}$/.test(String(item.video_id || ""));
 
 const formatNewsDateTime = (value) => {
   if (!value) return "";
@@ -52,7 +54,7 @@ export default function TodayNewsPanel() {
     return matchesCategory && matchesQuery;
   });
   const featuredItem = visibleItems.find((item) => item.image_url) || visibleItems[0];
-  const visualCandidates = visibleItems.filter((item) => item.id !== featuredItem?.id && item.image_url);
+  const visualCandidates = visibleItems.filter((item) => item.id !== featuredItem?.id && (item.image_url || hasVideo(item)));
   const diverseVisualItems = visualCandidates.filter((item, index, all) => all.findIndex((candidate) => candidate.category === item.category) === index);
   const visualItems = [...diverseVisualItems, ...visualCandidates]
     .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
@@ -167,16 +169,17 @@ export default function TodayNewsPanel() {
         {loading && !feed ? <div className="today-news__state" role="status">Loading today’s news…</div> : null}
         {error ? <div className="today-news__state today-news__state--error" role="alert">{error}<button type="button" onClick={load}>Retry</button></div> : null}
         {!loading && !error && visualItems.length >= 2 ? (
-          <section className="today-news__visuals" aria-label="Photo stories">
-            <div className="today-news__visuals-heading"><div><span>IN FOCUS</span><h3>Stories in pictures</h3></div><small>{visualItems.length} photo stories</small></div>
+          <section className="today-news__visuals" aria-label="Photo and video stories">
+            <div className="today-news__visuals-heading"><div><span>IN FOCUS</span><h3>Stories in pictures &amp; video</h3></div><small>{visualItems.filter(hasVideo).length} videos · {visualItems.length} stories</small></div>
             <div className="today-news__visuals-rail">
               {visualItems.map((item) => (
                 <article className="today-news__visual-card" key={item.id}>
-                  <button type="button" className="today-news__visual-media" onClick={(event) => openStory(item, event)} aria-label={`Read summary in app: ${item.title}`}>
+                  <button type="button" className="today-news__visual-media" onClick={(event) => openStory(item, event)} aria-label={`${hasVideo(item) ? "Watch video in app" : "Read story in app"}: ${item.title}`}>
                     <span className="today-news__image-fallback"><Newspaper size={24} /></span>
                     <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} />
                     <span className="today-news__visual-shade" />
-                    <span className="today-news__visual-category">{item.category_label}</span>
+                    {hasVideo(item) ? <span className="today-news__visual-play" aria-hidden="true"><Play size={22} fill="currentColor" /></span> : null}
+                    <span className="today-news__visual-category">{hasVideo(item) ? <><Video size={12} /> VIDEO · </> : null}{item.category_label}</span>
                     <strong>{item.title}</strong>
                   </button>
                   <div className="today-news__visual-meta"><span>{item.source}</span><time dateTime={item.published_at}>{formatNewsTime(item.published_at)}</time></div>
@@ -188,11 +191,12 @@ export default function TodayNewsPanel() {
         {!loading && !error && featuredItem ? (
           <>
             <article className="today-news__featured">
-              <button type="button" className={`today-news__featured-media${featuredItem.image_url ? " has-image" : ""}`} onClick={(event) => openStory(featuredItem, event)} aria-label={`Read summary in app: ${featuredItem.title}`}>
+              <button type="button" className={`today-news__featured-media${featuredItem.image_url ? " has-image" : ""}`} onClick={(event) => openStory(featuredItem, event)} aria-label={`${hasVideo(featuredItem) ? "Watch video in app" : "Read story in app"}: ${featuredItem.title}`}>
                 <span className="today-news__image-fallback"><Newspaper size={30} /></span>
                 {featuredItem.image_url ? <img src={featuredItem.image_url} alt="" fetchPriority="high" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
                 <span className="today-news__featured-shade" />
-                <span className="today-news__featured-tag">Top story · {featuredItem.category_label}</span>
+                <span className="today-news__featured-tag">{hasVideo(featuredItem) ? "VIDEO · " : "Top story · "}{featuredItem.category_label}</span>
+                {hasVideo(featuredItem) ? <span className="today-news__featured-play" aria-hidden="true"><Play size={26} fill="currentColor" /></span> : null}
                 <span className="today-news__featured-copy">
                   <span>{featuredItem.source} · {formatNewsTime(featuredItem.published_at)}</span>
                   <strong>{featuredItem.title}</strong>
@@ -251,7 +255,9 @@ export default function TodayNewsPanel() {
               <button ref={closeReaderRef} type="button" onClick={() => setActiveStory(null)} aria-label="Close news reader"><X size={21} /></button>
             </header>
             <div className="today-news__reader-scroll">
-              {activeStory.image_url ? <img className="today-news__reader-image" src={activeStory.image_url} alt="" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+              {hasVideo(activeStory) ? (
+                <div className="today-news__reader-video"><iframe src={`https://www.youtube-nocookie.com/embed/${activeStory.video_id}?playsinline=1&rel=0`} title={activeStory.title} loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /></div>
+              ) : activeStory.image_url ? <img className="today-news__reader-image" src={activeStory.image_url} alt="" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
               <div className="today-news__reader-body">
                 <div className="today-news__reader-byline"><span>{activeStory.source}</span><time dateTime={activeStory.published_at}>{formatNewsDateTime(activeStory.published_at)}</time></div>
                 <h2 id="today-news-reader-title">{activeStory.title}</h2>

@@ -40,14 +40,19 @@ FEEDS = (
     {"url": "https://feeds.bbci.co.uk/sport/rss.xml", "label": "BBC Sport", "category": "sports", "category_label": "Sports", "region": "world", "global_source": True},
     {"url": "https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "label": "BBC News Culture", "category": "culture", "category_label": "Culture", "region": "world", "global_source": True},
 )
+VIDEO_FEEDS = (
+    {"url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC5TOFhyb_LxL2VG_Zenhpzw", "label": "Thai PBS Video", "category": "thailand", "region": "thailand"},
+    {"url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC16niRr50-MSBwiO3YDb3RA", "label": "BBC News Video", "category": "world", "region": "world", "global_source": True},
+)
 FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · more"
-FRESH_CACHE_KEY = "today-news:thailand-prd:v8"
-STALE_CACHE_KEY = "today-news:thailand-prd:stale:v8"
+FRESH_CACHE_KEY = "today-news:thailand-prd:v9"
+STALE_CACHE_KEY = "today-news:thailand-prd:stale:v9"
 FRESH_TTL_SECONDS = 300
 STALE_TTL_SECONDS = 86400
 MAX_FEED_BYTES = 1_500_000
 MAX_ITEMS = 80
 MAX_ITEMS_PER_FEED = 30
+MAX_VIDEO_ITEMS_PER_FEED = 8
 MAX_ITEMS_PER_CATEGORY = 12
 FETCH_TIMEOUT_SECONDS = 3
 IMAGE_HOSTS = (
@@ -246,6 +251,54 @@ def _fetch_feed(feed):
     return items
 
 
+def _fetch_video_feed(feed):
+    """Read today's videos from fixed, verified publisher YouTube channels."""
+    request = Request(
+        feed["url"],
+        headers={"User-Agent": "SatoshiCoreToday/1.0 (+https://chat.satoshicore.org)", "Accept": "application/atom+xml, application/xml, text/xml"},
+    )
+    with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
+        if response.status != 200:
+            raise URLError(f"Video feed returned HTTP {response.status}")
+        payload = response.read(MAX_FEED_BYTES + 1)
+    if len(payload) > MAX_FEED_BYTES:
+        raise ValueError("Video feed exceeded the configured size limit")
+
+    root = ET.fromstring(payload)
+    today = _today_bangkok()
+    items = []
+    seen = set()
+    for entry in (node for node in root.iter() if _local_name(node.tag) == "entry"):
+        video_id = _child_text(entry, "videoid")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id) or video_id in seen:
+            continue
+        title = _plain_text(_child_text(entry, "title"), 240)
+        published = _published_at(entry)
+        if not title or not published or published.astimezone(BANGKOK_TZ).date() != today:
+            continue
+        seen.add(video_id)
+        category = _classify_headline(title, feed["category"])
+        items.append({
+            "id": f"youtube:{video_id}",
+            "title": title,
+            "summary": _plain_text(_child_text(entry, "description"), 1000),
+            "image_url": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+            "video_id": video_id,
+            "video_provider": "youtube",
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "source": feed["label"],
+            "category": category,
+            "category_label": CATEGORY_LABELS[category],
+            "region": feed["region"],
+            "region_label": CATEGORY_LABELS.get(feed["region"], "World"),
+            "published_at": published.isoformat(),
+        })
+        if len(items) >= MAX_VIDEO_ITEMS_PER_FEED:
+            break
+    items.sort(key=lambda item: item["published_at"], reverse=True)
+    return items
+
+
 def _fetch_global_news():
     """Fetch a small, rolling set of global headlines from GDELT's public DOC API."""
     params = urlencode({
@@ -302,8 +355,9 @@ def _fetch_today_items():
     items = []
     failures = 0
     successful_sources = set()
-    with ThreadPoolExecutor(max_workers=len(FEEDS) + 1) as executor:
+    with ThreadPoolExecutor(max_workers=len(FEEDS) + len(VIDEO_FEEDS) + 1) as executor:
         future_sources = {executor.submit(_fetch_feed, feed): feed for feed in FEEDS}
+        future_sources.update({executor.submit(_fetch_video_feed, feed): feed for feed in VIDEO_FEEDS})
         future_sources[executor.submit(_fetch_global_news)] = {"label": "GDELT Project", "region": "world", "global_source": True}
         successful_global_source = False
         successful_thailand_source = False
@@ -317,7 +371,7 @@ def _fetch_today_items():
                 successful_thailand_source |= source.get("region") == "thailand"
             except Exception:
                 failures += 1
-    if failures == len(FEEDS) + 1:
+    if failures == len(FEEDS) + len(VIDEO_FEEDS) + 1:
         raise URLError("All configured Today news sources are unavailable")
     unique = {item["url"]: item for item in items}
     items = _balance_categories(_rank_coverage(unique.values()))[:MAX_ITEMS]
@@ -350,6 +404,11 @@ def _rank_coverage(items):
             clusters.append({"normalized": normalized, "item": item, "sources": {source}})
         else:
             match["sources"].add(source)
+            # Keep a same-story video when a publisher's RSS headline matches
+            # a video-feed headline, rather than dropping the playable media.
+            for key in ("video_id", "video_provider"):
+                if item.get(key) and not match["item"].get(key):
+                    match["item"][key] = item[key]
 
     ranked = []
     for cluster in clusters:
