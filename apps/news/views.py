@@ -45,8 +45,8 @@ VIDEO_FEEDS = (
     {"url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC16niRr50-MSBwiO3YDb3RA", "label": "BBC News Video", "category": "world", "region": "world", "global_source": True},
 )
 FEED_LABEL = "BBC · Google News Thailand · The Guardian · NPR · NASA · more"
-FRESH_CACHE_KEY = "today-news:thailand-prd:v9"
-STALE_CACHE_KEY = "today-news:thailand-prd:stale:v9"
+FRESH_CACHE_KEY = "today-news:thailand-prd:v10"
+STALE_CACHE_KEY = "today-news:thailand-prd:stale:v10"
 FRESH_TTL_SECONDS = 300
 STALE_TTL_SECONDS = 86400
 MAX_FEED_BYTES = 1_500_000
@@ -374,7 +374,16 @@ def _fetch_today_items():
     if failures == len(FEEDS) + len(VIDEO_FEEDS) + 1:
         raise URLError("All configured Today news sources are unavailable")
     unique = {item["url"]: item for item in items}
-    items = _balance_categories(_rank_coverage(unique.values()))[:MAX_ITEMS]
+    # Today is a visual news feed: omit text-only headlines rather than
+    # rendering a decorative fallback card when a publisher has no real media.
+    items = [
+        item for item in _rank_coverage(unique.values())
+        if item.get("image_url") or (
+            item.get("video_provider") == "youtube"
+            and re.fullmatch(r"[A-Za-z0-9_-]{11}", str(item.get("video_id", "")))
+        )
+    ]
+    items = _balance_categories(items)[:MAX_ITEMS]
     today = _today_bangkok()
     source_label = " · ".join(sorted(successful_sources)) or FEED_LABEL
     return {
@@ -406,7 +415,7 @@ def _rank_coverage(items):
             match["sources"].add(source)
             # Keep a same-story video when a publisher's RSS headline matches
             # a video-feed headline, rather than dropping the playable media.
-            for key in ("video_id", "video_provider"):
+            for key in ("video_id", "video_provider", "image_url"):
                 if item.get(key) and not match["item"].get(key):
                     match["item"][key] = item[key]
 

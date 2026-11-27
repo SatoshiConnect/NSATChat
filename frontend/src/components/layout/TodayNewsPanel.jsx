@@ -23,7 +23,27 @@ const formatNewsTime = (value) => {
   return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }).format(date);
 };
 
-const hasVideo = (item) => item?.video_provider === "youtube" && /^[A-Za-z0-9_-]{11}$/.test(String(item.video_id || ""));
+const getVideoId = (item) => {
+  const explicitId = String(item?.video_id || "");
+  if (/^[A-Za-z0-9_-]{11}$/.test(explicitId)) return explicitId;
+  for (const raw of [item?.video_url, item?.url]) {
+    try {
+      const url = new URL(raw);
+      if (["youtube.com", "www.youtube.com"].includes(url.hostname)) {
+        const id = url.searchParams.get("v") || "";
+        if (/^[A-Za-z0-9_-]{11}$/.test(id)) return id;
+      }
+      if (url.hostname === "youtu.be") {
+        const id = url.pathname.slice(1);
+        if (/^[A-Za-z0-9_-]{11}$/.test(id)) return id;
+      }
+    } catch { /* Ignore malformed or non-YouTube URLs. */ }
+  }
+  return "";
+};
+
+const hasVideo = (item) => Boolean(getVideoId(item));
+const newsImage = (item) => item?.image_url || (getVideoId(item) ? `https://i.ytimg.com/vi/${getVideoId(item)}/hqdefault.jpg` : "");
 
 const formatNewsDateTime = (value) => {
   if (!value) return "";
@@ -42,19 +62,22 @@ export default function TodayNewsPanel() {
   const [category, setCategory] = useState("all");
   const [showMore, setShowMore] = useState(false);
   const [activeStory, setActiveStory] = useState(null);
+  const [unavailableImages, setUnavailableImages] = useState(() => new Set());
   const closeReaderRef = useRef(null);
   const returnFocusRef = useRef(null);
 
   const fetchFeed = useCallback(() => newsApi.today(), []);
   const globalNewsAvailable = feed?.global_available ?? String(feed?.source || "").includes("GDELT");
   const visibleItems = (feed?.items || []).filter((item) => {
+    const hasRealMedia = Boolean(newsImage(item) || hasVideo(item));
+    if (!hasRealMedia || (unavailableImages.has(item.id) && !hasVideo(item))) return false;
     const matchesCategory = category === "all" || item.category === category || item.region === category;
     const needle = query.trim().toLocaleLowerCase();
     const matchesQuery = !needle || `${item.title} ${item.summary || ""}`.toLocaleLowerCase().includes(needle);
     return matchesCategory && matchesQuery;
   });
-  const featuredItem = visibleItems.find((item) => item.image_url) || visibleItems[0];
-  const visualCandidates = visibleItems.filter((item) => item.id !== featuredItem?.id && (item.image_url || hasVideo(item)));
+  const featuredItem = visibleItems[0];
+  const visualCandidates = visibleItems.filter((item) => item.id !== featuredItem?.id);
   const diverseVisualItems = visualCandidates.filter((item, index, all) => all.findIndex((candidate) => candidate.category === item.category) === index);
   const visualItems = [...diverseVisualItems, ...visualCandidates]
     .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
@@ -176,8 +199,7 @@ export default function TodayNewsPanel() {
               {visualItems.map((item) => (
                 <article className="today-news__visual-card" key={item.id}>
                   <button type="button" className="today-news__visual-media" onClick={(event) => openStory(item, event)} aria-label={`${hasVideo(item) ? "Watch video in app" : "Read story in app"}: ${item.title}`}>
-                    <span className="today-news__image-fallback"><Newspaper size={24} /></span>
-                    <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} />
+                    {newsImage(item) ? <img src={newsImage(item)} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={() => setUnavailableImages((current) => new Set(current).add(item.id))} /> : null}
                     <span className="today-news__visual-shade" />
                     {hasVideo(item) ? <span className="today-news__visual-play" aria-hidden="true"><Play size={22} fill="currentColor" /></span> : null}
                     <span className="today-news__visual-category">{hasVideo(item) ? <><Video size={12} /> VIDEO · </> : null}{item.category_label}</span>
@@ -192,9 +214,8 @@ export default function TodayNewsPanel() {
         {!loading && !error && featuredItem ? (
           <>
             <article className="today-news__featured">
-              <button type="button" className={`today-news__featured-media${featuredItem.image_url ? " has-image" : ""}`} onClick={(event) => openStory(featuredItem, event)} aria-label={`${hasVideo(featuredItem) ? "Watch video in app" : "Read story in app"}: ${featuredItem.title}`}>
-                <span className="today-news__image-fallback"><Newspaper size={30} /></span>
-                {featuredItem.image_url ? <img src={featuredItem.image_url} alt="" fetchPriority="high" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+              <button type="button" className="today-news__featured-media has-image" onClick={(event) => openStory(featuredItem, event)} aria-label={`${hasVideo(featuredItem) ? "Watch video in app" : "Read story in app"}: ${featuredItem.title}`}>
+                {newsImage(featuredItem) ? <img src={newsImage(featuredItem)} alt="" fetchPriority="high" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={() => setUnavailableImages((current) => new Set(current).add(featuredItem.id))} /> : null}
                 <span className="today-news__featured-shade" />
                 <span className="today-news__featured-tag">{hasVideo(featuredItem) ? "VIDEO · " : "Top story · "}{featuredItem.category_label}</span>
                 {hasVideo(featuredItem) ? <span className="today-news__featured-play" aria-hidden="true"><Play size={26} fill="currentColor" /></span> : null}
@@ -214,9 +235,8 @@ export default function TodayNewsPanel() {
             <div className="today-news__stories">
               {storyItems.map((item) => (
                 <article className="today-news__story" key={item.id}>
-                  <button type="button" className={`today-news__story-image${item.image_url ? " has-image" : ""}`} onClick={(event) => openStory(item, event)} aria-label={`Read summary in app: ${item.title}`}>
-                    <span className="today-news__image-fallback"><Newspaper size={20} /></span>
-                    {item.image_url ? <img src={item.image_url} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+                  <button type="button" className="today-news__story-image has-image" onClick={(event) => openStory(item, event)} aria-label={`${hasVideo(item) ? "Watch video" : "Read summary"} in app: ${item.title}`}>
+                    {newsImage(item) ? <img src={newsImage(item)} alt="" loading="lazy" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={() => setUnavailableImages((current) => new Set(current).add(item.id))} /> : null}
                   </button>
                   <div className="today-news__story-body">
                     <div className="today-news__story-meta">
@@ -257,8 +277,8 @@ export default function TodayNewsPanel() {
             </header>
             <div className="today-news__reader-scroll">
               {hasVideo(activeStory) ? (
-                <div className="today-news__reader-video"><iframe src={`https://www.youtube-nocookie.com/embed/${activeStory.video_id}?playsinline=1&rel=0`} title={activeStory.title} loading="lazy" sandbox="allow-scripts allow-same-origin allow-presentation" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /></div>
-              ) : activeStory.image_url ? <img className="today-news__reader-image" src={activeStory.image_url} alt="" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+                <div className="today-news__reader-video"><iframe src={`https://www.youtube-nocookie.com/embed/${getVideoId(activeStory)}?playsinline=1&rel=0`} title={activeStory.title} loading="lazy" sandbox="allow-scripts allow-same-origin allow-presentation" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /></div>
+              ) : newsImage(activeStory) ? <img className="today-news__reader-image" src={newsImage(activeStory)} alt="" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
               <div className="today-news__reader-body">
                 <div className="today-news__reader-byline"><span>{activeStory.source}</span><time dateTime={activeStory.published_at}>{formatNewsDateTime(activeStory.published_at)}</time></div>
                 <h2 id="today-news-reader-title">{activeStory.title}</h2>
