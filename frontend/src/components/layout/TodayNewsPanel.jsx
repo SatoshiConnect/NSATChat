@@ -59,6 +59,7 @@ export default function TodayNewsPanel() {
   const visualItems = [...diverseVisualItems, ...visualCandidates]
     .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
     .slice(0, 4);
+  const visualVideoCount = visualItems.filter(hasVideo).length;
   const visualItemIds = new Set(visualItems.map((item) => item.id));
   const remainingItems = featuredItem ? visibleItems.filter((item) => item.id !== featuredItem.id && !visualItemIds.has(item.id)) : [];
   const storyItems = showMore ? remainingItems : remainingItems.slice(0, 12);
@@ -170,7 +171,7 @@ export default function TodayNewsPanel() {
         {error ? <div className="today-news__state today-news__state--error" role="alert">{error}<button type="button" onClick={load}>Retry</button></div> : null}
         {!loading && !error && visualItems.length >= 2 ? (
           <section className="today-news__visuals" aria-label="Photo and video stories">
-            <div className="today-news__visuals-heading"><div><span>IN FOCUS</span><h3>Stories in pictures &amp; video</h3></div><small>{visualItems.filter(hasVideo).length} videos · {visualItems.length} stories</small></div>
+            <div className="today-news__visuals-heading"><div><span>IN FOCUS</span><h3>Stories in pictures &amp; video</h3></div><small>{visualVideoCount} {visualVideoCount === 1 ? "video" : "videos"} · {visualItems.length} stories · Updated every 5 min</small></div>
             <div className="today-news__visuals-rail">
               {visualItems.map((item) => (
                 <article className="today-news__visual-card" key={item.id}>
@@ -256,7 +257,7 @@ export default function TodayNewsPanel() {
             </header>
             <div className="today-news__reader-scroll">
               {hasVideo(activeStory) ? (
-                <div className="today-news__reader-video"><iframe src={`https://www.youtube-nocookie.com/embed/${activeStory.video_id}?playsinline=1&rel=0`} title={activeStory.title} loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /></div>
+                <div className="today-news__reader-video"><iframe src={`https://www.youtube-nocookie.com/embed/${activeStory.video_id}?playsinline=1&rel=0`} title={activeStory.title} loading="lazy" sandbox="allow-scripts allow-same-origin allow-presentation" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /></div>
               ) : activeStory.image_url ? <img className="today-news__reader-image" src={activeStory.image_url} alt="" decoding="async" referrerPolicy="strict-origin-when-cross-origin" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
               <div className="today-news__reader-body">
                 <div className="today-news__reader-byline"><span>{activeStory.source}</span><time dateTime={activeStory.published_at}>{formatNewsDateTime(activeStory.published_at)}</time></div>
