@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, Check, Flag, Gift, Image as ImageIcon, MessageCircle, Pencil, Send, Share2, Smile, Trash2, UserPlus, X } from "lucide-react";
+import { Bookmark, Check, Flag, Gift, HeartHandshake, Image as ImageIcon, MessageCircle, Pencil, Send, Share2, Smile, Trash2, UserPlus, X } from "lucide-react";
 import { marketplaceApi, socialApi } from "../../api/endpoints";
 import { mediaUrl, errorMessage } from "../../api/client";
 import { loadStatus } from "../../store/actions";
@@ -12,6 +12,8 @@ import { contactsByUser, roomTitle } from "../../utils/messages";
 import { optimizeStatusImage } from "../../utils/statusImageOptimization";
 import LazyVideo from "../media/LazyVideo";
 import AdPlacement from "../common/AdPlacement";
+import { useApp } from "../layout/AppContext";
+import { walletApi } from "../../features/wallet/api";
 import PublisherSystemPost from "./PublisherSystemPost";
 import usePublisherPosts from "./usePublisherPosts";
 import "../../styles/social-comment-stickers.css";
@@ -22,6 +24,11 @@ const SOCIAL_IMAGE_TOTAL_LIMIT = 32 * 1024 * 1024;
 const SOCIAL_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif"]);
 const SOCIAL_VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "webm"]);
 const ownedStickerLibraryCache = new Map();
+const STARTER_STICKERS = [
+  ["sparkles", "✨", "Sparkles"], ["heart", "❤️", "Heart"], ["laugh", "😂", "Laugh"],
+  ["clap", "👏", "Clap"], ["fire", "🔥", "Fire"], ["thumbs-up", "👍", "Thumbs up"],
+  ["hug", "🤗", "Hug"], ["party", "🎉", "Party"],
+].map(([code, emoji, label]) => ({ code, emoji, label, pack_title: "Starter stickers" }));
 
 function interleavePublisherPosts(posts, publisherItems) {
   if (!publisherItems.length) return posts.map((post) => ({ kind: "member", post }));
@@ -85,33 +92,34 @@ function SocialStickerComposer({ onSubmit, busy, userId, placeholder = "Write a 
     setOpen(true);
     if (stickers.length || loadingStickers) return;
     setLoadingStickers(true);
+    setStickers(STARTER_STICKERS);
     try {
-      setStickers(await ownedStickersFor(userId));
+      const owned = await ownedStickersFor(userId);
+      setStickers([...STARTER_STICKERS, ...owned]);
     } catch (error) {
-      toast.error(errorMessage(error, "Couldn't load your sticker library."));
+      toast.error(errorMessage(error, "Free starter stickers are ready; purchased stickers could not be loaded."));
     } finally { setLoadingStickers(false); }
   };
 
   const submit = async (event) => {
     event.preventDefault();
     if ((!text.trim() && !selected) || busy) return;
-    const success = await onSubmit({ text: isReward ? "" : text.trim(), sticker_asset_id: selected?.id, is_reward: isReward });
+    const success = await onSubmit({ text: isReward ? "" : text.trim(), sticker_asset_id: selected?.id, sticker_code: selected?.code, is_reward: isReward });
     if (success !== false) { setText(""); setSelected(null); setOpen(false); setIsReward(false); }
   };
 
-  const filteredStickers = stickers.filter((sticker) => !stickerQuery.trim() || sticker.pack_title.toLowerCase().includes(stickerQuery.trim().toLowerCase()));
+  const filteredStickers = stickers.filter((sticker) => !stickerQuery.trim() || `${sticker.label || ""} ${sticker.pack_title || ""}`.toLowerCase().includes(stickerQuery.trim().toLowerCase()));
 
   return <form className="social-post__comment-form" onSubmit={submit}>
-    {open ? <div className="social-comment-sticker-picker" aria-label="Your purchased stickers">
-      {loadingStickers ? <Spinner size={16} /> : stickers.length ? <>
-        <input className="social-comment-sticker-search" type="search" value={stickerQuery} onChange={(event) => setStickerQuery(event.target.value)} placeholder="Search your stickers" aria-label="Search your stickers" />
-        {filteredStickers.length ? filteredStickers.map((sticker) => <button key={sticker.id} type="button" className={selected?.id === sticker.id ? "is-selected" : ""} title={sticker.pack_title} aria-label={`Choose sticker from ${sticker.pack_title}`} onClick={() => setSelected((current) => current?.id === sticker.id ? null : sticker)}><img src={mediaUrl(sticker.file)} alt={sticker.pack_title} loading="lazy" /></button>) : <span>No matching stickers.</span>}
-        <span className="social-comment-sticker-note">{isReward ? "Sticker reward only: no NSAT or other payment is sent, and the reusable pack stays in your library." : "Sending a sticker leaves the reusable pack in your library."}</span>
-      </> : <span>No purchased stickers yet. Find packs in Marketplace.</span>}
+    {open ? <div className="social-comment-sticker-picker" aria-label="Free starter and owned stickers">
+      <input className="social-comment-sticker-search" type="search" value={stickerQuery} onChange={(event) => setStickerQuery(event.target.value)} placeholder="Search stickers" aria-label="Search stickers" />
+      {filteredStickers.length ? filteredStickers.map((sticker) => <button key={sticker.code || sticker.id} type="button" className={(sticker.code ? selected?.code === sticker.code : selected?.id === sticker.id) ? "is-selected" : ""} title={sticker.label || sticker.pack_title} aria-label={`Choose ${sticker.label || sticker.pack_title} sticker`} onClick={() => setSelected((current) => (sticker.code ? current?.code === sticker.code : current?.id === sticker.id) ? null : sticker)}>{sticker.file ? <img src={mediaUrl(sticker.file)} alt={sticker.pack_title} loading="lazy" /> : <span className="social-default-sticker" aria-hidden="true">{sticker.emoji}</span>}</button>) : <span>No matching stickers.</span>}
+      {loadingStickers ? <span role="status">Loading your Marketplace stickers…</span> : null}
+      <span className="social-comment-sticker-note">{isReward ? "Free sticker reward. No NSAT is sent; the creator is notified." : "Free starter stickers are ready. Marketplace stickers appear here when you own them."}</span>
     </div> : null}
-    {selected ? <div className={`social-comment-sticker-selected${isReward ? " is-reward" : ""}`}><img src={mediaUrl(selected.file)} alt={selected.pack_title} /><span>{isReward ? `Reward · ${selected.pack_title}` : selected.pack_title}</span><button type="button" aria-label="Remove selected sticker" onClick={() => setSelected(null)}>×</button></div> : null}
+    {selected ? <div className={`social-comment-sticker-selected${isReward ? " is-reward" : ""}`}>{selected.file ? <img src={mediaUrl(selected.file)} alt={selected.pack_title} /> : <span className="social-default-sticker" aria-hidden="true">{selected.emoji}</span>}<span>{isReward ? `Reward · ${selected.pack_title}` : selected.pack_title}</span><button type="button" aria-label="Remove selected sticker" onClick={() => setSelected(null)}>×</button></div> : null}
     <input value={text} onChange={(event) => setText(event.target.value)} maxLength={1000} placeholder={isReward ? "Choose a sticker to reward this post" : placeholder} aria-label={placeholder} disabled={isReward} />
-    <button type="button" className="social-post__comment-sticker-toggle" onClick={togglePicker} aria-label={open ? "Close sticker picker" : "Add a purchased sticker"} aria-expanded={open}><Smile size={18} /></button>
+    <button type="button" className="social-post__comment-sticker-toggle" onClick={togglePicker} aria-label={open ? "Close sticker picker" : "Add a sticker"} aria-expanded={open}><Smile size={18} /></button>
     {allowReward ? <button type="button" className={`social-post__comment-sticker-toggle${isReward ? " is-reward" : ""}`} onClick={() => { setIsReward((value) => !value); setText(""); if (!open) void togglePicker(); }} aria-label={isReward ? "Cancel sticker reward" : "Send a sticker reward (no payment)"} aria-pressed={isReward}><Gift size={17} /></button> : null}
     {isReward ? <span className="social-comment-reward-note" role="note">No payment is made. This sends a reusable sticker and notifies the post creator.</span> : null}
     <button type="submit" disabled={(!text.trim() && !selected) || busy} aria-label="Post comment">{busy ? <Spinner size={16} /> : <Send size={17} />}</button>
@@ -169,7 +177,7 @@ function PostCommentItem({ comment, postId, me, onChange, depth = 0 }) {
             <button type="button" className="social-post__comment-icon" aria-label="Cancel editing" onClick={() => { setDraft(comment.text); setEditing(false); }} disabled={busy}><X size={16} /></button>
             <button type="submit" className="social-post__comment-save" disabled={busy || !draft.trim()}>{busy ? <Spinner size={14} /> : "Save"}</button>
           </div>
-        </form> : <>{comment.is_reward ? <span className="social-post__reward-label"><Gift size={12} /> Post reward</span> : null}{comment.text ? <p><strong>{authorName}</strong> {comment.text}</p> : null}{comment.sticker ? <img className={`social-comment-sticker${comment.is_reward ? " is-reward" : ""}`} src={mediaUrl(comment.sticker.image)} alt={`${comment.sticker.pack_title} sticker${comment.is_reward ? " reward" : ""}`} loading="lazy" /> : null}</>}
+        </form> : <>{comment.is_reward ? <span className="social-post__reward-label"><Gift size={12} /> Post reward</span> : null}{comment.text ? <p><strong>{authorName}</strong> {comment.text}</p> : null}{comment.sticker ? comment.sticker.emoji ? <span className={`social-default-sticker${comment.is_reward ? " is-reward" : ""}`} role="img" aria-label={`${comment.sticker.label || comment.sticker.pack_title} sticker`}>{comment.sticker.emoji}</span> : <img className={`social-comment-sticker${comment.is_reward ? " is-reward" : ""}`} src={mediaUrl(comment.sticker.image)} alt={`${comment.sticker.pack_title} sticker${comment.is_reward ? " reward" : ""}`} loading="lazy" /> : null}</>}
         {ownComment && !editing ? <div className="social-post__comment-actions">
           <button type="button" className="social-post__comment-icon" aria-label="Edit your comment" onClick={() => setEditing(true)} disabled={busy}><Pencil size={14} /></button>
           <button type="button" className="social-post__comment-icon" aria-label="Delete your comment" onClick={remove} disabled={busy}>{busy ? <Spinner size={14} /> : <Trash2 size={14} />}</button>
@@ -183,6 +191,7 @@ function PostCommentItem({ comment, postId, me, onChange, depth = 0 }) {
 }
 
 function PostCard({ post, me, onChange, onHashtag }) {
+  const app = useApp();
   const [busy, setBusy] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("SPAM");
@@ -192,6 +201,7 @@ function PostCard({ post, me, onChange, onHashtag }) {
   const [saving, setSaving] = useState(false);
   const [followState, setFollowState] = useState({ following: Boolean(post.author_following), pending: Boolean(post.author_follow_request_pending) });
   const [followBusy, setFollowBusy] = useState(false);
+  const [donateBusy, setDonateBusy] = useState(false);
   const author = post.author?.profile?.display_name || post.author?.public_id || "SatoshiCore member";
   const comments = (post.comments || []).filter((item) => item.text || item.sticker);
   const toggleFollow = async () => {
@@ -239,6 +249,18 @@ function PostCard({ post, me, onChange, onHashtag }) {
     catch (error) { toast.error(errorMessage(error, "Couldn't save this post.")); }
     finally { setSaving(false); }
   };
+  const donateToCreator = async () => {
+    if (donateBusy) return;
+    setDonateBusy(true);
+    try {
+      const recipient = await walletApi.socialRecipient(post.id);
+      if (!/^G[A-Z2-7]{55}$/.test(recipient.address || "") || recipient.network !== "NSAT Mainnet ; October 2026 ; bc3098829fffc717") throw new Error("creator_wallet_unavailable");
+      app.openWallet({ view: "send", to: recipient.address, amount: "10" });
+    } catch (error) {
+      const code = error?.response?.data?.code;
+      toast.error(code === "recipient_wallet_not_connected" ? "This creator has not connected a verified NSAT wallet yet." : errorMessage(error, "Could not open the creator donation transfer."));
+    } finally { setDonateBusy(false); }
+  };
   return (
     <article className="social-post">
       <header className="social-post__author">
@@ -254,6 +276,7 @@ function PostCard({ post, me, onChange, onHashtag }) {
         <div className="social-post__reaction-picker" aria-label="React to post">{POST_REACTIONS.map((reaction) => <button key={reaction.key} type="button" className={post.my_reaction === reaction.key ? "is-liked" : ""} aria-label={reaction.label} aria-pressed={post.my_reaction === reaction.key} title={reaction.label} onClick={async () => { try { await socialApi.toggleLike(post.id, reaction.key); await onChange(); } catch (error) { toast.error(errorMessage(error, "Couldn't update reaction.")); } }}>{reaction.emoji}{post.reactions?.[reaction.key] ? <small>{post.reactions[reaction.key]}</small> : null}</button>)}</div>
         <button type="button" className={saved ? "is-liked" : ""} onClick={toggleSave} disabled={saving}><Bookmark size={17} /> {saved ? "Saved" : "Save"}</button>
         <button type="button" onClick={() => onChange({ sharePostId: post.id })}><Share2 size={17} /> Share</button>
+        {Number(post.author?.id) !== Number(me?.id) ? <button type="button" onClick={donateToCreator} disabled={donateBusy} aria-label={`Donate NSAT to ${author}`}><HeartHandshake size={17} /> Donate</button> : null}
         <span><MessageCircle size={17} /> Comment</span>
       </div>
       {reportOpen ? <form className="social-post__report-form" onSubmit={submitReport}>

@@ -214,6 +214,27 @@ class WalletChatRecipientAPIView(APIView):
         return Response({"address": link.address, "network": MAINNET_ID})
 
 
+class WalletSocialRecipientAPIView(APIView):
+    """Expose a post author's verified wallet only for a post the viewer can see."""
+
+    permission_classes = [IsAuthenticated]
+    throttle_scope = "wallet_read"
+
+    def get(self, request):
+        raw_post_id = request.query_params.get("post_id", "")
+        if not str(raw_post_id).isdigit():
+            return Response({"code": "invalid_post"}, status=status.HTTP_400_BAD_REQUEST)
+        from apps.social.policies import visible_posts_for
+
+        post = visible_posts_for(request.user).filter(pk=int(raw_post_id)).select_related("author").first()
+        if not post or post.author_id == request.user.id:
+            return Response({"code": "recipient_unavailable"}, status=status.HTTP_404_NOT_FOUND)
+        link = WalletLink.objects.filter(user=post.author).only("address").first()
+        if not link:
+            return Response({"code": "recipient_wallet_not_connected"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"address": link.address, "network": MAINNET_ID})
+
+
 def _get_json(url):
     request = Request(url, headers={"Accept": "application/json", "User-Agent": "SatoshiCore-Messenger/1.0"})
     with urlopen(request, timeout=8) as response:
