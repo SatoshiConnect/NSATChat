@@ -6,7 +6,6 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from django.utils import timezone
 
 from apps.accounts.models import Profile
-from apps.social.realtime import visible_social_post_ids, social_post_group
 from apps.accounts.privacy import mask_receipt_results, presence_for_viewer, presence_snapshot_for
 
 from .choices import MessageType, RoomType
@@ -1483,8 +1482,11 @@ class ChatInboxConsumer(AsyncWebsocketConsumer):
         if not hasattr(self, "inbox_group_name"):
             return
         await self.channel_layer.group_discard(self.inbox_group_name, self.channel_name)
-        for post_id in self.social_post_ids:
-            await self.channel_layer.group_discard(social_post_group(post_id), self.channel_name)
+        if self.social_post_ids:
+            from apps.social.realtime import social_post_group
+
+            for post_id in self.social_post_ids:
+                await self.channel_layer.group_discard(social_post_group(post_id), self.channel_name)
         last_seen = await self.unregister_connection()
         if last_seen:
             await self.broadcast_presence(False, last_seen=last_seen)
@@ -1500,6 +1502,9 @@ class ChatInboxConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({"type": "pong"}))
             return
         if data.get("type") == "social.watch":
+            # Social also uses Chat services. Load the integration on demand.
+            from apps.social.realtime import social_post_group, visible_social_post_ids
+
             raw_ids = data.get("post_ids")
             if isinstance(raw_ids, list) and len(raw_ids) <= 60:
                 requested = {value for value in raw_ids if type(value) is int and 0 < value < 2**53}
@@ -1609,6 +1614,8 @@ class ChatInboxConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({"type": "status.updated", **payload}))
 
     async def social_interaction_changed(self, event):
+        from apps.social.realtime import visible_social_post_ids
+
         post_id = event["post_id"]
         if post_id not in self.social_post_ids or not await database_sync_to_async(visible_social_post_ids)(self.user, {post_id}):
             return
