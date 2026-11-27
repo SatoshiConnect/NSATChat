@@ -361,6 +361,7 @@ class PostCommentsAPIView(APIView):
         attrs = dict(serializer.validated_data)
         parent_id = attrs.pop("parent_id", None)
         sticker_asset_id = attrs.pop("sticker_asset_id", None)
+        sticker_code = attrs.pop("sticker_code", "")
         is_reward = attrs.pop("is_reward", False)
         if is_reward and post.author_id == request.user.id:
             return Response({"detail": "You cannot reward your own post."}, status=status.HTTP_400_BAD_REQUEST)
@@ -382,7 +383,8 @@ class PostCommentsAPIView(APIView):
                 return Response({"detail": "That sticker is not in your library."}, status=status.HTTP_403_FORBIDDEN)
         with transaction.atomic():
             comment = PostComment.objects.create(
-                post=post, author=request.user, parent=parent, sticker_asset=sticker_asset, is_reward=is_reward, **attrs
+                post=post, author=request.user, parent=parent, sticker_asset=sticker_asset,
+                sticker_code=sticker_code, is_reward=is_reward, **attrs
             )
             if is_reward:
                 from apps.marketplace.models import CreatorNotification
@@ -390,9 +392,10 @@ class PostCommentsAPIView(APIView):
                 CreatorNotification.objects.create(
                     recipient=post.author,
                     actor=request.user,
-                    item=sticker_asset.item,
+                    item=sticker_asset.item if sticker_asset else None,
                     event_type="social_sticker_reward",
-                    message=f"You received a {sticker_asset.item.title[:90]} sticker reward on your post.",
+                    message=(f"You received a {sticker_asset.item.title[:70]} sticker reward on your post."
+                             if sticker_asset else "You received a free starter sticker reward on your post."),
                 )
             comment = PostComment.objects.select_related(
                 "author", "author__profile", "sticker_asset", "sticker_asset__item"

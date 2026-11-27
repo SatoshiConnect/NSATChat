@@ -321,9 +321,25 @@
   }
   .app.is-mobile-main .main {
     display: flex;
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
+    height: auto;
+  }
+  .app.is-mobile-today .sidebar {
+    display: none;
+  }
+  .app.is-mobile-today .main {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+  }
+  .app.is-mobile-today .today-news {
+    flex: 1 1 0;
     height: 100%;
+    min-height: 0;
+    overflow-y: auto;
   }
   .drawer {
     position: fixed;
@@ -507,11 +523,33 @@
     color: var(--accent-text);
     font-weight: 650;
   }
-  .main:has(.mobile-section-switcher--commerce) > .wallet-native,
+  .main:has(.mobile-section-switcher--commerce) > .wallet-panel-mount:not([hidden]),
   .main:has(.mobile-section-switcher--commerce) > .marketplace-panel {
+    display: flex;
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
+  }
+  /* WalletPanel can be mounted directly by MainLayout when it is not being
+     retained between sections. Constrain that form to the space above the
+     global tab bar too; otherwise its intrinsic content height paints over
+     the tab bar and intercepts taps on Home/Chats/etc. */
+  .app.is-wallet-view > .main.main--wallet > .wallet-native {
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+  }
+  .app.is-wallet-view > .main.main--wallet > .wallet-native > .wallet-native__body {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+  .wallet-panel-mount:not([hidden]) > .wallet-native {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .wallet-panel-mount:not([hidden]) .wallet-native__body {
+    flex: 1 1 auto;
+    min-height: 0;
   }
   .main:has(.mobile-section-switcher--commerce) > .marketplace-panel .marketplace__scroll {
     flex: 1 1 auto;
@@ -520,6 +558,8 @@
   }
   .tabbar {
     display: flex;
+    position: relative;
+    z-index: 10;
     flex-shrink: 0;
     align-items: stretch;
     justify-content: space-around;
@@ -527,6 +567,26 @@
     padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
     background: var(--panel-bg);
     border-top: 1px solid var(--divider);
+  }
+  /* Commerce screens have their own internal Wallet / Marketplace switcher,
+     but must keep the app-level destinations below it on phones. */
+  .app.is-wallet-view > .tabbar,
+  .app.is-marketplace-view > .tabbar,
+  .app.is-mobile-today > .tabbar {
+    display: flex;
+  }
+  .app.is-wallet-view > .main,
+  .app.is-marketplace-view > .main {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+  }
+  .app.is-mobile-today > .main {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
   }
   .mobile-chat-switch {
     display: flex;
@@ -631,10 +691,6 @@
   .rail {
     display: none;
   }
-  .app.is-mobile-main .tabbar {
-    display: none;
-  }
-
   .sidebar .panel {
     position: relative;
   }

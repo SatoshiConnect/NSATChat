@@ -5,6 +5,7 @@ from .views import (
     WalletLinkMeAPIView,
     WalletLinkStartAPIView,
     WalletChatRecipientAPIView,
+    WalletSocialRecipientAPIView,
     WalletReadAPIView,
     WalletPreflightAPIView,
     WalletSelfOpenPreflightAPIView,
@@ -25,4 +26,5 @@ urlpatterns = [
     path("link/confirm/", WalletLinkConfirmAPIView.as_view(), name="link-confirm"),
     path("link/me/", WalletLinkMeAPIView.as_view(), name="link-me"),
     path("chat/recipient/", WalletChatRecipientAPIView.as_view(), name="chat-recipient"),
+    path("social/recipient/", WalletSocialRecipientAPIView.as_view(), name="social-recipient"),
 ]

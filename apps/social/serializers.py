@@ -8,6 +8,17 @@ from rest_framework import serializers
 from apps.accounts.serializers import UserSerializer
 from .models import Post, PostAttachment, PostComment, PostReport
 
+DEFAULT_SOCIAL_STICKERS = {
+    "sparkles": ("✨", "Sparkles"),
+    "heart": ("❤️", "Heart"),
+    "laugh": ("😂", "Laugh"),
+    "clap": ("👏", "Clap"),
+    "fire": ("🔥", "Fire"),
+    "thumbs-up": ("👍", "Thumbs up"),
+    "hug": ("🤗", "Hug"),
+    "party": ("🎉", "Party"),
+}
+
 
 IMAGE_LIMIT = 8 * 1024 * 1024
 VIDEO_LIMIT = 50 * 1024 * 1024
@@ -62,7 +73,8 @@ class PostCommentSerializer(serializers.ModelSerializer):
     def get_sticker(self, obj):
         asset = getattr(obj, "sticker_asset", None)
         if not asset:
-            return None
+            default = DEFAULT_SOCIAL_STICKERS.get(obj.sticker_code)
+            return {"id": None, "pack_title": "Starter stickers", "code": obj.sticker_code, "emoji": default[0], "label": default[1]} if default else None
         request = self.context.get("request")
         image = asset.image.url
         return {
@@ -222,15 +234,16 @@ class CreateCommentSerializer(serializers.Serializer):
     text = serializers.CharField(max_length=1000, trim_whitespace=True, required=False, allow_blank=True, default="")
     parent_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
     sticker_asset_id = serializers.IntegerField(min_value=1, required=False)
+    sticker_code = serializers.ChoiceField(choices=tuple(DEFAULT_SOCIAL_STICKERS), required=False)
     is_reward = serializers.BooleanField(required=False, default=False)
 
     def validate_text(self, value):
         return value.strip()
 
     def validate(self, attrs):
-        if not attrs.get("text") and not attrs.get("sticker_asset_id") and not self.context.get("allow_existing_sticker"):
+        if not attrs.get("text") and not attrs.get("sticker_asset_id") and not attrs.get("sticker_code") and not self.context.get("allow_existing_sticker"):
             raise serializers.ValidationError("Add text or choose a sticker.")
-        if attrs.get("is_reward") and (not attrs.get("sticker_asset_id") or attrs.get("text")):
+        if attrs.get("is_reward") and (not (attrs.get("sticker_asset_id") or attrs.get("sticker_code")) or attrs.get("text")):
             raise serializers.ValidationError("A post reward must be a sticker without comment text.")
         return attrs
 
