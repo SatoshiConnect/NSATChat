@@ -516,11 +516,20 @@
     color: var(--accent-text);
     font-weight: 650;
   }
-  .main:has(.mobile-section-switcher--commerce) > .wallet-native,
+  .main:has(.mobile-section-switcher--commerce) > .wallet-panel-mount:not([hidden]),
   .main:has(.mobile-section-switcher--commerce) > .marketplace-panel {
+    display: flex;
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
+  }
+  .wallet-panel-mount:not([hidden]) > .wallet-native {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .wallet-panel-mount:not([hidden]) .wallet-native__body {
+    flex: 1 1 auto;
+    min-height: 0;
   }
   .main:has(.mobile-section-switcher--commerce) > .marketplace-panel .marketplace__scroll {
     flex: 1 1 auto;
