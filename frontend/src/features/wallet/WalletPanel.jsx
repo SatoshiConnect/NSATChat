@@ -12,6 +12,7 @@ import MarketplaceCheckout from "./MarketplaceCheckout";
 
 const ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 const ADDRESS_KEY = "satoshicore:messenger-wallet-address:v1";
+const SELF_OPEN_KEY = "satoshicore:messenger-self-open:v1:";
 const MAINNET = "NSAT Mainnet ; October 2026 ; bc3098829fffc717";
 
 function loadAddress() {
@@ -23,6 +24,24 @@ function loadAddress() {
   }
   return readKeystoreMeta()?.address || "";
 }
+
+function loadSelfOpen(address) {
+  if (!address) return null;
+  try {
+    const record = JSON.parse(window.localStorage.getItem(SELF_OPEN_KEY + address));
+    if (/^[a-f0-9]{64}$/.test(record?.hash || "") && Number.isSafeInteger(record.submittedAt)
+      && record.submittedAt > 0) {
+      return { hash: record.hash, submittedAt: record.submittedAt, state: "unknown" };
+    }
+  } catch { /* The activation flow verifies storage before submitting. */ }
+  return null;
+}
+
+function isUnresolvedSelfOpen(status) {
+  return status?.state === "pending" || status?.state === "unknown";
+}
+
+function currentTimeMs() { return Date.now(); }
 
 function exactAmount(value) {
   if (!/^\d+$/.test(String(value ?? ""))) return "—";
@@ -74,12 +93,19 @@ export default function WalletPanel({ launch = null }) {
   const [sendBusy, setSendBusy] = useState(false);
   const [txStatus, setTxStatus] = useState(null);
   const [selfOpenReview, setSelfOpenReview] = useState(null);
+  const [selfOpenByAddress, setSelfOpenByAddress] = useState(() => {
+    const selected = loadAddress();
+    return { [selected]: loadSelfOpen(selected) };
+  });
+  const [selfOpenChecking, setSelfOpenChecking] = useState(false);
   const [selfOpenBusy, setSelfOpenBusy] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [accountLink, setAccountLink] = useState({ loading: true, connected: false, address: "", error: "" });
   const [linkBusy, setLinkBusy] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const signingSecretRef = useRef("");
+  const selfOpenSubmittingRef = useRef(false);
+  const selfOpenCheckingRef = useRef(false);
   const postedReceiptHashesRef = useRef(new Set());
   const walletUnlockRef = useRef(null);
 
@@ -161,6 +187,16 @@ export default function WalletPanel({ launch = null }) {
 
   const history = useMemo(() => Array.isArray(wallet?.history) ? wallet.history : [], [wallet]);
 
+  const selfOpenStatus = selfOpenByAddress[address];
+  const selfOpenBlocked = isUnresolvedSelfOpen(selfOpenStatus) || selfOpenStatus?.state === "confirmed";
+
+  const selectAddress = (nextAddress) => {
+    const persisted = loadSelfOpen(nextAddress);
+    setSelfOpenByAddress((current) => ({ ...current, [nextAddress]: persisted || current[nextAddress] }));
+    setSelfOpenReview(null);
+    setAddress(nextAddress);
+  };
+
   const saveAddress = async (event) => {
     event.preventDefault();
     const value = addressInput.trim().toUpperCase();
@@ -172,7 +208,7 @@ export default function WalletPanel({ launch = null }) {
     setWallet(null);
     setQr("");
     setError("");
-    setAddress(value);
+    selectAddress(value);
     setOwnsWallet(readKeystoreMeta()?.address === value);
     setAddressInput("");
   };
@@ -202,7 +238,7 @@ export default function WalletPanel({ launch = null }) {
     try {
       const saved = await saveEncryptedWallet(secret, walletPassword);
       signingSecretRef.current = secret;
-      setAddress(saved.address);
+      selectAddress(saved.address);
       setOwnsWallet(true);
       setUnlocked(true);
       try { window.localStorage.setItem(ADDRESS_KEY, saved.address); } catch { /* Keystore remains the source of truth. */ }
@@ -345,15 +381,22 @@ export default function WalletPanel({ launch = null }) {
     } finally { setSendBusy(false); }
   };
 
-  const checkConfirmation = async (hash, submittedAt, { poll = false, transfer = null, operation = "payment" } = {}) => {
-    setTxStatus({ hash, state: "pending", submittedAt, transfer, operation });
-    const deadline = Date.now() + (poll ? 90_000 : 12_000);
+  const checkConfirmation = async (hash, submittedAt, { poll = false, transfer = null, activationAddress = null } = {}) => {
+    const setStatus = activationAddress
+      ? (update) => setSelfOpenByAddress((current) => ({
+        ...current,
+        [activationAddress]: typeof update === "function" ? update(current[activationAddress]) : update,
+      }))
+      : setTxStatus;
+    setStatus({ hash, state: "pending", submittedAt, transfer });
+    const deadline = currentTimeMs() + (poll ? 90_000 : 12_000);
     do {
       try {
         const result = await walletApi.confirmation(hash, submittedAt);
         if (result.hash !== hash) throw new Error("Confirmation hash mismatch");
         if (result.status === "confirmed" && result.success === true) {
-          setTxStatus({ hash, state: "confirmed", result, transfer, operation });
+          if (activationAddress) clearSelfOpen(activationAddress, hash);
+          setStatus({ hash, state: "confirmed", result, transfer });
           setRefreshKey((value) => value + 1);
           if (launch?.roomId && transfer && !postedReceiptHashesRef.current.has(hash)) {
             postedReceiptHashesRef.current.add(hash);
@@ -363,19 +406,20 @@ export default function WalletPanel({ launch = null }) {
           return;
         }
         if (result.status === "failed" || (result.status === "confirmed" && result.success === false)) {
-          setTxStatus({ hash, state: "failed", result, transfer, operation });
+          if (activationAddress) clearSelfOpen(activationAddress, hash);
+          setStatus({ hash, state: "failed", result, transfer });
           setRefreshKey((value) => value + 1);
           return;
         }
-        setTxStatus({ hash, state: result.status === "pending" ? "pending" : "unknown", result, submittedAt, transfer, operation });
-        if (!poll || Date.now() >= deadline || ["unknown", "not_found"].includes(result.status)) return;
+        setStatus({ hash, state: result.status === "pending" ? "pending" : "unknown", result, submittedAt, transfer });
+        if (!poll || currentTimeMs() >= deadline || ["unknown", "not_found"].includes(result.status)) return;
       } catch {
-        setTxStatus((current) => current?.hash === hash ? { ...current, state: "unknown", submittedAt } : current);
-        if (!poll || Date.now() >= deadline) return;
+        setStatus((current) => current?.hash === hash ? { ...current, state: "unknown", submittedAt } : current);
+        if (!poll || currentTimeMs() >= deadline) return;
       }
       await new Promise((resolve) => window.setTimeout(resolve, 2_000));
-    } while (Date.now() < deadline);
-    setTxStatus((current) => current?.hash === hash && current.state === "pending" ? { ...current, state: "unknown", submittedAt } : current);
+    } while (currentTimeMs() < deadline);
+    setStatus((current) => current?.hash === hash && current.state === "pending" ? { ...current, state: "unknown", submittedAt } : current);
   };
 
   const submitTransfer = async () => {
@@ -383,7 +427,7 @@ export default function WalletPanel({ launch = null }) {
     setSendBusy(true);
     setError("");
     let signed = null;
-    const submittedAt = Math.floor(Date.now() / 1000);
+    const submittedAt = Math.floor(currentTimeMs() / 1000);
     try {
       const latest = await walletApi.preflight(address, sendReview.destination);
       const previous = sendReview.state;
@@ -422,7 +466,34 @@ export default function WalletPanel({ launch = null }) {
     } finally { setSendBusy(false); }
   };
 
+  const clearSelfOpen = (owner, hash) => {
+    try {
+      if (loadSelfOpen(owner)?.hash === hash) window.localStorage.removeItem(SELF_OPEN_KEY + owner);
+    } catch { /* Keep the saved hash available for a later check if removal fails. */ }
+  };
+
+  const checkSelfOpen = async (owner, { hash, submittedAt }, poll = false) => {
+    if (selfOpenCheckingRef.current) return;
+    selfOpenCheckingRef.current = true;
+    setSelfOpenChecking(true);
+    try {
+      await checkConfirmation(hash, submittedAt, { poll, activationAddress: owner });
+    } finally {
+      selfOpenCheckingRef.current = false;
+      setSelfOpenChecking(false);
+    }
+  };
+
+  const hydrateExistingSelfOpen = () => {
+    const existing = loadSelfOpen(address);
+    if (!existing) return false;
+    setSelfOpenByAddress((current) => ({ ...current, [address]: existing }));
+    setSelfOpenReview(null);
+    return true;
+  };
+
   const reviewSelfOpen = async () => {
+    if (selfOpenBusy || selfOpenBlocked || selfOpenSubmittingRef.current || hydrateExistingSelfOpen()) return;
     setError("");
     if (!ownsWallet) {
       setError("Only the wallet owner can open this address. Restore the wallet key on this device first.");
@@ -453,11 +524,12 @@ export default function WalletPanel({ launch = null }) {
   };
 
   const submitSelfOpen = async () => {
-    if (!selfOpenReview || !signingSecretRef.current || !unlocked || selfOpenBusy) return;
+    if (!selfOpenReview || !signingSecretRef.current || !unlocked || selfOpenBusy || selfOpenBlocked
+      || selfOpenSubmittingRef.current || hydrateExistingSelfOpen()) return;
+    selfOpenSubmittingRef.current = true;
     setSelfOpenBusy(true);
     setError("");
-    let signed = null;
-    const submittedAt = Math.floor(Date.now() / 1000);
+    let receipt = null;
     try {
       const latest = await walletApi.selfOpenPreflight(address);
       if (latest.network !== MAINNET || latest.address !== address || latest.account_exists || !latest.available
@@ -465,31 +537,47 @@ export default function WalletPanel({ launch = null }) {
         setSelfOpenReview(null);
         throw new Error("Mainnet account status or free-open policy changed. Review again.");
       }
-      signed = await buildSignedSelfOpen({ secret: signingSecretRef.current, address });
-      const response = await walletApi.submit(signed.envelopeXdr);
-      if (!["PENDING", "DUPLICATE"].includes(String(response.status || "").toUpperCase())) {
-        if (response.status === "ERROR") {
-          setSelfOpenReview(null);
-          setTxStatus({ hash: signed.hash, state: "failed", operation: "self_open" });
-          return;
-        }
-        setSelfOpenReview(null);
-        setTxStatus({ hash: signed.hash, state: "unknown", submittedAt, operation: "self_open" });
-        return;
+      const signed = await buildSignedSelfOpen({ secret: signingSecretRef.current, address });
+      if (!signingSecretRef.current || hydrateExistingSelfOpen()) return;
+      const record = { hash: signed.hash, submittedAt: Math.floor(currentTimeMs() / 1000) };
+      // Persist only public recovery metadata before relay; never store signed XDR or a key.
+      try {
+        window.localStorage.setItem(SELF_OPEN_KEY + address, JSON.stringify(record));
+      } catch {
+        throw new Error("This device could not save the activation reference. Nothing was submitted. Allow browser storage and try again.");
       }
+      receipt = record;
       setSelfOpenReview(null);
-      void checkConfirmation(signed.hash, submittedAt, { poll: true, operation: "self_open" });
-    } catch (failure) {
-      if (signed) {
-        setSelfOpenReview(null);
-        setTxStatus({ hash: signed.hash, state: "unknown", submittedAt, operation: "self_open" });
+      setSelfOpenByAddress((current) => ({ ...current, [address]: { ...record, state: "pending" } }));
+      const response = await walletApi.submit(signed.envelopeXdr);
+      const status = String(response.status || "").toUpperCase();
+      if (["PENDING", "DUPLICATE"].includes(status)) {
+        void checkSelfOpen(address, record, true);
+      } else if (status === "ERROR") {
+        clearSelfOpen(address, record.hash);
+        setSelfOpenByAddress((current) => ({ ...current, [address]: { ...record, state: "failed" } }));
+        setRefreshKey((value) => value + 1);
       } else {
-        const code = failure?.response?.data?.code || failure?.message;
+        setSelfOpenByAddress((current) => ({ ...current, [address]: { ...record, state: "unknown" } }));
+      }
+    } catch (failure) {
+      const code = failure?.response?.data?.code || failure?.message;
+      const rejectedBeforeRelay = ["self_open_unavailable", "self_open_account_already_exists", "invalid_signed_envelope"].includes(code);
+      if (receipt && !rejectedBeforeRelay) {
+        setSelfOpenReview(null);
+        setSelfOpenByAddress((current) => ({ ...current, [address]: { ...receipt, state: "unknown" } }));
+      } else {
+        if (receipt) {
+          clearSelfOpen(address, receipt.hash);
+          setSelfOpenReview(null);
+          setRefreshKey((value) => value + 1);
+        }
         setError(code === "self_open_unavailable" || code === "self_open_account_already_exists"
           ? "The wallet activation state changed. Refresh Mainnet status and try again."
-          : failure?.message || "The free wallet activation was not signed or submitted.");
+          : failure?.message || "The free wallet activation was not submitted.");
       }
     } finally {
+      selfOpenSubmittingRef.current = false;
       setSelfOpenBusy(false);
     }
   };
@@ -565,7 +653,6 @@ export default function WalletPanel({ launch = null }) {
             </> : null}
             {keyError ? <p className="wallet-native__error" role="alert">{keyError}</p> : null}
             {error ? <p className="wallet-native__error" role="alert">{error}</p> : null}
-            {txStatus?.operation === "self_open" ? <div className={`wallet-native__tx-status is-${txStatus.state}`} role="status"><strong>{txStatus.state === "confirmed" ? "Wallet opened on Mainnet" : txStatus.state === "failed" ? "Wallet activation failed" : txStatus.state === "pending" ? "Opening wallet on Mainnet…" : "Activation status unknown — do not submit again yet"}</strong><code>{txStatus.hash}</code>{txStatus.result?.ledger ? <span>Ledger #{txStatus.result.ledger}</span> : null}{txStatus.result?.result_code ? <span>{txStatus.result.result_code}</span> : null}{["unknown", "pending"].includes(txStatus.state) ? <button type="button" className="wallet-native__text-button" onClick={() => checkConfirmation(txStatus.hash, txStatus.submittedAt, { operation: "self_open" })}>Check status</button> : null}</div> : null}
             <p className="wallet-native__availability">Your recovery key stays on this device. Transfers are signed locally and are public and irreversible.</p>
           </div>
         ) : (
@@ -607,11 +694,30 @@ export default function WalletPanel({ launch = null }) {
               <span>NSAT · whole units</span>
             </section>
 
-            {wallet?.account_status === "not_found" ? (
+            {selfOpenStatus ? (
+              <div className={`wallet-native__tx-status is-${selfOpenStatus.state}`} role="status" aria-label="Wallet activation status">
+                <strong>{selfOpenStatus.state === "confirmed" ? "Wallet opened on Mainnet"
+                  : selfOpenStatus.state === "failed" ? "Wallet activation failed"
+                    : selfOpenStatus.state === "pending" ? "Opening wallet on Mainnet…"
+                      : "Activation status unknown. Do not submit again yet."}</strong>
+                {isUnresolvedSelfOpen(selfOpenStatus) ? <span id="wallet-activation-recovery">Check the existing activation before trying again.</span> : null}
+                <code>{selfOpenStatus.hash}</code>
+                {selfOpenStatus.result?.ledger ? <span>Ledger #{selfOpenStatus.result.ledger}</span> : null}
+                {selfOpenStatus.result?.result_code ? <span>{selfOpenStatus.result.result_code}</span> : null}
+                {isUnresolvedSelfOpen(selfOpenStatus) ? (
+                  <button type="button" className="wallet-native__text-button" disabled={selfOpenChecking || selfOpenBusy}
+                    onClick={() => checkSelfOpen(address, selfOpenStatus)}>
+                    {selfOpenChecking || selfOpenBusy ? "Checking status…" : "Check status"}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {wallet?.account_status === "not_found" && selfOpenStatus?.state !== "confirmed" ? (
               <section className="wallet-native__self-open" aria-label="Free wallet activation">
                 <div><strong>This wallet is not open on Mainnet yet</strong><p>Its owner can open it with a zero balance and zero network fee. No 200,000,000 NSAT first payment is required.</p></div>
                 {ownsWallet
-                  ? <button type="button" className="btn btn--primary" onClick={reviewSelfOpen} disabled={selfOpenBusy}>{selfOpenBusy ? "Checking Mainnet…" : unlocked ? "Activate wallet for free" : "Unlock to activate free"}</button>
+                  ? <button type="button" className="btn btn--primary" onClick={reviewSelfOpen} disabled={selfOpenBusy || selfOpenBlocked} aria-describedby={selfOpenBlocked ? "wallet-activation-recovery" : undefined}>{selfOpenBusy ? "Checking Mainnet…" : unlocked ? "Activate wallet for free" : "Unlock to activate free"}</button>
                   : <span className="wallet-native__muted">Only the wallet owner can sign the free activation.</span>}
               </section>
             ) : null}
@@ -670,16 +776,16 @@ export default function WalletPanel({ launch = null }) {
                   <p>Transfers are public and irreversible. Check the full recipient address before approving.</p>
                   <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setSendReview(null)}>Cancel</button><button type="button" className="btn btn--primary" onClick={submitTransfer} disabled={sendBusy}>{sendBusy ? "Signing and submitting…" : "Confirm and send"}</button></div>
                 </div> : null}
-                {txStatus && txStatus.operation !== "self_open" ? <div className={`wallet-native__tx-status is-${txStatus.state}`} role="status"><strong>{txStatus.state === "confirmed" ? "Confirmed on Mainnet" : txStatus.state === "failed" ? "Transfer failed" : txStatus.state === "pending" ? "Waiting for Mainnet confirmation…" : "Status unknown — do not send again yet"}</strong><code>{txStatus.hash}</code>{txStatus.result?.ledger ? <span>Ledger #{txStatus.result.ledger}</span> : null}{txStatus.result?.result_code ? <span>{txStatus.result.result_code}</span> : null}{["unknown", "pending"].includes(txStatus.state) ? <button type="button" className="wallet-native__text-button" onClick={() => checkConfirmation(txStatus.hash, txStatus.submittedAt, { transfer: txStatus.transfer })}>Check status</button> : null}</div> : null}
+                {txStatus ? <div className={`wallet-native__tx-status is-${txStatus.state}`} role="status"><strong>{txStatus.state === "confirmed" ? "Confirmed on Mainnet" : txStatus.state === "failed" ? "Transfer failed" : txStatus.state === "pending" ? "Waiting for Mainnet confirmation…" : "Status unknown — do not send again yet"}</strong><code>{txStatus.hash}</code>{txStatus.result?.ledger ? <span>Ledger #{txStatus.result.ledger}</span> : null}{txStatus.result?.result_code ? <span>{txStatus.result.result_code}</span> : null}{["unknown", "pending"].includes(txStatus.state) ? <button type="button" className="wallet-native__text-button" onClick={() => checkConfirmation(txStatus.hash, txStatus.submittedAt, { transfer: txStatus.transfer })}>Check status</button> : null}</div> : null}
               </section>
             ) : null}
 
             {selfOpenReview ? <div className="wallet-native__review" role="dialog" aria-modal="true" aria-label="Review free wallet activation">
               <h3>Open this wallet for free?</h3><dl><div><dt>Wallet</dt><dd>{shortAddress(address)}</dd></div><div><dt>Starting balance</dt><dd>0 NSAT</dd></div><div><dt>Network fee</dt><dd>0 NSAT</dd></div><div><dt>Mainnet ledger version</dt><dd>{selfOpenReview.protocol_version}</dd></div></dl>
               <p>This signs only the NSAT Core self-open operation for this wallet. It sends no NSAT and the private key stays on this device.</p>
-              <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setSelfOpenReview(null)} disabled={selfOpenBusy}>Cancel</button><button type="button" className="btn btn--primary" onClick={submitSelfOpen} disabled={selfOpenBusy}>{selfOpenBusy ? "Opening wallet…" : "Open wallet for free"}</button></div>
+              <div className="wallet-native__key-buttons"><button type="button" className="btn btn--secondary" onClick={() => setSelfOpenReview(null)} disabled={selfOpenBusy}>Cancel</button><button type="button" className="btn btn--primary" onClick={submitSelfOpen} disabled={selfOpenBusy || selfOpenBlocked}>{selfOpenBusy ? "Opening wallet…" : "Open wallet for free"}</button></div>
             </div> : null}
-            {ownsWallet ? <button type="button" className="wallet-native__change" onClick={lockWallet}>Lock this device wallet</button> : <button type="button" className="wallet-native__change" onClick={() => { try { window.localStorage.removeItem(ADDRESS_KEY); } catch { /* ignore */ } setAddress(""); setWallet(null); setQr(""); setSection("overview"); }}>Change or clear viewed address</button>}
+            {ownsWallet ? <button type="button" className="wallet-native__change" onClick={lockWallet}>Lock this device wallet</button> : <button type="button" className="wallet-native__change" onClick={() => { try { window.localStorage.removeItem(ADDRESS_KEY); } catch { /* ignore */ } selectAddress(""); setWallet(null); setQr(""); setSection("overview"); }}>Change or clear viewed address</button>}
           </>
         )}
       </div>
