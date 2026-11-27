@@ -910,6 +910,32 @@ button.status-composer__privacy:hover {
 .social-feed__tabs { display: flex; gap: 8px; margin: 0 0 14px; border-bottom: 1px solid var(--divider); }
 .social-feed__tabs button { padding: 10px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
 .social-feed__tabs button.is-active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.social-post--publisher { border-color: color-mix(in srgb, var(--accent) 24%, var(--divider)); background: var(--panel-bg); }
+.social-system-avatar { display: grid; flex: 0 0 42px; place-items: center; width: 42px; height: 42px; border: 1px solid var(--divider); border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.social-system-post__identity { display: grid; min-width: 0; gap: 3px; }
+.social-system-post__identity strong { color: var(--text-strong); }
+.social-system-post__identity span { overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.social-system-post__badge { flex: none; margin-left: auto; padding: 3px 6px; border: 1px solid var(--divider); border-radius: 999px; color: var(--text-muted); font-size: 9px; font-weight: 750; letter-spacing: .07em; }
+.social-system-post__category { width: fit-content; margin: 12px 0 0; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 650; }
+.social-system-post__title { margin: 8px 0; color: var(--text-strong); font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
+.social-system-post__summary { margin: 0 0 12px; color: var(--text-secondary); }
+.social-system-post__media-link { position: relative; display: block; min-width: 0; margin-top: 4px; overflow: hidden; border-radius: 12px; background: var(--input-bg); color: #fff; }
+.social-system-post__media { display: block; width: 100%; max-height: 520px; aspect-ratio: 16 / 9; object-fit: contain; background: #111; }
+.social-system-post__media-link > span { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border-radius: 999px; background: rgb(0 0 0 / 68%); color: #fff; font-size: 11px; }
+.social-system-post__video-preview { position: relative; display: block; width: 100%; min-width: 0; margin-top: 4px; padding: 0; overflow: hidden; border: 0; border-radius: 12px; background: #111; color: #fff; cursor: pointer; }
+.social-system-post__video-preview > img { object-fit: cover; }
+.social-system-post__video-placeholder { display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; color: var(--accent); }
+.social-system-post__video-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgb(0 0 0 / 20%); color: #fff; font-size: 14px; font-weight: 700; text-shadow: 0 1px 4px #000; }
+.social-system-post__video-play svg { box-sizing: content-box; padding: 13px; border-radius: 50%; background: rgb(0 0 0 / 66%); }
+.social-system-post__video-frame { border: 0; }
+.social-system-post__footer { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--divider); color: var(--text-muted); font-size: 10px; }
+.social-system-post__footer > span { min-width: 0; }
+.social-system-post__footer a { display: inline-flex; flex: none; align-items: center; gap: 4px; color: var(--accent); font-size: 12px; font-weight: 650; text-decoration: none; }
+@media (max-width: 600px) {
+  .social-post--publisher { padding: 12px; }
+  .social-system-post__title { font-size: 16px; }
+  .social-system-post__footer { align-items: flex-start; flex-direction: column; }
+}
 .social-follow-requests { margin: 0 0 14px; padding: 12px; border: 1px solid var(--divider); border-radius: 12px; background: var(--panel-bg); }
 .social-follow-requests h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: var(--fs-sm); }
 .social-follow-requests h3 span { margin-left: auto; color: var(--muted); }
