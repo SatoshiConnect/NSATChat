@@ -25,7 +25,8 @@ from apps.chat.utils import blocked_user_ids, broadcast_message, get_message_wit
 from config.range_media import authorized_file_response
 from .models import Post, PostAttachment, PostComment, PostLike, PostReport, PostSave, SocialFollow, SocialMute
 from .policies import can_view_post, visible_posts_for
-from .serializers import CreateCommentSerializer, CreatePostReportSerializer, PostCommentSerializer, PostSerializer
+from .realtime import notify_social_interaction
+from .serializers import CreateCommentSerializer, CreatePostReportSerializer, PostCommentSerializer, PostInteractionsSerializer, PostSerializer
 
 
 class SocialPostPagination(LimitOffsetPagination):
@@ -228,6 +229,25 @@ class PostFeedAPIView(generics.ListCreateAPIView):
         serializer.save(author=self.request.user)
 
 
+class PostInteractionsAPIView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def get(self, request):
+        raw = request.query_params.get("ids", "")
+        if not re.fullmatch(r"[0-9]{1,16}(,[0-9]{1,16}){0,59}", raw):
+            return Response({"detail": "Provide up to 60 post IDs."}, status=status.HTTP_400_BAD_REQUEST)
+        ids = {int(part) for part in raw.split(",")}
+        liked = PostLike.objects.filter(post_id=OuterRef("pk"), user=request.user)
+        posts = visible_posts_for(request.user).filter(pk__in=ids).annotate(
+            likes_count=Count("likes", distinct=True),
+            comments_count=Count("comments", filter=Q(comments__deleted_at__isnull=True), distinct=True),
+            _is_liked=Exists(liked),
+        )
+        response = Response(PostInteractionsSerializer(posts, many=True, context={"request": request}).data)
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
 class PostDetailAPIView(APIView):
     permission_classes = (permissions.IsAuthenticated,)
 
@@ -266,6 +286,7 @@ class PostDetailAPIView(APIView):
         else:
             PostLike.objects.create(post=post, user=request.user, reaction=reaction)
             selected = reaction
+        notify_social_interaction(post.pk)
         return Response({"liked": bool(selected), "reaction": selected, "likes_count": post.likes.count()})
 
     def delete(self, request, pk):
@@ -397,6 +418,7 @@ class PostCommentsAPIView(APIView):
             comment = PostComment.objects.select_related(
                 "author", "author__profile", "sticker_asset", "sticker_asset__item"
             ).get(pk=comment.pk)
+            notify_social_interaction(post.pk)
         return Response(PostCommentSerializer(comment, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
@@ -423,12 +445,14 @@ class PostCommentDetailAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         comment.text = serializer.validated_data["text"]
         comment.save(update_fields=("text",))
+        notify_social_interaction(post_pk)
         return Response(PostCommentSerializer(comment, context={"request": request}).data)
 
     def delete(self, request, post_pk, comment_pk):
         comment = self.owned_comment(request, post_pk, comment_pk)
         comment.deleted_at = timezone.now()
         comment.save(update_fields=("deleted_at",))
+        notify_social_interaction(post_pk)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
