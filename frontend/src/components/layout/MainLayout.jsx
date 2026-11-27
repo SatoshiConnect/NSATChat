@@ -267,7 +267,7 @@ export default function MainLayout({ onLogout }) {
   let main;
   if (showWallet || showMarketplace) main = (
     <>
-      {retainWalletPanel ? <div hidden={!showWallet} aria-hidden={!showWallet}><WalletPanel launch={showWallet ? walletLaunch : null} /></div> : null}
+      {retainWalletPanel ? <div className="wallet-panel-mount" hidden={!showWallet} aria-hidden={!showWallet}><WalletPanel launch={showWallet ? walletLaunch : null} /></div> : null}
       {showMarketplace ? <MarketplacePanel /> : null}
     </>
   );
