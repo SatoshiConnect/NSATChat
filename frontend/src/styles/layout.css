@@ -333,6 +333,13 @@
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
+    overflow: hidden;
+  }
+  .app.is-mobile-today .today-news {
+    flex: 1 1 0;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
   }
   .drawer {
     position: fixed;
@@ -538,6 +545,8 @@
   }
   .tabbar {
     display: flex;
+    position: relative;
+    z-index: 10;
     flex-shrink: 0;
     align-items: stretch;
     justify-content: space-around;
@@ -549,7 +558,8 @@
   /* Commerce screens have their own internal Wallet / Marketplace switcher,
      but must keep the app-level destinations below it on phones. */
   .app.is-wallet-view > .tabbar,
-  .app.is-marketplace-view > .tabbar {
+  .app.is-marketplace-view > .tabbar,
+  .app.is-mobile-today > .tabbar {
     display: flex;
   }
   .app.is-wallet-view > .main,
@@ -557,6 +567,13 @@
     flex: 1 1 auto;
     min-height: 0;
     height: auto;
+    overflow: hidden;
+  }
+  .app.is-mobile-today > .main {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
   }
   .mobile-chat-switch {
     display: flex;
