@@ -68,7 +68,6 @@ export default function Lightbox({ items, startIndex = 0, nameOf, onClose, onFor
 
   if (!current) return null;
   const localVideoUrl = offlineVideo?.key === mediaKey ? offlineVideo.url : "";
-  const videoUrl = localVideoUrl || url;
   const sender = current.message.sender;
 
   const saveVideoOffline = async () => {
@@ -170,7 +169,13 @@ export default function Lightbox({ items, startIndex = 0, nameOf, onClose, onFor
           </button>
         ) : null}
         {kind === "video" ? (
-          <video key={videoUrl} ref={videoRef} src={videoUrl} controls autoPlay playsInline />
+          <ChatVideoPlayback
+            key={mediaKey}
+            videoRef={videoRef}
+            url={url}
+            cachedUrl={localVideoUrl}
+            fileName={current.attachment.file_name}
+          />
         ) : (
           <img
             key={url}
@@ -205,4 +210,39 @@ export default function Lightbox({ items, startIndex = 0, nameOf, onClose, onFor
     </div>,
     document.body,
   );
+}
+
+
+// Video failures are local to this attachment, not to the whole media viewer.
+function ChatVideoPlayback({ videoRef, url, cachedUrl, fileName }) {
+  const [attempt, setAttempt] = useState(0);
+  const [failedSource, setFailedSource] = useState(null);
+  const [ignoreCache, setIgnoreCache] = useState(false);
+  const source = !ignoreCache && cachedUrl ? cachedUrl : url;
+  const hasFailed = failedSource === source;
+
+  const onError = () => {
+    if (source === cachedUrl && url && source !== url && navigator.onLine !== false) {
+      // A stale or corrupt offline copy must not make a working server file unplayable.
+      setIgnoreCache(true);
+      setFailedSource(null);
+      return;
+    }
+    setFailedSource(source);
+  };
+
+  if (hasFailed) {
+    return (
+      <div className="lightbox__video-error" role="alert">
+        <strong>This video couldn’t be played.</strong>
+        <p>Check your connection and try again. If it still won’t play, download the original.</p>
+        <div className="lightbox__video-error-actions">
+          <button type="button" onClick={() => { setFailedSource(null); setAttempt((n) => n + 1); }}>Try again</button>
+          <a href={url} download={fileName || true} target="_blank" rel="noopener noreferrer">Download original</a>
+        </div>
+      </div>
+    );
+  }
+
+  return <video key={`${source}:${attempt}`} ref={videoRef} src={source} controls autoPlay playsInline onError={onError} />;
 }

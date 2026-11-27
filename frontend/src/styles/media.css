@@ -551,6 +551,27 @@
   max-height: 100%;
   object-fit: contain;
 }
+.lightbox__video-error {
+  width: min(100%, 440px);
+  padding: 12px;
+  text-align: center;
+  color: #fff;
+}
+.lightbox__video-error p { margin: 8px 0 12px; }
+.lightbox__video-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.lightbox__video-error-actions > * {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 6px 10px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid #aaa;
+  border-radius: 8px;
+  font: inherit;
+  text-decoration: none;
+}
 .lightbox__nav {
   position: absolute;
   top: 50%;
