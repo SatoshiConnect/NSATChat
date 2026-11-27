@@ -242,3 +242,9 @@ class CreatePostReportSerializer(serializers.ModelSerializer):
 
     def validate_details(self, value):
         return (value or "").strip()
+
+
+class PostInteractionsSerializer(PostSerializer):
+    class Meta(PostSerializer.Meta):
+        fields = ("id", "likes_count", "comments_count", "is_liked", "my_reaction", "reactions", "comments")
+        read_only_fields = fields

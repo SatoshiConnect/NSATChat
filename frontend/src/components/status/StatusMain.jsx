@@ -14,6 +14,7 @@ import LazyVideo from "../media/LazyVideo";
 import AdPlacement from "../common/AdPlacement";
 import PublisherSystemPost from "./PublisherSystemPost";
 import usePublisherPosts from "./usePublisherPosts";
+import useSocialInteractions from "./useSocialInteractions";
 import "../../styles/social-comment-stickers.css";
 
 const SOCIAL_IMAGE_LIMIT = 8 * 1024 * 1024;
@@ -273,6 +274,7 @@ export default function StatusMain({ storiesSlot = null }) {
   const contacts = useStore((state) => state.contacts);
   const contactMap = useMemo(() => contactsByUser(contacts), [contacts]);
   const [posts, setPosts] = useState([]);
+  useSocialInteractions(posts, setPosts);
   const [text, setText] = useState("");
   const [visibility, setVisibility] = useState("CONTACTS");
   const [uploads, setUploads] = useState([]);

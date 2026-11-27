@@ -203,6 +203,7 @@ class Realtime {
     this.inbox = null;
     this.room = null;
     this.roomId = null;
+    this.socialWatch = [];
     this.typingSweep = null;
     this.onSessionExpired = null;
     this.handleVisibility = this.handleVisibility.bind(this);
@@ -220,6 +221,7 @@ class Realtime {
         if (status !== "online") dispatch({ type: "presence/reset" });
       },
       onOpen: ({ reconnected }) => {
+        this.watchSocialPosts(this.socialWatch);
         if (reconnected) this.resync();
       },
       onUnauthorized: () => this.onSessionExpired?.(),
@@ -282,6 +284,11 @@ class Realtime {
     this.room.connect();
   }
 
+  watchSocialPosts(postIds) {
+    this.socialWatch = postIds;
+    this.inbox?.send({ type: "social.watch", post_ids: postIds }, { queue: false });
+  }
+
   sendTyping(isTyping) {
     this.room?.send({ type: "typing", is_typing: Boolean(isTyping) }, { queue: false });
   }
@@ -333,6 +340,12 @@ class Realtime {
         // before the server closes the socket.
         this.stop();
         window.dispatchEvent(new Event("mhtalk:signed-out"));
+        break;
+      case "social.watching":
+      case "social.interaction_changed":
+        window.dispatchEvent(new CustomEvent("mhtalk:social-interactions", {
+          detail: data.type === "social.watching" ? data.post_ids : [data.post_id],
+        }));
         break;
       case "status.updated":
         scheduleStatusReload();

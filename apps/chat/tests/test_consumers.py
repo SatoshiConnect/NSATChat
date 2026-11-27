@@ -111,3 +111,69 @@ class RealtimeSocketTests(TransactionTestCase):
 
         await alice_room.disconnect()
         await bob_room.disconnect()
+
+    async def test_social_comments_and_reactions_refresh_the_author_inbox(self):
+        from apps.accounts.models import Contact
+        from apps.social.models import Post
+
+        def seed():
+            Contact.objects.create(owner=self.alice, contact_user=self.bob)
+            return Post.objects.create(author=self.alice, text="Follow development").pk
+
+        post_id = await sync_to_async(seed)()
+        inbox = self.socket("/ws/chat/inbox/", self.alice)
+        try:
+            self.assertTrue((await inbox.connect())[0])
+            await inbox.send_json_to({"type": "social.watch", "post_ids": [post_id]})
+            subscribed = await receive_until(inbox, "social.watching")
+            self.assertEqual(subscribed["post_ids"], [post_id])
+
+            def interact(action, comment_id=None):
+                client = APIClient()
+                client.force_authenticate(self.bob)
+                base = f"/api/social/posts/{post_id}/"
+                if action == "create":
+                    return client.post(base + "comments/", {"text": "Live from Bob"}, format="json")
+                if action == "edit":
+                    return client.patch(base + f"comments/{comment_id}/", {"text": "Edited"}, format="json")
+                if action == "delete":
+                    return client.delete(base + f"comments/{comment_id}/")
+                return client.post(base, {"reaction": "LIKE"}, format="json")
+
+            def read_for(user):
+                client = APIClient()
+                client.force_authenticate(user)
+                return client.get("/api/social/posts/interactions/", {"ids": post_id})
+
+            response = await sync_to_async(interact)("create")
+            self.assertEqual(response.status_code, 201, response.data)
+            comment_id = response.data["id"]
+            self.assertEqual(await receive_until(inbox, "social.interaction_changed"), {
+                "type": "social.interaction_changed", "post_id": post_id,
+            })
+            fresh = await sync_to_async(read_for)(self.alice)
+            self.assertEqual(fresh.status_code, 200, fresh.data)
+            self.assertEqual(fresh.data[0]["comments"][0]["text"], "Live from Bob")
+            self.assertEqual((await sync_to_async(read_for)(self.carol)).data, [])
+            for action, expected in (("edit", 200), ("delete", 204), ("react", 200)):
+                response = await sync_to_async(interact)(action, comment_id)
+                self.assertEqual(response.status_code, expected)
+                self.assertEqual((await receive_until(inbox, "social.interaction_changed"))["post_id"], post_id)
+            fresh = await sync_to_async(read_for)(self.alice)
+            self.assertEqual(fresh.data[0]["comments_count"], 0)
+            self.assertEqual(fresh.data[0]["likes_count"], 1)
+        finally:
+            await inbox.disconnect()
+
+    async def test_social_watch_uses_post_visibility(self):
+        from apps.social.models import Post
+
+        post_id = await sync_to_async(lambda: Post.objects.create(author=self.alice, text="Contacts only").pk)()
+        inbox = self.socket("/ws/chat/inbox/", self.carol)
+        try:
+            self.assertTrue((await inbox.connect())[0])
+            await inbox.send_json_to({"type": "social.watch", "post_ids": [post_id]})
+            subscribed = await receive_until(inbox, "social.watching")
+            self.assertEqual(subscribed["post_ids"], [])
+        finally:
+            await inbox.disconnect()

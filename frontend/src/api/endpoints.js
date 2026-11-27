@@ -202,6 +202,7 @@ export const statusApi = {
 export const socialApi = {
   posts: (params = {}) => api.get("social/posts/", { params }).then((r) => r.data),
   post: (id) => api.get(`social/posts/${id}/`).then((r) => r.data),
+  interactions: (ids) => api.get("social/posts/interactions/", { params: { ids: ids.join(",") } }).then((r) => asList(r.data)),
   followStatus: (userId) => api.get(`social/users/${userId}/follow/`).then((r) => r.data),
   follow: (userId) => api.post(`social/users/${userId}/follow/`).then((r) => r.data),
   unfollow: (userId) => api.delete(`social/users/${userId}/follow/`),
