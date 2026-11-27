@@ -12,10 +12,18 @@ from .views import (
     PostMediaAPIView,
     SocialMuteAPIView,
     SharePostToChatAPIView,
+    LiveStreamListCreateAPIView,
+    LiveStreamDetailAPIView,
+    LiveStreamEndAPIView,
+    LiveStreamHeartbeatAPIView,
 )
 
 app_name = "social"
 urlpatterns = [
+    path("live/", LiveStreamListCreateAPIView.as_view(), name="live-streams"),
+    path("live/<int:pk>/", LiveStreamDetailAPIView.as_view(), name="live-stream-detail"),
+    path("live/<int:pk>/heartbeat/", LiveStreamHeartbeatAPIView.as_view(), name="live-stream-heartbeat"),
+    path("live/<int:pk>/end/", LiveStreamEndAPIView.as_view(), name="live-stream-end"),
     path("follow-requests/", SocialFollowRequestsAPIView.as_view(), name="follow-requests"),
     path("users/<int:user_id>/follow/", SocialFollowAPIView.as_view(), name="user-follow"),
     path("users/<int:user_id>/mute/", SocialMuteAPIView.as_view(), name="user-mute"),

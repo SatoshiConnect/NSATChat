@@ -203,6 +203,7 @@ REST_FRAMEWORK = {
         "social_post": config("THROTTLE_SOCIAL_POST", default="30/hour"),
         "social_comment": config("THROTTLE_SOCIAL_COMMENT", default="120/hour"),
         "social_interaction": config("THROTTLE_SOCIAL_INTERACTION", default="300/hour"),
+        "social_live": config("THROTTLE_SOCIAL_LIVE", default="120/min"),
         "wallet_read": config("THROTTLE_WALLET_READ", default="30/min"),
         "wallet_send": config("THROTTLE_WALLET_SEND", default="10/hour"),
         "link_preview": config("THROTTLE_LINK_PREVIEW", default="60/min"),

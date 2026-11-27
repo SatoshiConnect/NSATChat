@@ -170,3 +170,60 @@ class SocialMute(models.Model):
             models.CheckConstraint(condition=~models.Q(muter=models.F("muted")), name="social_no_self_mute"),
         ]
         indexes = [models.Index(fields=("muter", "created_at"))]
+
+
+class LiveStream(models.Model):
+    LIVE = "LIVE"
+    ENDED = "ENDED"
+    STATUS_CHOICES = ((LIVE, "Live"), (ENDED, "Ended"))
+
+    host = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="social_live_streams")
+    title = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=8, choices=STATUS_CHOICES, default=LIVE, db_index=True)
+    started_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat = models.DateTimeField(auto_now_add=True, db_index=True)
+    viewer_limit = models.PositiveSmallIntegerField(default=6)
+
+    class Meta:
+        db_table = "social_live_streams"
+        ordering = ("-started_at", "-id")
+        indexes = [models.Index(fields=("status", "started_at"), name="social_live_status_started_idx")]
+
+
+class LiveStreamEvent(models.Model):
+    COMMENT = "COMMENT"
+    REACTION = "REACTION"
+    STICKER = "STICKER"
+    KIND_CHOICES = ((COMMENT, "Comment"), (REACTION, "Reaction"), (STICKER, "Sticker"))
+
+    stream = models.ForeignKey(LiveStream, on_delete=models.CASCADE, related_name="events")
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="social_live_events")
+    kind = models.CharField(max_length=8, choices=KIND_CHOICES, db_index=True)
+    text = models.CharField(max_length=240, blank=True)
+    sticker_code = models.CharField(max_length=24, blank=True)
+    sticker_asset = models.ForeignKey(
+        "marketplace.DigitalItemAsset",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="live_stream_events",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "social_live_events"
+        ordering = ("created_at", "id")
+        indexes = [models.Index(fields=("stream", "created_at"), name="social_live_event_time_idx")]
+
+
+class LiveStreamViewer(models.Model):
+    stream = models.ForeignKey(LiveStream, on_delete=models.CASCADE, related_name="viewers")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="social_live_viewing")
+    connected_at = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "social_live_viewers"
+        constraints = [models.UniqueConstraint(fields=("stream", "user"), name="unique_social_live_viewer")]
+        indexes = [models.Index(fields=("stream", "last_seen"), name="social_live_viewer_seen_idx")]

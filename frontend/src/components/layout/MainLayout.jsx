@@ -207,6 +207,18 @@ export default function MainLayout({ onLogout }) {
   }, [setSection]);
 
   useEffect(() => {
+    const handler = (event) => {
+      const liveId = Number(event.detail?.live_id ?? event.detail);
+      if (!liveId) return;
+      window.__mhtalkPendingLiveId = liveId;
+      setSection("status");
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("mhtalk:focus-live", { detail: liveId })), 350);
+    };
+    window.addEventListener("mhtalk:open-live", handler);
+    return () => window.removeEventListener("mhtalk:open-live", handler);
+  }, [setSection]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const statusId = Number(params.get("status"));
     if (!statusId) return;
@@ -216,6 +228,16 @@ export default function MainLayout({ onLogout }) {
     const search = params.toString();
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
     window.setTimeout(() => window.dispatchEvent(new CustomEvent("mhtalk:open-status", { detail: { status_id: statusId, author_id: authorId } })), 0);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const liveId = Number(params.get("live"));
+    if (!liveId) return;
+    params.delete("live");
+    const search = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent("mhtalk:open-live", { detail: liveId })), 0);
   }, []);
 
   // Opened from a push notification (/?room=12): jump straight into that chat.
