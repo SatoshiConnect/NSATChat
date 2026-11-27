@@ -631,7 +631,7 @@
   .rail {
     display: none;
   }
-  .app.is-mobile-main .tabbar {
+  .app.is-mobile-tabbar-hidden .tabbar {
     display: none;
   }
 
